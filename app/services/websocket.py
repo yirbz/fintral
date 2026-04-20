@@ -4,7 +4,8 @@ from typing import List, Dict, Any
 from fastapi import WebSocket, WebSocketDisconnect
 from datetime import datetime
 
-from models import SessionLocal, Notification, Invoice
+from app.database import SessionLocal
+from app.models import Notification, Invoice
 
 class WebSocketManager:
     """

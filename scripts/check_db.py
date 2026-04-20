@@ -40,9 +40,10 @@ def main():
         from models import engine, IS_HEROKU
         print(f"Detectado como Heroku: {IS_HEROKU}")
         
+        from sqlalchemy import text
         # Probar conexión
         with engine.connect() as conn:
-            result = conn.execute("SELECT 1").fetchone()
+            result = conn.execute(text("SELECT 1")).fetchone()
             if result:
                 print("✅ Conexión exitosa")
                 

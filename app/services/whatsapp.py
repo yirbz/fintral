@@ -3,52 +3,85 @@ import base64
 import io
 import json
 import requests
+import logging
 from datetime import datetime
 from PIL import Image, ImageFile
 from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
-from models import Invoice, Setting, SessionLocal, Organization
-from openai_service import OpenAIInvoiceProcessor
-from redis_client import cache_get, cache_set, rate_limit, is_duplicate_message, invalidate_cache_pattern
+from app.database import SessionLocal
+from app.models import Invoice, Organization
+from app.services.openai_processor import OpenAIInvoiceProcessor
+from app.core.redis import cache_get, cache_set, rate_limit, is_duplicate_message, invalidate_cache_pattern
+from app.repositories import InvoiceRepository
+from app.services.invoice_processing_service import InvoiceProcessingService
+from app.services.settings_service import SettingsService
 
 # Permitir cargar imágenes truncadas
 ImageFile.LOAD_TRUNCATED_IMAGES = True
+logger = logging.getLogger(__name__)
 
 class WhatsAppService:
     def __init__(self):
-        self._refresh_config()
         self.openai_processor = OpenAIInvoiceProcessor()
+        self.settings_service = SettingsService()
+        self.invoice_processing_service = InvoiceProcessingService(
+            invoice_repo=InvoiceRepository(),
+            openai_processor=self.openai_processor,
+            webhook_sender=None,
+        )
+        self._refresh_config()
         
     def _refresh_config(self):
         """Carga la configuración desde la base de datos o variables de entorno con caché Redis"""
+        db = SessionLocal()
+        org_id = None
+        try:
+            org = db.query(Organization).first()
+            org_id = org.id if org else None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("⚠️ No se pudo leer organización para config de WhatsApp: %s", exc)
+            self.evolution_url = os.getenv("EVOLUTION_API_URL", "")
+            self.api_key = os.getenv("EVOLUTION_API_KEY", "")
+            self.instance_name = os.getenv("EVOLUTION_INSTANCE_NAME", "")
+            self.authorized_number = os.getenv("AUTHORIZED_WHATSAPP_NUMBER", "")
+            db.close()
+            return
+
         # Intentar cargar desde caché Redis primero
-        cache_key = "settings:whatsapp:default"
+        cache_key = f"settings:whatsapp:{org_id or 'default'}"
         cached_config = cache_get(cache_key)
         if cached_config:
             self.evolution_url = cached_config.get("evolution_url", "")
             self.api_key = cached_config.get("evolution_apikey", "")
             self.instance_name = cached_config.get("evolution_instance", "")
             self.authorized_number = cached_config.get("authorized_whatsapp_number", "")
-            print(f"⚡ WhatsApp Config desde caché: URL={self.evolution_url}, Instance={self.instance_name}, Auth={self.authorized_number}")
+            logger.info(
+                "⚡ WhatsApp Config desde caché: URL=%s, Instance=%s, Auth=%s",
+                self.evolution_url,
+                self.instance_name,
+                self.authorized_number,
+            )
+            db.close()
             return
 
         # Si no está en caché, cargar desde DB
-        db = SessionLocal()
         try:
-            org = db.query(Organization).first()
-            org_id = org.id if org else None
-
-            def get_val(key, default):
-                query = db.query(Setting).filter(Setting.key == key)
-                if org_id:
-                    query = query.filter(Setting.organization_id == org_id)
-                s = query.first()
-                return s.value if s and s.value else default
-
-            self.evolution_url = get_val("evolution_url", os.getenv("EVOLUTION_API_URL", ""))
-            self.api_key = get_val("evolution_apikey", os.getenv("EVOLUTION_API_KEY", ""))
-            self.instance_name = get_val("evolution_instance", os.getenv("EVOLUTION_INSTANCE_NAME", ""))
-            self.authorized_number = get_val("authorized_whatsapp_number", os.getenv("AUTHORIZED_WHATSAPP_NUMBER", ""))
+            self.evolution_url = self.settings_service.resolve_setting(
+                db, "evolution_url", org_id=org_id, env_key="EVOLUTION_API_URL", default=""
+            )
+            self.api_key = self.settings_service.resolve_setting(
+                db, "evolution_apikey", org_id=org_id, env_key="EVOLUTION_API_KEY", default=""
+            )
+            self.instance_name = self.settings_service.resolve_setting(
+                db, "evolution_instance", org_id=org_id, env_key="EVOLUTION_INSTANCE_NAME", default=""
+            )
+            self.authorized_number = self.settings_service.resolve_setting(
+                db,
+                "authorized_whatsapp_number",
+                org_id=org_id,
+                env_key="AUTHORIZED_WHATSAPP_NUMBER",
+                default="",
+            )
 
             # Guardar en caché por 1 hora
             config_data = {
@@ -59,9 +92,14 @@ class WhatsAppService:
             }
             cache_set(cache_key, config_data, ttl=3600)
 
-            print(f"⚙️ WhatsApp Config Cargada desde DB: URL={self.evolution_url}, Instance={self.instance_name}, Auth={self.authorized_number}")
+            logger.info(
+                "⚙️ WhatsApp Config Cargada desde DB: URL=%s, Instance=%s, Auth=%s",
+                self.evolution_url,
+                self.instance_name,
+                self.authorized_number,
+            )
         except Exception as e:
-            print(f"⚠️ Error cargando config de WhatsApp: {e}")
+            logger.warning("⚠️ Error cargando config de WhatsApp: %s", e)
             # Fallback a env vars si falla DB
             self.evolution_url = os.getenv("EVOLUTION_API_URL", "")
             self.api_key = os.getenv("EVOLUTION_API_KEY", "")
@@ -298,7 +336,7 @@ class WhatsAppService:
             print(f"💾 Imagen guardada: {invoice.id}")
 
             # Notificar que inicia el procesamiento con IA
-            from websocket_service import websocket_manager
+            from app.services.websocket import websocket_manager
             await websocket_manager.broadcast({
                 "type": "processing_started",
                 "message": f"Analizando factura con IA...",
@@ -506,25 +544,19 @@ class WhatsAppService:
             )
             
             if extracted_data and "error" not in extracted_data:
-                # Actualizar factura con datos extraídos
-                invoice.vendor_name = extracted_data.get('vendor_name')
-                invoice.invoice_number = extracted_data.get('invoice_number')
-                
-                if extracted_data.get('invoice_date'):
-                    try:
-                        invoice.invoice_date = datetime.strptime(extracted_data['invoice_date'], '%Y-%m-%d')
-                    except:
-                        pass
-                
-                invoice.total_amount = extracted_data.get('total_amount')
-                invoice.tax_amount = extracted_data.get('tax_amount')
-                invoice.currency = extracted_data.get('currency', 'USD')
-                invoice.transaction_type = extracted_data.get('transaction_type')
-                invoice.category = extracted_data.get('category')
-                invoice.description = extracted_data.get('description')
-                invoice.confidence_score = extracted_data.get('confidence')
-                invoice.raw_extracted_data = json.dumps(extracted_data)
-                invoice.processed = True
+                org_id = invoice.organization_id
+                if not org_id:
+                    org = db.query(Organization).first()
+                    org_id = org.id if org else 0
+
+                self.invoice_processing_service.apply_extracted_data(
+                    db=db,
+                    invoice=invoice,
+                    extracted_data=extracted_data,
+                    org_id=org_id,
+                    persist_raw=True,
+                    processed=True,
+                )
                 
                 db.commit()
                 db.refresh(invoice)
@@ -532,19 +564,19 @@ class WhatsAppService:
                 # Invalidar caché de estadísticas para reflejar cambios en tiempo real
                 try:
                     invalidate_cache_pattern("stats:*")
-                    print("🔄 Caché de estadísticas invalidado tras procesamiento WhatsApp")
+                    logger.info("🔄 Caché de estadísticas invalidado tras procesamiento WhatsApp")
                 except Exception as e:
-                    print(f"⚠️ Error invalidando caché: {e}")
+                    logger.warning("⚠️ Error invalidando caché: %s", e)
 
-                print(f"✅ OpenAI procesado exitosamente")
+                logger.info("✅ OpenAI procesado exitosamente")
                 return {"success": True, "data": extracted_data}
             else:
                 error_msg = extracted_data.get('error', 'Error desconocido') if extracted_data else 'Sin datos'
-                print(f"⚠️ Error OpenAI: {error_msg}")
+                logger.warning("⚠️ Error OpenAI: %s", error_msg)
                 return {"success": False, "error": error_msg}
                 
         except Exception as e:
-            print(f"❌ Error OpenAI: {e}")
+            logger.error("❌ Error OpenAI: %s", e)
             return {"success": False, "error": str(e)}
     
     async def _send_auto_response(self, phone: str, result: Dict[str, Any]):

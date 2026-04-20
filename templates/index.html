@@ -961,8 +961,13 @@
                                         ...result.extracted_data
                                     });
                                 } else {
+                                    const errorData = await processResp.json().catch(() => ({}));
                                     this.processingStatus[i].status = 'error';
+                                    this.showToast(errorData.error || errorData.detail || 'Error en proceso', 'error');
                                 }
+                            } else {
+                                this.processingStatus[i].status = 'error';
+                                this.showToast(data.results?.[0]?.error || 'Error al guardar archivo', 'error');
                             }
                         } else {
                             this.processingStatus[i].status = 'error';

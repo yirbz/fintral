@@ -1,0 +1,47 @@
+services:
+  db:
+    image: postgres:17
+    container_name: invoice_db
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-invoice}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-invoice_password}
+      POSTGRES_DB: ${POSTGRES_DB:-invoice}
+    ports:
+      - "5440:5432"
+    volumes:
+      - invoice_db_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    container_name: invoice_redis
+    ports:
+      - "6381:6379"
+    volumes:
+      - invoice_redis_data:/data
+
+  app:
+    build: .
+    container_name: invoice_app
+    env_file:
+      - .env
+    environment:
+      - PORT=8000
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-invoice}:${POSTGRES_PASSWORD:-invoice_password}@db:5432/${POSTGRES_DB:-invoice}
+      - REDIS_URL=redis://redis:6379/0
+    ports:
+      - "${PORT:-8000}:8000"
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - ./uploads:/app/uploads
+      - ./static:/app/static
+      - ./templates:/app/templates
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  invoice_db_data:
+  invoice_redis_data:

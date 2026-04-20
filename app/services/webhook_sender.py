@@ -3,7 +3,7 @@ import json
 import logging
 from datetime import datetime
 from sqlalchemy.orm import Session
-from models import WebhookEndpoint
+from app.models import WebhookEndpoint
 
 logger = logging.getLogger(__name__)
 

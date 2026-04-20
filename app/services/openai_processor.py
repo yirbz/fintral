@@ -7,22 +7,31 @@ from datetime import datetime
 from PIL import Image
 import PyPDF2
 from io import BytesIO
-from dotenv import load_dotenv
 from typing import Optional, Dict, Any, Tuple
-from cost_control_service import CostControlService, OpenAICostInfo
-
-load_dotenv()
-
-from models import Invoice, Setting, UserSetting, SessionLocal
+from app.services.cost_control import CostControlService, OpenAICostInfo
+from app.config import OPENAI_API_KEY, OLLAMA_HOST, OLLAMA_MODEL
+from app.database import SessionLocal
+from app.models import Invoice, Setting, UserSetting
 
 class OpenAIInvoiceProcessor:
     def __init__(self):
         # Intentar cargar API Key desde BD, fallback a variable de entorno
         self.api_key = self._get_api_key()
+        self.ollama_host = OLLAMA_HOST
+        self.ollama_model = OLLAMA_MODEL
         
-        if not self.api_key or self.api_key.startswith("demo"):
+        if not self.api_key:
             self.client = None
-            print("⚠️  OpenAI API key not configured properly.")
+            print("⚠️  API key not configured.")
+        elif self.api_key.lower() in ("ollama", "local"):
+            self.client = None
+            print(f"✅ Ollama local LLM detected — using {self.ollama_model} at {self.ollama_host}")
+        elif self.api_key.startswith("AIza"):
+            self.client = None  # Gemini uses REST API, no OpenAI client needed
+            print("✅ Gemini API key detected — using Google Gemini for processing")
+        elif self.api_key.startswith("demo"):
+            self.client = None
+            print("⚠️  Demo API key detected.")
         else:
             try:
                 self.client = openai.OpenAI(api_key=self.api_key)
@@ -35,28 +44,38 @@ class OpenAIInvoiceProcessor:
         self.cost_control = CostControlService()
     
     def _get_api_key(self, org_id: Optional[int] = None, user_id: Optional[int] = None):
-        """Obtiene la API Key actual desde BD o variables de entorno"""
+        """Resolución consistente: user override -> org setting -> env default."""
         api_key = None
+        db = None
         try:
             db = SessionLocal()
             setting = None
             if user_id:
                 setting = db.query(UserSetting).filter(
                     UserSetting.key == "openai_api_key",
-                    UserSetting.user_id == user_id
+                    UserSetting.user_id == user_id,
                 ).first()
+
+            if not setting and org_id:
+                setting = db.query(Setting).filter(
+                    Setting.key == "openai_api_key",
+                    Setting.organization_id == org_id,
+                ).first()
+
             if not setting:
                 setting = db.query(Setting).filter(Setting.key == "openai_api_key").first()
-            db.close()
-            
+
             if setting and setting.value and len(setting.value) > 10:
                 api_key = setting.value
         except Exception as e:
             print(f"⚠️ Error leyendo settings de BD: {e}")
-            
+        finally:
+            if db:
+                db.close()
+
         if not api_key:
-            api_key = os.getenv("OPENAI_API_KEY")
-            
+            api_key = OPENAI_API_KEY
+
         return api_key
 
     def _get_client(self, org_id: Optional[int] = None, user_id: Optional[int] = None):
@@ -109,10 +128,17 @@ class OpenAIInvoiceProcessor:
     def process_image_invoice(self, image_path, invoice=None, db=None, user_id: Optional[int] = None):
         """Procesa una factura en formato imagen usando GPT-4 Vision"""
         org_id = invoice.organization_id if invoice else None
-        client = self._get_client(org_id=org_id, user_id=user_id)
-        if not client:
-            print("❌ OpenAI API key missing - returning error")
-            return {"error": "OpenAI API key not configured. Please set it in Settings."}
+        api_key = self._get_api_key(org_id=org_id, user_id=user_id)
+        if not api_key:
+            print("❌ API key missing - returning error")
+            return {"error": "API key not configured. Please set it in Settings."}
+        
+        is_ollama = api_key.lower() in ("ollama", "local")
+        is_gemini = api_key.startswith("AIza")
+        if not is_gemini and not is_ollama:
+            client = self._get_client(org_id=org_id, user_id=user_id)
+            if not client:
+                return {"error": "OpenAI client failed to initialize."}
         
         # Verificar límites antes de procesar
         if db and invoice:
@@ -209,38 +235,78 @@ class OpenAIInvoiceProcessor:
             - NO inventes datos.
             """
             
-            response = self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {
+            if is_ollama:
+                import requests as req
+                print(f"🦙 Enviando imagen a Ollama ({self.ollama_model})...")
+                ollama_url = f"{self.ollama_host}/api/chat"
+                ollama_payload = {
+                    "model": self.ollama_model,
+                    "messages": [{
                         "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:{mime_type};base64,{base64_image}"
-                                }
-                            }
+                        "content": prompt + "\n\nResponde SOLO con JSON válido, sin texto adicional.",
+                        "images": [base64_image]
+                    }],
+                    "stream": False,
+                    "options": {"temperature": 0.1}
+                }
+                resp = req.post(ollama_url, json=ollama_payload, timeout=300.0)
+                if resp.status_code == 200:
+                    content = resp.json()["message"]["content"].strip()
+                    print(f"✅ Ollama respondió ({len(content)} chars)")
+                else:
+                    return self._create_error_response(f"Ollama Error: {resp.text}")
+            elif is_gemini:
+                import requests
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+                payload = {
+                    "contents": [{
+                        "parts": [
+                            {"text": prompt + "\n\nResponde estrictamente con JSON válido."},
+                            {"inlineData": {"mimeType": mime_type, "data": base64_image}}
                         ]
+                    }],
+                    "generationConfig": {
+                        "temperature": 0.1,
+                        "responseMimeType": "application/json"
                     }
-                ],
-                max_tokens=2000,  # Aumentado para líneas de productos
-                temperature=0.1  # Baja temperatura para respuestas más consistentes
-            )
-            
-            # Registrar uso de tokens y costos
-            if db and invoice and response.usage:
-                self.cost_control.record_openai_usage(
-                    invoice=invoice,
+                }
+                resp = requests.post(url, json=payload, timeout=60.0)
+                if resp.status_code == 200:
+                    content = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+                else:
+                    return self._create_error_response(f"Gemini API Error: {resp.text}")
+            else:
+                response = client.chat.completions.create(
                     model="gpt-4o",
-                    input_tokens=response.usage.prompt_tokens,
-                    output_tokens=response.usage.completion_tokens,
-                    start_time=start_time,
-                    db=db
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:{mime_type};base64,{base64_image}"
+                                    }
+                                }
+                            ]
+                        }
+                    ],
+                    max_tokens=2000,
+                    temperature=0.1
                 )
-            
-            content = response.choices[0].message.content.strip()
+                
+                # Registrar uso de tokens y costos
+                if db and invoice and response.usage:
+                    self.cost_control.record_openai_usage(
+                        invoice=invoice,
+                        model="gpt-4o",
+                        input_tokens=response.usage.prompt_tokens,
+                        output_tokens=response.usage.completion_tokens,
+                        start_time=start_time,
+                        db=db
+                    )
+                content = response.choices[0].message.content.strip()
             
             # Buscar JSON en la respuesta
             json_start = content.find('{')
@@ -667,10 +733,17 @@ class OpenAIInvoiceProcessor:
     def process_pdf_invoice(self, pdf_path, invoice=None, db=None, user_id: Optional[int] = None):
         """Procesa una factura en formato PDF"""
         org_id = invoice.organization_id if invoice else None
-        client = self._get_client(org_id=org_id, user_id=user_id)
-        if not client:
-            print("❌ OpenAI API key missing - returning error")
-            return {"error": "OpenAI API key not configured. Please set it in Settings."}
+        api_key = self._get_api_key(org_id=org_id, user_id=user_id)
+        if not api_key:
+            print("❌ API key missing - returning error")
+            return {"error": "API key not configured. Please set it in Settings."}
+        
+        is_ollama = api_key.lower() in ("ollama", "local")
+        is_gemini = api_key.startswith("AIza")
+        if not is_gemini and not is_ollama:
+            client = self._get_client(org_id=org_id, user_id=user_id)
+            if not client:
+                return {"error": "OpenAI client failed to initialize."}
         
         try:
             text = self.extract_text_from_pdf(pdf_path)
@@ -760,14 +833,53 @@ class OpenAIInvoiceProcessor:
             - NO inventes datos.
             """
 
-            response = client.chat.completions.create(
-                model="gpt-4",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=2000,  # Aumentado para líneas de productos
-                temperature=0.1
-            )
-            
-            content = response.choices[0].message.content.strip()
+            if is_ollama:
+                import requests as req
+                print(f"🦙 Enviando PDF texto a Ollama ({self.ollama_model})...")
+                ollama_url = f"{self.ollama_host}/api/chat"
+                ollama_payload = {
+                    "model": self.ollama_model,
+                    "messages": [{
+                        "role": "user",
+                        "content": prompt + "\n\nResponde SOLO con JSON válido, sin texto adicional."
+                    }],
+                    "stream": False,
+                    "options": {"temperature": 0.1}
+                }
+                resp = req.post(ollama_url, json=ollama_payload, timeout=300.0)
+                if resp.status_code == 200:
+                    content = resp.json()["message"]["content"].strip()
+                    print(f"✅ Ollama respondió ({len(content)} chars)")
+                else:
+                    return self._create_error_response(f"Ollama Error: {resp.text}")
+            elif is_gemini:
+                import requests
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+                # Adjunta el texto procesado del PDF
+                payload = {
+                    "contents": [{
+                        "parts": [
+                            {"text": prompt + "\n\nResponde estrictamente con JSON válido."}
+                        ]
+                    }],
+                    "generationConfig": {
+                        "temperature": 0.1,
+                        "responseMimeType": "application/json"
+                    }
+                }
+                resp = requests.post(url, json=payload, timeout=60.0)
+                if resp.status_code == 200:
+                    content = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+                else:
+                    return self._create_error_response(f"Gemini API Error: {resp.text}")
+            else:
+                response = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=2000,
+                    temperature=0.1
+                )
+                content = response.choices[0].message.content.strip()
             
             # Buscar JSON en la respuesta
             json_start = content.find('{')
@@ -797,6 +909,7 @@ class OpenAIInvoiceProcessor:
             return self.process_pdf_invoice(file_path, invoice, db, user_id=user_id)
         else:
             raise ValueError(f"Tipo de archivo no soportado: {file_type}")
+
 
     def process_finance_chat(self, query: str, context_data: list, org_id: Optional[int] = None, user_id: Optional[int] = None):
         """
