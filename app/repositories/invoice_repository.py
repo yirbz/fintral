@@ -1,4 +1,5 @@
-from typing import Iterable, Optional
+from typing import Optional
+from uuid import UUID
 
 from sqlalchemy import desc, or_
 from sqlalchemy.orm import Session
@@ -7,13 +8,25 @@ from app.models import Invoice
 
 
 class InvoiceRepository:
-    def get_for_org(self, db: Session, invoice_id: int, org_id: int) -> Optional[Invoice]:
-        return db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.organization_id == org_id).first()
-
-    def get_for_org_with_lock(self, db: Session, invoice_id: int, org_id: int) -> Optional[Invoice]:
+    def get(self, db: Session, invoice_id: UUID, tenant_id: UUID, org_id: UUID) -> Optional[Invoice]:
         return (
             db.query(Invoice)
-            .filter(Invoice.id == invoice_id, Invoice.organization_id == org_id)
+            .filter(
+                Invoice.id == invoice_id,
+                Invoice.tenant_id == tenant_id,
+                Invoice.organization_id == org_id,
+            )
+            .first()
+        )
+
+    def get_with_lock(self, db: Session, invoice_id: UUID, tenant_id: UUID, org_id: UUID) -> Optional[Invoice]:
+        return (
+            db.query(Invoice)
+            .filter(
+                Invoice.id == invoice_id,
+                Invoice.tenant_id == tenant_id,
+                Invoice.organization_id == org_id,
+            )
             .with_for_update()
             .first()
         )
@@ -21,7 +34,8 @@ class InvoiceRepository:
     def list_for_org(
         self,
         db: Session,
-        org_id: int,
+        tenant_id: UUID,
+        org_id: UUID,
         skip: int = 0,
         limit: int = 100,
         transaction_type: Optional[str] = None,
@@ -29,7 +43,10 @@ class InvoiceRepository:
         search: Optional[str] = None,
         processed: Optional[bool] = None,
     ) -> tuple[list[Invoice], int]:
-        query = db.query(Invoice).filter(Invoice.organization_id == org_id)
+        query = db.query(Invoice).filter(
+            Invoice.tenant_id == tenant_id,
+            Invoice.organization_id == org_id,
+        )
 
         if transaction_type:
             query = query.filter(Invoice.transaction_type == transaction_type)
@@ -51,21 +68,30 @@ class InvoiceRepository:
         invoices = query.order_by(desc(Invoice.created_at)).offset(skip).limit(limit).all()
         return invoices, total
 
-    def list_by_ids_for_org(self, db: Session, invoice_ids: Iterable[int], org_id: int) -> list[Invoice]:
+    def list_by_ids(self, db: Session, invoice_ids: list[UUID], tenant_id: UUID, org_id: UUID) -> list[Invoice]:
         return (
             db.query(Invoice)
-            .filter(Invoice.id.in_(list(invoice_ids)), Invoice.organization_id == org_id)
+            .filter(
+                Invoice.id.in_(invoice_ids),
+                Invoice.tenant_id == tenant_id,
+                Invoice.organization_id == org_id,
+            )
             .all()
         )
 
-    def list_pending_by_ids_for_org(self, db: Session, invoice_ids: Iterable[int], org_id: int) -> list[Invoice]:
+    def list_pending_by_ids(self, db: Session, invoice_ids: list[UUID], tenant_id: UUID, org_id: UUID) -> list[Invoice]:
         return (
             db.query(Invoice)
-            .filter(Invoice.id.in_(list(invoice_ids)), Invoice.organization_id == org_id, Invoice.processed.is_(False))
+            .filter(
+                Invoice.id.in_(invoice_ids),
+                Invoice.tenant_id == tenant_id,
+                Invoice.organization_id == org_id,
+                Invoice.processed.is_(False),
+            )
             .all()
         )
 
-    def create_uploaded_invoice(self, db: Session, invoice: Invoice) -> Invoice:
+    def create(self, db: Session, invoice: Invoice) -> Invoice:
         db.add(invoice)
         db.commit()
         db.refresh(invoice)
@@ -74,10 +100,11 @@ class InvoiceRepository:
     def find_duplicate_processed(
         self,
         db: Session,
-        org_id: int,
+        tenant_id: UUID,
+        org_id: UUID,
         invoice_number: str,
         vendor_name: str,
-        exclude_invoice_id: int,
+        exclude_invoice_id: UUID,
     ) -> Optional[Invoice]:
         return (
             db.query(Invoice)
@@ -86,15 +113,20 @@ class InvoiceRepository:
                 Invoice.vendor_name == vendor_name,
                 Invoice.id != exclude_invoice_id,
                 Invoice.processed.is_(True),
+                Invoice.tenant_id == tenant_id,
                 Invoice.organization_id == org_id,
             )
             .first()
         )
 
-    def list_distinct_categories(self, db: Session, org_id: int) -> list[str]:
+    def list_distinct_categories(self, db: Session, tenant_id: UUID, org_id: UUID) -> list[str]:
         categories = (
             db.query(Invoice.category)
-            .filter(Invoice.category.isnot(None), Invoice.organization_id == org_id)
+            .filter(
+                Invoice.category.isnot(None),
+                Invoice.tenant_id == tenant_id,
+                Invoice.organization_id == org_id,
+            )
             .distinct()
             .all()
         )

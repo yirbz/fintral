@@ -1,15 +1,23 @@
 import json
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy.orm import relationship
+from uuid_utils import uuid7
 
-from app.database import Base
+from app.database import Base, GUID
 
 
 class Invoice(Base):
     __tablename__ = "invoices"
+    __table_args__ = (
+        Index("ix_invoices_tenant_org", "tenant_id", "organization_id"),
+    )
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(GUID, primary_key=True, default=uuid7)
+    tenant_id = Column(GUID, ForeignKey("tenants.id"), nullable=False, index=True)
+    organization_id = Column(GUID, ForeignKey("organizations.id"), nullable=False, index=True)
+
     filename = Column(String, index=True)
     file_path = Column(String)
     file_type = Column(String)  # 'image' or 'pdf'
@@ -51,11 +59,13 @@ class Invoice(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     processed = Column(Boolean, default=False)
-    organization_id = Column(Integer, ForeignKey("organizations.id"), index=True)
+
+    # Relationships
+    organization = relationship("Organization", back_populates="invoices")
 
     def to_dict(self):
         return {
-            "id": self.id,
+            "id": str(self.id),
             "filename": self.filename,
             "file_type": self.file_type,
             "vendor_name": self.vendor_name,
@@ -81,6 +91,7 @@ class Invoice(Base):
             "line_items": json.loads(self.line_items_data) if self.line_items_data else [],
             "country_detection_method": self.country_detection_method,
             "country_confidence": self.country_confidence,
-            "organization_id": self.organization_id,
+            "organization_id": str(self.organization_id),
+            "tenant_id": str(self.tenant_id),
             "goods_services_type": self.goods_services_type,
         }

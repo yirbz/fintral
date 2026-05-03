@@ -10,7 +10,7 @@ from app.models import Invoice
 from app.services.websocket import websocket_manager
 
 from app.core.container import cost_control, whatsapp_service
-from app.dependencies.tenancy import get_default_org
+from app.dependencies.tenancy import get_default_tenant, get_default_org
 from app.services import EvolutionService, SettingsService
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ async def evolution_webhook(request: Request, db: Session = Depends(get_db)):
                 org_id = None
                 if invoice_id:
                     inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
-                    org_id = inv.organization_id if inv else None
+                    org_id = str(inv.organization_id) if inv else None
 
                 await websocket_manager.notify_new_whatsapp_image(
                     sender_info=invoice_result.get("sender_info", {}),
@@ -91,27 +91,31 @@ async def get_evolution_instance_status(
 
 @router.get("/evolution/security-config")
 async def get_security_config(db: Session = Depends(get_db)):
-    org_id = get_default_org(db).id
-    cfg = evolution_service._resolve_config(db, org_id)
+    tenant = get_default_tenant(db)
+    org = get_default_org(db, tenant.id)
+    cfg = evolution_service._resolve_config(db, str(org.id))
     return evolution_service.security_config(cfg["authorized_number"])
 
 
 @router.get("/evolution/proxy/status")
 async def get_evolution_status(db: Session = Depends(get_db)):
-    org_id = get_default_org(db).id
-    return evolution_service.proxy_status(db, org_id)
+    tenant = get_default_tenant(db)
+    org = get_default_org(db, tenant.id)
+    return evolution_service.proxy_status(db, str(org.id))
 
 
 @router.get("/evolution/proxy/qr")
 async def get_evolution_qr(db: Session = Depends(get_db)):
-    org_id = get_default_org(db).id
-    return evolution_service.proxy_qr(db, org_id)
+    tenant = get_default_tenant(db)
+    org = get_default_org(db, tenant.id)
+    return evolution_service.proxy_qr(db, str(org.id))
 
 
 @router.post("/evolution/proxy/create")
 async def create_evolution_instance(db: Session = Depends(get_db)):
-    org_id = get_default_org(db).id
-    return evolution_service.proxy_create(db, org_id)
+    tenant = get_default_tenant(db)
+    org = get_default_org(db, tenant.id)
+    return evolution_service.proxy_create(db, str(org.id))
 
 
 @router.post("/evolution/test-get-base64")

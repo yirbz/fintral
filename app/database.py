@@ -1,18 +1,60 @@
 """
-Database engine, session factory, and declarative base.
+Cross-database UUID type that works on both PostgreSQL (native UUID) and SQLite (CHAR(32)).
 
-This is the single source of truth for database connectivity.
+Usage in models:
+    from app.database import Base, GUID
+    id = Column(GUID, primary_key=True, default=uuid7)
 """
 
+import uuid
 import logging
 
-from sqlalchemy import create_engine
+from sqlalchemy import String, TypeDecorator, create_engine
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 from app.config import DATABASE_URL, IS_HEROKU
 
 logger = logging.getLogger(__name__)
+
+
+class GUID(TypeDecorator):
+    """Platform-independent UUID type.
+
+    Uses PostgreSQL's native UUID type when available, otherwise stores as CHAR(32).
+    """
+
+    impl = String(32)
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(PG_UUID(as_uuid=True))
+        return dialect.type_descriptor(String(32))
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return value
+        # Handle both stdlib uuid.UUID and uuid_utils.UUID (duck typing)
+        if dialect.name == "postgresql":
+            if isinstance(value, uuid.UUID):
+                return value
+            if hasattr(value, "hex"):
+                return uuid.UUID(value.hex)
+            return uuid.UUID(str(value))
+        # SQLite: store as hex string without dashes
+        if hasattr(value, "hex"):
+            return value.hex if isinstance(value.hex, str) else value.hex
+        return uuid.UUID(str(value)).hex
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return value
+        if isinstance(value, uuid.UUID):
+            return value
+        return uuid.UUID(str(value))
+
 
 # ---------------------------------------------------------------------------
 # Engine

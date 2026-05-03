@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Optional
+from uuid import UUID
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -49,18 +50,21 @@ class StatisticsService:
             "data": list(alert_breakdown.values()),
         }
 
-    def _volume_history(self, db: Session, org_id: int) -> list[dict]:
+    def _volume_history(self, db: Session, tenant_id: UUID, org_id: UUID) -> list[dict]:
+        base_filter = [
+            Invoice.processed.is_(True),
+            Invoice.updated_at >= datetime.now() - timedelta(days=7),
+            Invoice.tenant_id == tenant_id,
+            Invoice.organization_id == org_id,
+        ]
+
         if IS_HEROKU:
             rows = (
                 db.query(
                     func.to_char(Invoice.updated_at, "YYYY-MM-DD").label("day"),
                     func.count(Invoice.id).label("count"),
                 )
-                .filter(
-                    Invoice.processed.is_(True),
-                    Invoice.updated_at >= datetime.now() - timedelta(days=7),
-                    Invoice.organization_id == org_id,
-                )
+                .filter(*base_filter)
                 .group_by(func.to_char(Invoice.updated_at, "YYYY-MM-DD"))
                 .order_by(func.to_char(Invoice.updated_at, "YYYY-MM-DD"))
                 .all()
@@ -71,11 +75,7 @@ class StatisticsService:
                     func.strftime("%Y-%m-%d", Invoice.updated_at).label("day"),
                     func.count(Invoice.id).label("count"),
                 )
-                .filter(
-                    Invoice.processed.is_(True),
-                    Invoice.updated_at >= datetime.now() - timedelta(days=7),
-                    Invoice.organization_id == org_id,
-                )
+                .filter(*base_filter)
                 .group_by(func.strftime("%Y-%m-%d", Invoice.updated_at))
                 .order_by(func.strftime("%Y-%m-%d", Invoice.updated_at))
                 .all()
@@ -83,19 +83,22 @@ class StatisticsService:
 
         return [{"date": day, "count": count} for day, count in rows]
 
-    def _monthly_stats(self, db: Session, org_id: int) -> list[dict]:
+    def _monthly_stats(self, db: Session, tenant_id: UUID, org_id: UUID) -> list[dict]:
         start = datetime.now() - timedelta(days=180)
+        base_filter = [
+            Invoice.processed.is_(True),
+            Invoice.updated_at >= start,
+            Invoice.tenant_id == tenant_id,
+            Invoice.organization_id == org_id,
+        ]
+
         if IS_HEROKU:
             rows = (
                 db.query(
                     func.to_char(Invoice.updated_at, "YYYY-MM").label("month"),
                     func.count(Invoice.id).label("count"),
                 )
-                .filter(
-                    Invoice.processed.is_(True),
-                    Invoice.updated_at >= start,
-                    Invoice.organization_id == org_id,
-                )
+                .filter(*base_filter)
                 .group_by(func.to_char(Invoice.updated_at, "YYYY-MM"))
                 .order_by(func.to_char(Invoice.updated_at, "YYYY-MM"))
                 .all()
@@ -106,11 +109,7 @@ class StatisticsService:
                     func.strftime("%Y-%m", Invoice.updated_at).label("month"),
                     func.count(Invoice.id).label("count"),
                 )
-                .filter(
-                    Invoice.processed.is_(True),
-                    Invoice.updated_at >= start,
-                    Invoice.organization_id == org_id,
-                )
+                .filter(*base_filter)
                 .group_by(func.strftime("%Y-%m", Invoice.updated_at))
                 .order_by(func.strftime("%Y-%m", Invoice.updated_at))
                 .all()
@@ -118,7 +117,7 @@ class StatisticsService:
 
         return [{"month": month, "count": count} for month, count in rows]
 
-    def _category_breakdown(self, db: Session, org_id: int) -> list[dict]:
+    def _category_breakdown(self, db: Session, tenant_id: UUID, org_id: UUID) -> list[dict]:
         rows = (
             db.query(
                 Invoice.category,
@@ -126,6 +125,7 @@ class StatisticsService:
                 func.sum(Invoice.total_amount).label("total"),
             )
             .filter(
+                Invoice.tenant_id == tenant_id,
                 Invoice.organization_id == org_id,
                 Invoice.processed.is_(True),
                 Invoice.category.isnot(None),
@@ -144,43 +144,33 @@ class StatisticsService:
             for category, count, total in rows
         ]
 
-    def _totals_by_transaction(self, db: Session, org_id: int) -> dict:
+    def _totals_by_transaction(self, db: Session, tenant_id: UUID, org_id: UUID) -> dict:
+        base_filter = [
+            Invoice.tenant_id == tenant_id,
+            Invoice.organization_id == org_id,
+            Invoice.processed.is_(True),
+        ]
+
         income_amount = (
             db.query(func.sum(Invoice.total_amount))
-            .filter(
-                Invoice.organization_id == org_id,
-                Invoice.processed.is_(True),
-                Invoice.transaction_type == "income",
-            )
+            .filter(*base_filter, Invoice.transaction_type == "income")
             .scalar()
             or 0.0
         )
         expense_amount = (
             db.query(func.sum(Invoice.total_amount))
-            .filter(
-                Invoice.organization_id == org_id,
-                Invoice.processed.is_(True),
-                Invoice.transaction_type == "expense",
-            )
+            .filter(*base_filter, Invoice.transaction_type == "expense")
             .scalar()
             or 0.0
         )
         income_count = (
             db.query(Invoice)
-            .filter(
-                Invoice.organization_id == org_id,
-                Invoice.processed.is_(True),
-                Invoice.transaction_type == "income",
-            )
+            .filter(*base_filter, Invoice.transaction_type == "income")
             .count()
         )
         expense_count = (
             db.query(Invoice)
-            .filter(
-                Invoice.organization_id == org_id,
-                Invoice.processed.is_(True),
-                Invoice.transaction_type == "expense",
-            )
+            .filter(*base_filter, Invoice.transaction_type == "expense")
             .count()
         )
 
@@ -190,14 +180,18 @@ class StatisticsService:
             "net": float(income_amount - expense_amount),
         }
 
-    def get_statistics(self, db: Session, org_id: int) -> dict:
-        cache_key = f"stats:dashboard:{org_id}"
+    def get_statistics(self, db: Session, tenant_id: UUID, org_id: UUID) -> dict:
+        cache_key = f"stats:dashboard:{tenant_id}:{org_id}"
         cached = cache_get(cache_key)
         if cached:
             logger.info("⚡ Estadísticas servidas desde caché Redis")
             return cached
 
-        base_query = db.query(Invoice).filter(Invoice.organization_id == org_id)
+        base_filter = [
+            Invoice.tenant_id == tenant_id,
+            Invoice.organization_id == org_id,
+        ]
+        base_query = db.query(Invoice).filter(*base_filter)
         total_invoices = base_query.count()
         processed_invoices = base_query.filter(Invoice.processed.is_(True)).count()
         pending_invoices = total_invoices - processed_invoices
@@ -206,13 +200,15 @@ class StatisticsService:
         today_start = datetime.combine(today, datetime.min.time())
 
         daily_processed_count = (
-            base_query.filter(Invoice.processed.is_(True), Invoice.updated_at >= today_start).count()
+            db.query(Invoice)
+            .filter(*base_filter, Invoice.processed.is_(True), Invoice.updated_at >= today_start)
+            .count()
         )
 
         avg_confidence = (
             db.query(func.avg(Invoice.confidence_score))
             .filter(
-                Invoice.organization_id == org_id,
+                *base_filter,
                 Invoice.processed.is_(True),
                 Invoice.confidence_score.isnot(None),
             )
@@ -221,16 +217,20 @@ class StatisticsService:
         )
 
         audit_alert_count = (
-            base_query.filter(
+            db.query(Invoice)
+            .filter(
+                *base_filter,
                 Invoice.processed.is_(True),
                 Invoice.audit_flags != "[]",
                 Invoice.audit_flags.isnot(None),
-            ).count()
+            )
+            .count()
         )
 
         alert_invoices = (
-            base_query.with_entities(Invoice.audit_flags)
+            db.query(Invoice.audit_flags)
             .filter(
+                *base_filter,
                 Invoice.processed.is_(True),
                 Invoice.audit_flags != "[]",
                 Invoice.audit_flags.isnot(None),
@@ -239,19 +239,21 @@ class StatisticsService:
         )
 
         audit_distribution = self._build_alert_distribution(alert_invoices)
-        processing_history = self._volume_history(db, org_id)
-        monthly_stats = self._monthly_stats(db, org_id)
-        categories = self._category_breakdown(db, org_id)
-        totals = self._totals_by_transaction(db, org_id)
+        processing_history = self._volume_history(db, tenant_id, org_id)
+        monthly_stats = self._monthly_stats(db, tenant_id, org_id)
+        categories = self._category_breakdown(db, tenant_id, org_id)
+        totals = self._totals_by_transaction(db, tenant_id, org_id)
 
-        cost_stats = self.cost_control.get_cost_statistics(db, org_id=org_id)
+        cost_stats = self.cost_control.get_cost_statistics(db, org_id=str(org_id))
 
         avg_cost_per_doc = 0.0
         if processed_invoices > 0:
             avg_cost_per_doc = cost_stats.get("total_cost", 0) / processed_invoices
 
         recent_alerts_query = (
-            base_query.filter(
+            db.query(Invoice)
+            .filter(
+                *base_filter,
                 Invoice.processed.is_(True),
                 Invoice.audit_flags != "[]",
                 Invoice.audit_flags.isnot(None),

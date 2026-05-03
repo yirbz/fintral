@@ -5,6 +5,9 @@ Script de prueba para verificar la conexión WebSocket
 import asyncio
 import websockets
 import json
+import pytest
+
+pytestmark = pytest.mark.anyio
 
 async def test_websocket():
     uri = "ws://localhost:8000/ws"

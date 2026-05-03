@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Any, Optional
+from uuid import UUID
 
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
@@ -33,7 +34,8 @@ class InvoiceProcessingService:
         db: Session,
         invoice: Invoice,
         extracted_data: dict,
-        org_id: int,
+        tenant_id: UUID,
+        org_id: UUID,
         *,
         persist_raw: bool = True,
         processed: bool = True,
@@ -67,6 +69,7 @@ class InvoiceProcessingService:
         if extracted_data.get("invoice_number") and extracted_data.get("vendor_name"):
             duplicate = self.invoice_repo.find_duplicate_processed(
                 db,
+                tenant_id=tenant_id,
                 org_id=org_id,
                 invoice_number=extracted_data["invoice_number"],
                 vendor_name=extracted_data["vendor_name"],
@@ -94,9 +97,10 @@ class InvoiceProcessingService:
         self,
         db: Session,
         invoice: Invoice,
-        org_id: int,
+        tenant_id: UUID,
+        org_id: UUID,
         *,
-        user_id: Optional[int] = None,
+        user_id: Optional[UUID] = None,
         trigger_webhook: bool = True,
     ) -> dict:
         if invoice.processed:
@@ -112,7 +116,7 @@ class InvoiceProcessingService:
             invoice.file_type,
             invoice,
             db,
-            user_id,
+            str(user_id) if user_id else None,
         )
 
         if not extracted_data or "error" in extracted_data:
@@ -122,7 +126,7 @@ class InvoiceProcessingService:
                 "extracted_data": extracted_data,
             }
 
-        self.apply_extracted_data(db, invoice, extracted_data, org_id)
+        self.apply_extracted_data(db, invoice, extracted_data, tenant_id, org_id)
         db.commit()
         db.refresh(invoice)
 
@@ -135,6 +139,7 @@ class InvoiceProcessingService:
                     db,
                     "invoice.processed",
                     invoice.to_dict(),
+                    tenant_id,
                     org_id,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -150,9 +155,10 @@ class InvoiceProcessingService:
         self,
         db: Session,
         invoices: list[Invoice],
-        org_id: int,
+        tenant_id: UUID,
+        org_id: UUID,
         *,
-        user_id: Optional[int] = None,
+        user_id: Optional[UUID] = None,
     ) -> tuple[int, list[str]]:
         success_count = 0
         errors: list[str] = []
@@ -162,6 +168,7 @@ class InvoiceProcessingService:
                 result = await self.process_invoice_record(
                     db,
                     invoice,
+                    tenant_id,
                     org_id,
                     user_id=user_id,
                     trigger_webhook=True,

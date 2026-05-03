@@ -15,16 +15,16 @@ class SettingUpdate(BaseModel):
 
 
 class BulkActionRequest(BaseModel):
-    invoice_ids: List[int]
+    invoice_ids: List[str]  # UUID strings
 
 
 class ExportRequest(BaseModel):
-    invoice_ids: List[int]
+    invoice_ids: List[str]  # UUID strings
     format: str = "csv"
 
 
 class WebhookPushRequest(BaseModel):
-    invoice_ids: List[int]
+    invoice_ids: List[str]  # UUID strings
     event: Optional[str] = "invoices.exported"
 
 

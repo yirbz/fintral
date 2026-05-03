@@ -10,8 +10,12 @@ import json
 import os
 from dotenv import load_dotenv
 
+import pytest
+
 # Cargar variables de entorno
 load_dotenv()
+
+pytestmark = pytest.mark.anyio
 
 def test_evolution_api_connection():
     """Prueba la conexión básica con Evolution API"""
@@ -38,15 +42,14 @@ def test_evolution_api_connection():
             data = response.json()
             print(f"✅ Conexión exitosa con Evolution API")
             print(f"📱 Estado de instancia: {data}")
-            return True
         else:
             print(f"❌ Error conectando: {response.status_code}")
             print(f"📄 Respuesta: {response.text}")
-            return False
+            assert False, f"Status code {response.status_code}"
             
     except Exception as e:
         print(f"❌ Error de conexión: {e}")
-        return False
+        assert False, str(e)
 
 def test_local_endpoint():
     """Prueba el endpoint local de test"""
@@ -76,19 +79,17 @@ def test_local_endpoint():
             data = response.json()
             print(f"✅ Endpoint local funcionando")
             print(f"📄 Respuesta: {json.dumps(data, indent=2)}")
-            return True
         else:
             print(f"⚠️ Endpoint respondió con error: {response.status_code}")
             print(f"📄 Respuesta: {response.text}")
-            return False
+            assert False, f"Status code {response.status_code}"
             
     except requests.exceptions.ConnectionError:
         print("❌ No se pudo conectar al servidor local")
-        print("💡 Asegúrate de que el servidor esté ejecutándose con: python3 main.py")
-        return False
+        assert False, "Connection error"
     except Exception as e:
         print(f"❌ Error: {e}")
-        return False
+        assert False, str(e)
 
 def test_webhook_simulation():
     """Simula un webhook para probar el sistema directo a Evolution API"""
@@ -134,18 +135,14 @@ def test_webhook_simulation():
                     print("🎯 ¡Procesamiento directo con Evolution API exitoso!")
                 elif result.get("status") == "error":
                     print(f"⚠️ Error esperado (API test): {result.get('error', 'Unknown')}")
-                else:
-                    print("🔄 Webhook procesado correctamente")
-            
-            return True
         else:
             print(f"❌ Error en webhook: {response.status_code}")
             print(f"📄 Respuesta: {response.text}")
-            return False
+            assert False, f"Status code {response.status_code}"
             
     except Exception as e:
         print(f"❌ Error simulando webhook: {e}")
-        return False
+        assert False, str(e)
 
 def main():
     """Ejecuta todas las pruebas"""

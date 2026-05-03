@@ -13,8 +13,8 @@ from app.models import Invoice, User
 
 from app.core.container import openai_processor
 from app.core.ui import templates
-from app.dependencies.auth import get_current_user_from_cookie
-from app.dependencies.tenancy import get_company_context, get_org_id
+from app.dependencies.tenant import TenantContext, optional_tenant, require_tenant
+from app.dependencies.tenancy import get_company_context
 from app.schemas import ChatRequest
 
 router = APIRouter()
@@ -54,17 +54,16 @@ async def logout():
 @router.get("/", response_class=HTMLResponse)
 async def read_root(
     request: Request,
-    user: Optional[User] = Depends(get_current_user_from_cookie),
-    db: Session = Depends(get_db),
+    ctx: Optional[TenantContext] = Depends(optional_tenant),
 ):
-    if not user:
+    if not ctx:
         return templates.TemplateResponse("landing.html", {"request": request})
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
-            "user": user,
-            **get_company_context(db, user),
+            "user": ctx.user,
+            **get_company_context(ctx.organization),
         },
     )
 
@@ -72,16 +71,15 @@ async def read_root(
 @router.post("/api/chat/finance")
 async def chat_finance(
     request: ChatRequest,
-    user: Optional[User] = Depends(get_current_user_from_cookie),
-    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_tenant),
 ):
-    if not user:
-        raise HTTPException(status_code=401, detail="No autorizado")
-
-    org_id = get_org_id(user, db)
     invoices = (
-        db.query(Invoice)
-        .filter(Invoice.processed.is_(True), Invoice.organization_id == org_id)
+        ctx.db.query(Invoice)
+        .filter(
+            Invoice.processed.is_(True),
+            Invoice.tenant_id == ctx.tenant_id,
+            Invoice.organization_id == ctx.org_id,
+        )
         .order_by(desc(Invoice.invoice_date))
         .limit(50)
         .all()
@@ -104,5 +102,7 @@ async def chat_finance(
             "answer": "No veo ninguna factura registrada en el sistema aún. Sube algunas facturas para que pueda ayudarte con tus finanzas."
         }
 
-    answer = openai_processor.process_finance_chat(request.query, context_data, org_id=org_id, user_id=user.id)
+    answer = openai_processor.process_finance_chat(
+        request.query, context_data, org_id=str(ctx.org_id), user_id=str(ctx.user.id),
+    )
     return {"answer": answer}

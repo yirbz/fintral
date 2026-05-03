@@ -15,13 +15,12 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Invoice, Organization, User
-from app.services.websocket import websocket_manager
+from app.models import Invoice, User
 
 from app.core.container import export_service, openai_processor, webhook_sender
 from app.core.ui import templates
-from app.dependencies.auth import get_current_user_from_cookie
-from app.dependencies.tenancy import get_company_context, get_org_id
+from app.dependencies.tenant import TenantContext, optional_tenant, require_tenant
+from app.dependencies.tenancy import get_company_context
 from app.repositories import InvoiceRepository
 from app.schemas import BulkActionRequest, ExportRequest, WebhookPushRequest
 from app.services import InvoiceProcessingService
@@ -69,21 +68,16 @@ def optimize_image(image_path: str, max_width: int = 800, quality: int = 85) -> 
 
 
 @router.get("/test-invoice/{invoice_id}")
-async def test_invoice(invoice_id: int):
+async def test_invoice(invoice_id: str):
     return {"test": "working", "invoice_id": invoice_id}
 
 
 @router.get("/invoice/{invoice_id}")
 async def invoice_detail_json(
-    invoice_id: int,
-    user: Optional[User] = Depends(get_current_user_from_cookie),
-    db: Session = Depends(get_db),
+    invoice_id: str,
+    ctx: TenantContext = Depends(require_tenant),
 ):
-    if not user:
-        raise HTTPException(status_code=401, detail="No autorizado")
-
-    org_id = get_org_id(user, db)
-    invoice = invoice_repo.get_for_org(db, invoice_id, org_id)
+    invoice = invoice_repo.get(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
@@ -93,15 +87,10 @@ async def invoice_detail_json(
 @router.get("/invoice/{invoice_id}/view", response_class=HTMLResponse)
 async def invoice_detail_view(
     request: Request,
-    invoice_id: int,
-    user: Optional[User] = Depends(get_current_user_from_cookie),
-    db: Session = Depends(get_db),
+    invoice_id: str,
+    ctx: TenantContext = Depends(require_tenant),
 ):
-    if not user:
-        return RedirectResponse(url="/login")
-
-    org_id = get_org_id(user, db)
-    invoice = invoice_repo.get_for_org(db, invoice_id, org_id)
+    invoice = invoice_repo.get(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
@@ -110,7 +99,7 @@ async def invoice_detail_view(
         {
             "request": request,
             "invoice": invoice,
-            **get_company_context(db, user),
+            **get_company_context(ctx.organization),
         },
     )
 
@@ -118,13 +107,10 @@ async def invoice_detail_view(
 @router.post("/upload")
 async def upload_files(
     files: list[UploadFile] = File(...),
-    user: Optional[User] = Depends(get_current_user_from_cookie),
-    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_tenant),
 ):
-    if not user:
-        raise HTTPException(status_code=401, detail="No autorizado")
+    from app.services.websocket import websocket_manager
 
-    org_id = get_org_id(user, db)
     results: list[dict] = []
 
     for file in files:
@@ -148,24 +134,25 @@ async def upload_files(
                 shutil.copyfileobj(file.file, buffer)
 
             invoice = Invoice(
+                tenant_id=ctx.tenant_id,
+                organization_id=ctx.org_id,
                 filename=file.filename,
                 file_path=file_path,
                 file_type=get_file_type(file.filename),
                 processed=False,
-                organization_id=org_id,
             )
-            invoice_repo.create_uploaded_invoice(db, invoice)
+            invoice_repo.create(ctx.db, invoice)
 
             results.append(
                 {
                     "filename": file.filename,
                     "success": True,
-                    "invoice_id": invoice.id,
+                    "invoice_id": str(invoice.id),
                     "message": "Archivo subido correctamente",
                 }
             )
 
-            await websocket_manager.notify_new_invoice_upload(invoice.id, file.filename, org_id)
+            await websocket_manager.notify_new_invoice_upload(str(invoice.id), file.filename, str(ctx.org_id))
 
         except Exception as exc:  # noqa: BLE001
             results.append({"filename": file.filename, "success": False, "error": str(exc)})
@@ -175,19 +162,16 @@ async def upload_files(
 
 @router.post("/process/{invoice_id}")
 async def process_invoice(
-    invoice_id: int,
-    user: Optional[User] = Depends(get_current_user_from_cookie),
-    db: Session = Depends(get_db),
+    invoice_id: str,
+    ctx: TenantContext = Depends(require_tenant),
 ):
-    if not user:
-        raise HTTPException(status_code=401, detail="No autorizado")
-
-    org_id = get_org_id(user, db)
-    invoice = invoice_repo.get_for_org_with_lock(db, invoice_id, org_id)
+    invoice = invoice_repo.get_with_lock(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
-    result = await processing_service.process_invoice_record(db, invoice, org_id, user_id=user.id)
+    result = await processing_service.process_invoice_record(
+        ctx.db, invoice, ctx.tenant_id, ctx.org_id, user_id=ctx.user.id,
+    )
 
     if result["status"] == "already_processed":
         return {"message": "Factura ya procesada", "invoice": invoice.to_dict()}
@@ -216,20 +200,16 @@ async def get_invoices(
     category: Optional[str] = None,
     search: Optional[str] = None,
     processed: Optional[str] = None,
-    user: Optional[User] = Depends(get_current_user_from_cookie),
-    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_tenant),
 ):
-    if not user:
-        raise HTTPException(status_code=401, detail="No autorizado")
-
-    org_id = get_org_id(user, db)
     processed_bool = None
     if processed is not None:
         processed_bool = str(processed).lower() == "true"
 
     invoices, total = invoice_repo.list_for_org(
-        db,
-        org_id=org_id,
+        ctx.db,
+        tenant_id=ctx.tenant_id,
+        org_id=ctx.org_id,
         skip=skip,
         limit=limit,
         transaction_type=transaction_type,
@@ -246,15 +226,10 @@ async def get_invoices(
 
 @router.get("/invoices/{invoice_id}")
 async def get_invoice(
-    invoice_id: int,
-    user: Optional[User] = Depends(get_current_user_from_cookie),
-    db: Session = Depends(get_db),
+    invoice_id: str,
+    ctx: TenantContext = Depends(require_tenant),
 ):
-    if not user:
-        raise HTTPException(status_code=401, detail="No autorizado")
-
-    org_id = get_org_id(user, db)
-    invoice = invoice_repo.get_for_org(db, invoice_id, org_id)
+    invoice = invoice_repo.get(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
     return invoice.to_dict()
@@ -262,15 +237,10 @@ async def get_invoice(
 
 @router.get("/invoice/{invoice_id}/optimized-image")
 async def get_optimized_image(
-    invoice_id: int,
-    user: Optional[User] = Depends(get_current_user_from_cookie),
-    db: Session = Depends(get_db),
+    invoice_id: str,
+    ctx: TenantContext = Depends(require_tenant),
 ):
-    if not user:
-        raise HTTPException(status_code=401, detail="No autorizado")
-
-    org_id = get_org_id(user, db)
-    invoice = invoice_repo.get_for_org(db, invoice_id, org_id)
+    invoice = invoice_repo.get(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
     if invoice.file_type != "image":
@@ -287,16 +257,11 @@ async def get_optimized_image(
 
 @router.put("/invoices/{invoice_id}")
 async def update_invoice(
-    invoice_id: int,
+    invoice_id: str,
     invoice_data: dict,
-    user: Optional[User] = Depends(get_current_user_from_cookie),
-    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_tenant),
 ):
-    if not user:
-        raise HTTPException(status_code=401, detail="No autorizado")
-
-    org_id = get_org_id(user, db)
-    invoice = invoice_repo.get_for_org(db, invoice_id, org_id)
+    invoice = invoice_repo.get(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
@@ -325,75 +290,64 @@ async def update_invoice(
             pass
 
     invoice.updated_at = datetime.utcnow()
-    db.commit()
-    db.refresh(invoice)
+    ctx.db.commit()
+    ctx.db.refresh(invoice)
     return invoice.to_dict()
 
 
 @router.delete("/invoices/{invoice_id}")
 async def delete_invoice(
-    invoice_id: int,
-    user: Optional[User] = Depends(get_current_user_from_cookie),
-    db: Session = Depends(get_db),
+    invoice_id: str,
+    ctx: TenantContext = Depends(require_tenant),
 ):
-    if not user:
-        raise HTTPException(status_code=401, detail="No autorizado")
-
-    org_id = get_org_id(user, db)
-    invoice = invoice_repo.get_for_org(db, invoice_id, org_id)
+    invoice = invoice_repo.get(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
     if invoice.file_path and os.path.exists(invoice.file_path):
         os.remove(invoice.file_path)
 
-    db.delete(invoice)
-    db.commit()
+    ctx.db.delete(invoice)
+    ctx.db.commit()
     return {"message": "Factura eliminada exitosamente"}
 
 
 @router.post("/api/invoices/bulk-delete")
 async def bulk_delete_invoices(
     action: BulkActionRequest,
-    user: Optional[User] = Depends(get_current_user_from_cookie),
-    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_tenant),
 ):
-    if not user:
-        raise HTTPException(status_code=401, detail="No autorizado")
     if not action.invoice_ids:
         return {"message": "No se seleccionaron facturas", "count": 0}
 
-    org_id = get_org_id(user, db)
-    invoices = invoice_repo.list_by_ids_for_org(db, action.invoice_ids, org_id)
+    invoices = invoice_repo.list_by_ids(ctx.db, action.invoice_ids, ctx.tenant_id, ctx.org_id)
 
     count = 0
     for invoice in invoices:
         try:
             if invoice.file_path and os.path.exists(invoice.file_path):
                 os.remove(invoice.file_path)
-            db.delete(invoice)
+            ctx.db.delete(invoice)
             count += 1
         except Exception as exc:  # noqa: BLE001
             logger.warning("Error eliminando factura %s: %s", invoice.id, exc)
 
-    db.commit()
+    ctx.db.commit()
     return {"message": "Facturas eliminadas exitosamente", "count": count}
 
 
 @router.post("/api/invoices/bulk-process")
 async def bulk_process_invoices(
     action: BulkActionRequest,
-    user: Optional[User] = Depends(get_current_user_from_cookie),
-    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_tenant),
 ):
-    if not user:
-        raise HTTPException(status_code=401, detail="No autorizado")
     if not action.invoice_ids:
         return {"message": "No se seleccionaron facturas", "count": 0}
 
-    org_id = get_org_id(user, db)
-    invoices = invoice_repo.list_pending_by_ids_for_org(db, action.invoice_ids, org_id)
-    success_count, errors = await processing_service.bulk_process(db, invoices, org_id, user_id=user.id)
+    invoices = invoice_repo.list_pending_by_ids(ctx.db, action.invoice_ids, ctx.tenant_id, ctx.org_id)
+    success_count, errors = await processing_service.bulk_process(
+        ctx.db, invoices, ctx.tenant_id, ctx.org_id, user_id=ctx.user.id,
+    )
 
     return {
         "message": f"Procesamiento completado. {success_count} exitosos.",
@@ -405,16 +359,12 @@ async def bulk_process_invoices(
 @router.post("/api/invoices/export")
 async def export_invoices(
     action: ExportRequest,
-    user: Optional[User] = Depends(get_current_user_from_cookie),
-    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_tenant),
 ):
-    if not user:
-        raise HTTPException(status_code=401, detail="No autorizado")
     if not action.invoice_ids:
         raise HTTPException(status_code=400, detail="No se seleccionaron facturas")
 
-    org_id = get_org_id(user, db)
-    invoices = invoice_repo.list_by_ids_for_org(db, action.invoice_ids, org_id)
+    invoices = invoice_repo.list_by_ids(ctx.db, action.invoice_ids, ctx.tenant_id, ctx.org_id)
     if not invoices:
         raise HTTPException(status_code=404, detail="No se encontraron facturas")
 
@@ -444,8 +394,7 @@ async def export_invoices(
             media_type = "application/json"
             filename += ".json"
         elif action.format == "dgii_606":
-            org = db.query(Organization).filter(Organization.id == org_id).first()
-            report_rnc = org.tax_id if org else None
+            report_rnc = ctx.organization.tax_id or None
             output = export_service.export_dgii_606(invoices, report_rnc=report_rnc)
             media_type = "application/vnd.ms-excel"
             filename += ".xls"
@@ -481,16 +430,12 @@ async def export_invoices(
 @router.post("/api/invoices/push-webhook")
 async def push_invoices_webhook(
     payload: WebhookPushRequest,
-    user: Optional[User] = Depends(get_current_user_from_cookie),
-    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_tenant),
 ):
-    if not user:
-        raise HTTPException(status_code=401, detail="No autorizado")
     if not payload.invoice_ids:
         raise HTTPException(status_code=400, detail="No se seleccionaron facturas")
 
-    org_id = get_org_id(user, db)
-    invoices = invoice_repo.list_by_ids_for_org(db, payload.invoice_ids, org_id)
+    invoices = invoice_repo.list_by_ids(ctx.db, payload.invoice_ids, ctx.tenant_id, ctx.org_id)
     if not invoices:
         raise HTTPException(status_code=404, detail="No se encontraron facturas")
 
@@ -498,7 +443,9 @@ async def push_invoices_webhook(
         "count": len(invoices),
         "invoices": [inv.to_dict() for inv in invoices],
     }
-    result = webhook_sender.trigger_event(db, payload.event, data, org_id=org_id)
+    result = webhook_sender.trigger_event(
+        ctx.db, payload.event, data, tenant_id=ctx.tenant_id, org_id=ctx.org_id,
+    )
     return {"status": "sent", "result": result}
 
 
@@ -508,21 +455,19 @@ async def export_invoices_csv(
     category: Optional[str] = None,
     format: Optional[str] = None,
     invoice_ids: Optional[str] = None,
-    user: Optional[User] = Depends(get_current_user_from_cookie),
-    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_tenant),
 ):
-    if not user:
-        raise HTTPException(status_code=401, detail="No autorizado")
-
-    org_id = get_org_id(user, db)
-    query = db.query(Invoice).filter(Invoice.organization_id == org_id)
+    query = ctx.db.query(Invoice).filter(
+        Invoice.tenant_id == ctx.tenant_id,
+        Invoice.organization_id == ctx.org_id,
+    )
 
     if transaction_type:
         query = query.filter(Invoice.transaction_type == transaction_type)
     if category:
         query = query.filter(Invoice.category == category)
     if invoice_ids:
-        ids = [int(x) for x in invoice_ids.split(",") if x.strip().isdigit()]
+        ids = [x.strip() for x in invoice_ids.split(",") if x.strip()]
         if ids:
             query = query.filter(Invoice.id.in_(ids))
 
@@ -530,8 +475,7 @@ async def export_invoices_csv(
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     if format == "dgii_606":
-        org = db.query(Organization).filter(Organization.id == org_id).first()
-        report_rnc = org.tax_id if org else None
+        report_rnc = ctx.organization.tax_id or None
         output = export_service.export_dgii_606(invoices, report_rnc=report_rnc)
         filename = f"dgii_606_{timestamp}.xls"
         return StreamingResponse(
@@ -602,7 +546,7 @@ async def export_invoices_csv(
     for invoice in invoices:
         writer.writerow(
             [
-                invoice.id,
+                str(invoice.id),
                 invoice.filename or "",
                 invoice.vendor_name or "",
                 invoice.invoice_number or "",

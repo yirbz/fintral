@@ -1,5 +1,6 @@
 import os
 from typing import Optional
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -41,7 +42,8 @@ class SettingsService:
         key: str,
         *,
         user: Optional[User] = None,
-        org_id: Optional[int] = None,
+        tenant_id: Optional[UUID] = None,
+        org_id: Optional[UUID] = None,
         env_key: Optional[str] = None,
         default: Optional[str] = None,
     ) -> Optional[str]:
@@ -52,8 +54,8 @@ class SettingsService:
                 return user_setting.value
 
         # 2) Organization setting
-        if org_id:
-            org_setting = self.repo.get_org_setting(db, org_id, key)
+        if tenant_id and org_id:
+            org_setting = self.repo.get_org_setting(db, tenant_id, org_id, key)
             if org_setting and org_setting.value not in (None, ""):
                 return org_setting.value
 
@@ -66,8 +68,8 @@ class SettingsService:
         # 4) Default
         return default
 
-    def get_settings_payload(self, db: Session, user: User, org_id: int) -> dict:
-        settings = self.repo.list_org_or_global_settings(db, org_id)
+    def get_settings_payload(self, db: Session, user: User, tenant_id: UUID, org_id: UUID) -> dict:
+        settings = self.repo.list_org_settings(db, tenant_id, org_id)
         user_settings = self.repo.list_user_settings(db, user.id)
         user_settings_map = {s.key: s for s in user_settings}
 
@@ -110,11 +112,11 @@ class SettingsService:
 
         return payload
 
-    def update_settings(self, db: Session, user: User, org_id: int, updates: list[SettingUpdate]) -> int:
+    def update_settings(self, db: Session, user: User, tenant_id: UUID, org_id: UUID, updates: list[SettingUpdate]) -> int:
         updated_count = 0
 
         for update in updates:
-            default_setting = self.repo.get_org_setting(db, org_id, update.key)
+            default_setting = self.repo.get_org_setting(db, tenant_id, org_id, update.key)
             value_type = update.type or (default_setting.type if default_setting else "string")
             category = update.category or (default_setting.category if default_setting else "general")
             description = (

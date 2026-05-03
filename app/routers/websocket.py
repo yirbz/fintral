@@ -1,10 +1,10 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.database import get_db
+from app.models import UserOrganization
 from app.services.websocket import websocket_manager
 
 from app.dependencies.auth import get_current_user_from_websocket
-from app.dependencies.tenancy import get_org_id
 
 router = APIRouter()
 
@@ -17,8 +17,18 @@ async def websocket_endpoint(websocket: WebSocket):
         if not user:
             await websocket.close(code=1008)
             return
-        org_id = get_org_id(user, db)
-        await websocket_manager.connect(websocket, org_id)
+
+        # Get user's first org for websocket channel scoping
+        user_org = (
+            db.query(UserOrganization)
+            .filter(UserOrganization.user_id == user.id)
+            .first()
+        )
+        if not user_org:
+            await websocket.close(code=1008)
+            return
+
+        await websocket_manager.connect(websocket, str(user_org.organization_id))
     finally:
         db.close()
 

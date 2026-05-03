@@ -8,6 +8,10 @@ import requests
 import websockets
 from datetime import datetime
 
+import pytest
+
+pytestmark = pytest.mark.anyio
+
 async def test_websocket_connection():
     """Probar conexión WebSocket"""
     print("🔌 Probando conexión WebSocket...")
@@ -39,11 +43,9 @@ async def test_websocket_connection():
             except asyncio.TimeoutError:
                 print("⏰ Timeout esperando más mensajes")
             
-            return True
-            
     except Exception as e:
         print(f"❌ Error conectando WebSocket: {e}")
-        return False
+        assert False, str(e)
 
 def test_statistics_endpoint():
     """Probar endpoint de estadísticas"""
@@ -67,6 +69,7 @@ def test_statistics_endpoint():
             
             if missing_fields:
                 print(f"⚠️ Campos faltantes en estadísticas: {missing_fields}")
+                assert False, f"Missing fields: {missing_fields}"
             else:
                 print("✅ Estructura de estadísticas correcta")
             
@@ -84,15 +87,13 @@ def test_statistics_endpoint():
             
             categories = data.get('categories', [])
             print(f"   🏷️ Categorías: {len(categories)}")
-            
-            return True
         else:
             print(f"❌ Error en endpoint de estadísticas: {response.status_code}")
-            return False
+            assert False, f"Status code {response.status_code}"
             
     except Exception as e:
         print(f"❌ Error probando estadísticas: {e}")
-        return False
+        assert False, str(e)
 
 def test_websocket_status_endpoint():
     """Probar endpoint de estado WebSocket"""
@@ -111,15 +112,13 @@ def test_websocket_status_endpoint():
             print(f"   🔗 Conexiones activas: {ws_status.get('active_connections', 0)}")
             print(f"   📬 Notificaciones enviadas: {ws_status.get('notifications_sent', 0)}")
             print(f"   🔄 Estado: {ws_status.get('status', 'unknown')}")
-            
-            return True
         else:
             print(f"❌ Error en endpoint de estado WebSocket: {response.status_code}")
-            return False
+            assert False, f"Status code {response.status_code}"
             
     except Exception as e:
         print(f"❌ Error probando estado WebSocket: {e}")
-        return False
+        assert False, str(e)
 
 def test_security_config():
     """Probar configuración de seguridad"""
@@ -134,30 +133,26 @@ def test_security_config():
             print("✅ Configuración de seguridad obtenida")
             print(f"🔐 Número autorizado: {data.get('authorized_number', 'N/A')}")
             print(f"🛡️ Seguridad habilitada: {data.get('security_enabled', False)}")
-            
-            return True
         else:
             print(f"❌ Error en configuración de seguridad: {response.status_code}")
-            return False
+            assert False, f"Status code {response.status_code}"
             
     except Exception as e:
         print(f"❌ Error probando seguridad: {e}")
-        return False
+        assert False, str(e)
 
 async def main():
     """Ejecutar todas las pruebas"""
     print("🚀 Iniciando pruebas de correcciones WebSocket y estadísticas")
     print("=" * 60)
     
-    results = []
-    
     # Probar endpoints HTTP primero
-    results.append(test_statistics_endpoint())
-    results.append(test_websocket_status_endpoint()) 
-    results.append(test_security_config())
+    test_statistics_endpoint()
+    test_websocket_status_endpoint() 
+    test_security_config()
     
     # Probar WebSocket al final
-    results.append(await test_websocket_connection())
+    await test_websocket_connection()
     
     # Resumen de resultados
     print("\n" + "=" * 60)

@@ -2,6 +2,7 @@ import requests
 import json
 import logging
 from datetime import datetime
+from uuid import UUID
 from sqlalchemy.orm import Session
 from app.models import WebhookEndpoint
 
@@ -11,17 +12,19 @@ class WebhookSender:
     def __init__(self):
         self.timeout = 5 # segundos
 
-    def trigger_event(self, db: Session, event_name: str, data: dict, org_id: int = None):
+    def trigger_event(self, db: Session, event_name: str, data: dict, tenant_id: UUID = None, org_id: UUID = None):
         """
         Dispara un evento a todos los suscriptores activos.
         """
         try:
-            # Buscar suscriptores
+            # Buscar suscriptores scoped por tenant + org
             query = db.query(WebhookEndpoint).filter(WebhookEndpoint.is_active == True)
+            if tenant_id:
+                query = query.filter(WebhookEndpoint.tenant_id == tenant_id)
             if org_id:
                 query = query.filter(WebhookEndpoint.organization_id == org_id)
             webhooks = query.all()
-            
+
             subscribers = []
             for wh in webhooks:
                 try:
@@ -30,7 +33,7 @@ class WebhookSender:
                         subscribers.append(wh)
                 except:
                     continue
-            
+
             if not subscribers:
                 return {"status": "no_subscribers"}
 
@@ -41,9 +44,9 @@ class WebhookSender:
                 "data": data
             }
             payload_str = json.dumps(payload_dict)
-            
+
             results = []
-            
+
             # Enviar a cada uno (idealmente esto iría a una cola de tareas async)
             for wh in subscribers:
                 try:
@@ -52,34 +55,34 @@ class WebhookSender:
                         "User-Agent": "InvoiceFlow-Webhook/1.0",
                         "X-InvoiceFlow-Event": event_name
                     }
-                    
+
                     logger.info(f"📡 Enviando webhook {event_name} a {wh.url}")
-                    
+
                     response = requests.post(
                         wh.url,
                         data=payload_str,
                         headers=headers,
                         timeout=self.timeout
                     )
-                    
+
                     results.append({
-                        "id": wh.id,
+                        "id": str(wh.id),
                         "url": wh.url,
                         "status": response.status_code,
                         "success": 200 <= response.status_code < 300
                     })
-                    
+
                 except Exception as e:
                     logger.error(f"❌ Error enviando webhook a {wh.url}: {e}")
                     results.append({
-                        "id": wh.id,
+                        "id": str(wh.id),
                         "url": wh.url,
                         "error": str(e),
                         "success": False
                     })
-            
+
             return {"status": "completed", "results": results}
-            
+
         except Exception as e:
             logger.error(f"Error general en trigger_event: {e}")
             return {"status": "error", "message": str(e)}

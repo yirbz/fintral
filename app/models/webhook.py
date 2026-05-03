@@ -1,25 +1,35 @@
 import json
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy.orm import relationship
+from uuid_utils import uuid7
 
-from app.database import Base
+from app.database import Base, GUID
 
 
 class WebhookEndpoint(Base):
     __tablename__ = "webhook_endpoints"
+    __table_args__ = (
+        Index("ix_webhooks_tenant_org", "tenant_id", "organization_id"),
+    )
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(GUID, primary_key=True, default=uuid7)
+    tenant_id = Column(GUID, ForeignKey("tenants.id"), nullable=False, index=True)
+    organization_id = Column(GUID, ForeignKey("organizations.id"), nullable=False, index=True)
+
     url = Column(String, nullable=False)
     description = Column(String)
     events = Column(Text)  # JSON list of events
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    organization_id = Column(Integer, ForeignKey("organizations.id"), index=True)
+
+    # Relationships
+    organization = relationship("Organization", back_populates="webhooks")
 
     def to_dict(self):
         return {
-            "id": self.id,
+            "id": str(self.id),
             "url": self.url,
             "description": self.description,
             "events": json.loads(self.events) if self.events else [],

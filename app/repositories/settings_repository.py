@@ -1,4 +1,5 @@
 from typing import Optional
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -6,29 +7,28 @@ from app.models import Setting, UserSetting
 
 
 class SettingsRepository:
-    def list_org_settings(self, db: Session, org_id: int) -> list[Setting]:
-        return db.query(Setting).filter(Setting.organization_id == org_id).all()
+    def list_org_settings(self, db: Session, tenant_id: UUID, org_id: UUID) -> list[Setting]:
+        return (
+            db.query(Setting)
+            .filter(Setting.tenant_id == tenant_id, Setting.organization_id == org_id)
+            .all()
+        )
 
-    def list_org_or_global_settings(self, db: Session, org_id: int) -> list[Setting]:
-        org_settings = self.list_org_settings(db, org_id)
-        if org_settings:
-            return org_settings
-        return db.query(Setting).all()
-
-    def list_user_settings(self, db: Session, user_id: int) -> list[UserSetting]:
+    def list_user_settings(self, db: Session, user_id: UUID) -> list[UserSetting]:
         return db.query(UserSetting).filter(UserSetting.user_id == user_id).all()
 
-    def get_org_setting(self, db: Session, org_id: int, key: str) -> Optional[Setting]:
-        setting = (
+    def get_org_setting(self, db: Session, tenant_id: UUID, org_id: UUID, key: str) -> Optional[Setting]:
+        return (
             db.query(Setting)
-            .filter(Setting.organization_id == org_id, Setting.key == key)
+            .filter(
+                Setting.tenant_id == tenant_id,
+                Setting.organization_id == org_id,
+                Setting.key == key,
+            )
             .first()
         )
-        if setting:
-            return setting
-        return db.query(Setting).filter(Setting.key == key).first()
 
-    def get_user_setting(self, db: Session, user_id: int, key: str) -> Optional[UserSetting]:
+    def get_user_setting(self, db: Session, user_id: UUID, key: str) -> Optional[UserSetting]:
         return (
             db.query(UserSetting)
             .filter(UserSetting.user_id == user_id, UserSetting.key == key)
@@ -38,7 +38,7 @@ class SettingsRepository:
     def upsert_user_setting(
         self,
         db: Session,
-        user_id: int,
+        user_id: UUID,
         key: str,
         value: str,
         value_type: str,
