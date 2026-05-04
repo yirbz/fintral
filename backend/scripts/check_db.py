@@ -36,8 +36,12 @@ def main():
     
     print("\n🧪 Probando conexión...")
     
+    # Ensure the parent directory is in the python path
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    
     try:
-        from models import engine, IS_HEROKU
+        from app.database import engine
+        from app.config import IS_HEROKU
         print(f"Detectado como Heroku: {IS_HEROKU}")
         
         from sqlalchemy import text

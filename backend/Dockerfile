@@ -64,4 +64,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request, os; urllib.request.urlopen('http://localhost:' + os.environ.get('PORT', '8000') + '/')" || exit 1
 
 # Start the application using check_db and uvicorn/main
-CMD ["sh", "-c", "python check_db.py && python main.py"]
+CMD ["sh", "-c", "cd scripts && python check_db.py && cd .. && python main.py"]

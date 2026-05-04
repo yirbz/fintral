@@ -22,7 +22,9 @@ services:
       - invoice_redis_data:/data
 
   app:
-    build: .
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: invoice_app
     env_file:
       - .env
@@ -36,9 +38,9 @@ services:
       - db
       - redis
     volumes:
-      - ./uploads:/app/uploads
-      - ./static:/app/static
-      - ./templates:/app/templates
+      - ./backend/uploads:/app/uploads
+      - ./backend/static:/app/static
+      - ./backend/templates:/app/templates
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
