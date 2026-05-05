@@ -10,6 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from io import BytesIO
 from PIL import Image
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
@@ -34,7 +35,9 @@ processing_service = InvoiceProcessingService(
 
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff"}
 ALLOWED_PDF_EXTENSIONS = {".pdf"}
-ALLOWED_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | ALLOWED_PDF_EXTENSIONS
+ALLOWED_XML_EXTENSIONS = {".xml"}
+ALLOWED_XLSX_EXTENSIONS = {".xlsx", ".xls"}
+ALLOWED_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | ALLOWED_PDF_EXTENSIONS | ALLOWED_XML_EXTENSIONS | ALLOWED_XLSX_EXTENSIONS
 
 
 def get_file_type(filename: str) -> str:
@@ -43,6 +46,10 @@ def get_file_type(filename: str) -> str:
         return "image"
     if ext in ALLOWED_PDF_EXTENSIONS:
         return "pdf"
+    if ext in ALLOWED_XML_EXTENSIONS:
+        return "xml"
+    if ext in ALLOWED_XLSX_EXTENSIONS:
+        return "xlsx"
     raise ValueError(f"Tipo de archivo no permitido: {ext}")
 
 
@@ -567,5 +574,20 @@ async def export_invoices_csv(
     return StreamingResponse(
         iter_csv(),
         media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.get("/invoices/template")
+async def download_invoice_template():
+    from app.services.pipeline.xlsx_processor import xlsx_processor
+
+    template_bytes = xlsx_processor.create_template_bytes()
+    timestamp = datetime.now().strftime("%Y%m%d")
+    filename = f"plantilla_facturas_{timestamp}.xlsx"
+
+    return StreamingResponse(
+        BytesIO(template_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )

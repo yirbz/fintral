@@ -19,6 +19,15 @@ class InvoiceProcessingService:
         self.invoice_repo = invoice_repo or InvoiceRepository()
         self.openai_processor = openai_processor
         self.webhook_sender = webhook_sender
+        
+        self._orchestrator = None
+    
+    @property
+    def orchestrator(self):
+        if self._orchestrator is None:
+            from app.services.pipeline_orchestrator import PipelineOrchestrator
+            self._orchestrator = PipelineOrchestrator(openai_processor=self.openai_processor)
+        return self._orchestrator
 
     @staticmethod
     def _parse_invoice_date(value: Optional[str]) -> Optional[datetime]:
@@ -111,7 +120,7 @@ class InvoiceProcessingService:
             }
 
         extracted_data = await run_in_threadpool(
-            self.openai_processor.process_invoice,
+            self.orchestrator.process,
             invoice.file_path,
             invoice.file_type,
             invoice,
@@ -127,6 +136,15 @@ class InvoiceProcessingService:
             }
 
         self.apply_extracted_data(db, invoice, extracted_data, tenant_id, org_id)
+        
+        invoice.source_type = extracted_data.get("source_type") or invoice.file_type
+        
+        if extracted_data.get("original_xml_data"):
+            invoice.original_xml_data = extracted_data["original_xml_data"]
+        
+        if extracted_data.get("ecf_type"):
+            invoice.ecf_type = extracted_data["ecf_type"]
+
         db.commit()
         db.refresh(invoice)
 
