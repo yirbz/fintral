@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
@@ -36,7 +36,16 @@ async def login_for_access_token(
         raise HTTPException(status_code=400, detail="Usuario inactivo")
 
     access_token = create_access_token(data={"sub": user.email}, expires_delta=timedelta(minutes=300))
-    return {"access_token": access_token, "token_type": "bearer"}
+    response = JSONResponse({"access_token": access_token, "token_type": "bearer"})
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        samesite="lax",
+        max_age=300 * 60,
+        path="/",
+    )
+    return response
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -58,14 +67,32 @@ async def read_root(
 ):
     if not ctx:
         return templates.TemplateResponse("landing.html", {"request": request})
-    return templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request,
-            "user": ctx.user,
-            **get_company_context(ctx.organization),
+    return RedirectResponse(url="/app", status_code=307)
+
+
+@router.get("/api/me")
+async def get_current_session(ctx: TenantContext = Depends(require_tenant)):
+    return {
+        "user": {
+            "id": str(ctx.user.id),
+            "email": ctx.user.email,
+            "full_name": ctx.user.full_name,
+            "is_active": ctx.user.is_active,
+            "is_superuser": ctx.user.is_superuser,
         },
-    )
+        "tenant": {
+            "id": str(ctx.tenant_id),
+        },
+        "organization": {
+            "id": str(ctx.org_id),
+            "name": ctx.organization.name,
+            "tax_id": ctx.organization.tax_id,
+            "country": ctx.organization.country,
+        },
+        "role": ctx.role,
+        **get_company_context(ctx.organization),
+        "company_plan": "Free Plan",
+    }
 
 
 @router.post("/api/chat/finance")

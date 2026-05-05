@@ -8,7 +8,7 @@ import shutil
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from PIL import Image
 from sqlalchemy import desc
@@ -18,9 +18,7 @@ from app.database import get_db
 from app.models import Invoice, User
 
 from app.core.container import export_service, openai_processor, webhook_sender
-from app.core.ui import templates
-from app.dependencies.tenant import TenantContext, optional_tenant, require_tenant
-from app.dependencies.tenancy import get_company_context
+from app.dependencies.tenant import TenantContext, require_tenant
 from app.repositories import InvoiceRepository
 from app.schemas import BulkActionRequest, ExportRequest, WebhookPushRequest
 from app.services import InvoiceProcessingService
@@ -86,27 +84,20 @@ async def invoice_detail_json(
 
 @router.get("/invoice/{invoice_id}/view", response_class=HTMLResponse)
 async def invoice_detail_view(
-    request: Request,
     invoice_id: str,
     ctx: TenantContext = Depends(require_tenant),
 ):
     invoice = invoice_repo.get(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
-
-    return templates.TemplateResponse(
-        "invoice_detail.html",
-        {
-            "request": request,
-            "invoice": invoice,
-            **get_company_context(ctx.organization),
-        },
-    )
+    return RedirectResponse(url=f"/app/invoices/{invoice_id}", status_code=307)
 
 
 @router.post("/upload")
 async def upload_files(
     files: list[UploadFile] = File(...),
+    category: Optional[str] = Form(None),
+    transaction_type: Optional[str] = Form(None),
     ctx: TenantContext = Depends(require_tenant),
 ):
     from app.services.websocket import websocket_manager
@@ -139,6 +130,8 @@ async def upload_files(
                 filename=file.filename,
                 file_path=file_path,
                 file_type=get_file_type(file.filename),
+                category=category or None,
+                transaction_type=transaction_type or None,
                 processed=False,
             )
             invoice_repo.create(ctx.db, invoice)

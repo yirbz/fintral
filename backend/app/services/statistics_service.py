@@ -18,6 +18,15 @@ class StatisticsService:
     def __init__(self, cost_control: Any):
         self.cost_control = cost_control
 
+    @staticmethod
+    def _resolve_period_days(period: Optional[str]) -> int:
+        mapping = {
+            "7d": 7,
+            "30d": 30,
+            "90d": 90,
+        }
+        return mapping.get((period or "30d").lower(), 30)
+
     def _build_alert_distribution(self, alert_invoices: list[tuple[str]]) -> dict:
         alert_breakdown: dict[str, int] = {}
 
@@ -50,10 +59,10 @@ class StatisticsService:
             "data": list(alert_breakdown.values()),
         }
 
-    def _volume_history(self, db: Session, tenant_id: UUID, org_id: UUID) -> list[dict]:
+    def _volume_history(self, db: Session, tenant_id: UUID, org_id: UUID, days: int = 7) -> list[dict]:
         base_filter = [
             Invoice.processed.is_(True),
-            Invoice.updated_at >= datetime.now() - timedelta(days=7),
+            Invoice.updated_at >= datetime.now() - timedelta(days=days),
             Invoice.tenant_id == tenant_id,
             Invoice.organization_id == org_id,
         ]
@@ -83,14 +92,39 @@ class StatisticsService:
 
         return [{"date": day, "count": count} for day, count in rows]
 
-    def _monthly_stats(self, db: Session, tenant_id: UUID, org_id: UUID) -> list[dict]:
-        start = datetime.now() - timedelta(days=180)
+    def _monthly_stats(self, db: Session, tenant_id: UUID, org_id: UUID, days: int = 180) -> list[dict]:
+        start = datetime.now() - timedelta(days=days)
         base_filter = [
             Invoice.processed.is_(True),
             Invoice.updated_at >= start,
             Invoice.tenant_id == tenant_id,
             Invoice.organization_id == org_id,
         ]
+
+        if days <= 31:
+            if IS_HEROKU:
+                rows = (
+                    db.query(
+                        func.to_char(Invoice.updated_at, "YYYY-MM-DD").label("day"),
+                        func.count(Invoice.id).label("count"),
+                    )
+                    .filter(*base_filter)
+                    .group_by(func.to_char(Invoice.updated_at, "YYYY-MM-DD"))
+                    .order_by(func.to_char(Invoice.updated_at, "YYYY-MM-DD"))
+                    .all()
+                )
+            else:
+                rows = (
+                    db.query(
+                        func.strftime("%Y-%m-%d", Invoice.updated_at).label("day"),
+                        func.count(Invoice.id).label("count"),
+                    )
+                    .filter(*base_filter)
+                    .group_by(func.strftime("%Y-%m-%d", Invoice.updated_at))
+                    .order_by(func.strftime("%Y-%m-%d", Invoice.updated_at))
+                    .all()
+                )
+            return [{"month": day, "count": count} for day, count in rows]
 
         if IS_HEROKU:
             rows = (
@@ -180,8 +214,10 @@ class StatisticsService:
             "net": float(income_amount - expense_amount),
         }
 
-    def get_statistics(self, db: Session, tenant_id: UUID, org_id: UUID) -> dict:
-        cache_key = f"stats:dashboard:{tenant_id}:{org_id}"
+    def get_statistics(self, db: Session, tenant_id: UUID, org_id: UUID, period: Optional[str] = None) -> dict:
+        period_days = self._resolve_period_days(period)
+        period_key = period or "30d"
+        cache_key = f"stats:dashboard:{tenant_id}:{org_id}:{period_key}"
         cached = cache_get(cache_key)
         if cached:
             logger.info("⚡ Estadísticas servidas desde caché Redis")
@@ -239,8 +275,8 @@ class StatisticsService:
         )
 
         audit_distribution = self._build_alert_distribution(alert_invoices)
-        processing_history = self._volume_history(db, tenant_id, org_id)
-        monthly_stats = self._monthly_stats(db, tenant_id, org_id)
+        processing_history = self._volume_history(db, tenant_id, org_id, days=period_days)
+        monthly_stats = self._monthly_stats(db, tenant_id, org_id, days=max(period_days, 30))
         categories = self._category_breakdown(db, tenant_id, org_id)
         totals = self._totals_by_transaction(db, tenant_id, org_id)
 
@@ -291,6 +327,7 @@ class StatisticsService:
             },
             "charts": {
                 "volume_history": processing_history,
+                "period": period_key,
             },
             "general": {
                 "pending_invoices": pending_invoices,
