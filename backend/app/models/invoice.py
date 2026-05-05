@@ -12,6 +12,9 @@ class Invoice(Base):
     __tablename__ = "invoices"
     __table_args__ = (
         Index("ix_invoices_tenant_org", "tenant_id", "organization_id"),
+        Index("ix_invoices_vendor_date", "tenant_id", "organization_id", "vendor_tax_id", "invoice_date"),
+        Index("ix_invoices_ncf", "tenant_id", "organization_id", "invoice_number"),
+        Index("ix_invoices_source", "tenant_id", "organization_id", "source_type"),
     )
 
     id = Column(GUID, primary_key=True, default=uuid7)
@@ -55,6 +58,12 @@ class Invoice(Base):
     country_confidence = Column(Float)
     goods_services_type = Column(String)  # DGII 606
 
+    # Pipeline metadata
+    source_type = Column(String(20))  # xml, pdf_text, pdf_image, image_ocr, image_ai, xlsx, manual
+    original_xml_data = Column(Text)  # Raw XML content for e-CF invoices
+    ecf_type = Column(String(2))  # e-CF type code (31-47)
+    batch_id = Column(GUID, nullable=True)  # Groups XLSX bulk imports
+
     # Metadatos
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -94,4 +103,8 @@ class Invoice(Base):
             "organization_id": str(self.organization_id),
             "tenant_id": str(self.tenant_id),
             "goods_services_type": self.goods_services_type,
+            "source_type": self.source_type,
+            "original_xml_data": self.original_xml_data,
+            "ecf_type": self.ecf_type,
+            "batch_id": str(self.batch_id) if self.batch_id else None,
         }
