@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 240 20% 97%;
+  --foreground: 240 8% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 240 8% 12%;
+  --primary: 210 100% 44%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 10% 96%;
+  --secondary-foreground: 240 8% 22%;
+  --muted: 240 10% 96%;
+  --muted-foreground: 240 6% 45%;
+  --border: 240 8% 90%;
+  --input: 240 8% 90%;
+  --ring: 210 100% 44%;
+}
+
+* {
+  @apply border-border;
+}
+
+html,
+body {
+  @apply bg-background text-foreground;
+  font-family:
+    "Manrope",
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  letter-spacing: 0;
+}
+
+main {
+  @apply min-h-screen;
+}
+
+.surface {
+  @apply rounded-lg border bg-card;
+  box-shadow: none;
+}
+
+.section-title {
+  @apply text-2xl font-semibold tracking-tight text-foreground;
+}
+
+.section-subtitle {
+  @apply text-sm text-muted-foreground;
+}
+
+.tight-scrollbar {
+  scrollbar-width: thin;
+}
+
+.tight-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.tight-scrollbar::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 9999px;
+}

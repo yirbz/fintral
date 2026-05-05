@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 from sqlalchemy.orm import Session
 
@@ -71,7 +72,11 @@ async def run_startup(db: Session) -> None:
     except Exception as exc:  # noqa: BLE001
         logger.error("Error creando admin user: %s", exc)
 
-    asyncio.create_task(start_heartbeat_task())
+    disable_heartbeat = os.getenv("DISABLE_HEARTBEAT_TASK", "false").lower() == "true"
+    if not disable_heartbeat:
+        asyncio.create_task(start_heartbeat_task())
+    else:
+        logger.info("ℹ️ Heartbeat task deshabilitado por entorno")
 
     logger.info("✅ Aplicación iniciada correctamente")
     logger.info("📡 WebSocket habilitado para notificaciones en tiempo real")

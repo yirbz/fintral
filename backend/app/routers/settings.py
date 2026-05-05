@@ -2,13 +2,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy.orm import Session
 
-from app.database import get_db
-
-from app.core.ui import templates
 from app.dependencies.tenant import TenantContext, optional_tenant, require_tenant
-from app.dependencies.tenancy import get_company_context
 from app.schemas import SettingUpdate
 from app.services import SettingsService
 
@@ -23,14 +18,7 @@ async def settings_page(
 ):
     if not ctx:
         return RedirectResponse(url="/login")
-    return templates.TemplateResponse(
-        "settings.html",
-        {
-            "request": request,
-            "user": ctx.user,
-            **get_company_context(ctx.organization),
-        },
-    )
+    return RedirectResponse(url="/app/settings", status_code=307)
 
 
 @router.get("/reports", response_class=HTMLResponse)
@@ -40,14 +28,7 @@ async def reports_page(
 ):
     if not ctx:
         return RedirectResponse(url="/login")
-    return templates.TemplateResponse(
-        "reports.html",
-        {
-            "request": request,
-            "user": ctx.user,
-            **get_company_context(ctx.organization),
-        },
-    )
+    return RedirectResponse(url="/app/reports", status_code=307)
 
 
 @router.get("/api/settings")
