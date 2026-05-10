@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, FileText, Play, Search, Send, Trash2 } from "lucide-react";
+import { Download, FileText, Play, Plus, Search, Send, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -35,6 +35,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Invoice } from "@/lib/types";
+import { createInvoice } from "@/lib/api/invoices";
+import { ManualInvoiceDialog } from "@/features/invoices/manual-invoice-dialog";
 
 const EXPORT_FORMATS = [
   "csv",
@@ -54,6 +56,7 @@ export function InvoicesPage() {
   const [search, setSearch] = useState(searchParams.get("search") ?? "");
   const [transactionType, setTransactionType] = useState("all");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [manualOpen, setManualOpen] = useState(false);
 
   const invoicesQuery = useQuery({
     queryKey: ["invoices", search, transactionType],
@@ -99,6 +102,13 @@ export function InvoicesPage() {
   const pushMutation = useMutation({
     mutationFn: () => pushWebhook(selectedIds),
     onSuccess: () => setSelectedIds([])
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (payload: Parameters<typeof createInvoice>[0]) => createInvoice(payload),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["invoices"] });
+    }
   });
 
   async function processAllPending() {
@@ -161,6 +171,10 @@ export function InvoicesPage() {
             <Button variant="secondary" onClick={() => void processAllPending()}>
               <Play className="size-4" data-icon="inline-start" />
               Procesar pendientes
+            </Button>
+            <Button onClick={() => setManualOpen(true)}>
+              <Plus className="size-4" data-icon="inline-start" />
+              Manual
             </Button>
           </div>
         </CardHeader>
@@ -242,6 +256,13 @@ export function InvoicesPage() {
           </div>
         </CardContent>
       </Card>
+      <ManualInvoiceDialog
+        open={manualOpen}
+        onOpenChange={setManualOpen}
+        onSave={async (payload) => {
+          await createMutation.mutateAsync(payload);
+        }}
+      />
     </div>
   );
 }

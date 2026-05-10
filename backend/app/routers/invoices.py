@@ -21,7 +21,7 @@ from app.models import Invoice, User
 from app.core.container import export_service, openai_processor, webhook_sender
 from app.dependencies.tenant import TenantContext, require_tenant
 from app.repositories import InvoiceRepository
-from app.schemas import BulkActionRequest, ExportRequest, WebhookPushRequest
+from app.schemas import BulkActionRequest, ExportRequest, ManualInvoiceCreate, WebhookPushRequest
 from app.services import InvoiceProcessingService
 
 logger = logging.getLogger(__name__)
@@ -292,6 +292,50 @@ async def update_invoice(
     invoice.updated_at = datetime.utcnow()
     ctx.db.commit()
     ctx.db.refresh(invoice)
+    return invoice.to_dict()
+
+
+@router.post("/invoices")
+async def create_manual_invoice(
+    payload: ManualInvoiceCreate,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    invoice_date = None
+    if payload.invoice_date:
+        try:
+            invoice_date = datetime.strptime(payload.invoice_date, "%Y-%m-%d")
+        except Exception:  # noqa: BLE001
+            pass
+
+    line_items_data = None
+    if payload.line_items:
+        line_items_data = json.dumps(
+            [item.model_dump() for item in payload.line_items]
+        )
+
+    invoice = Invoice(
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        filename=f"manual_{payload.invoice_number}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+        file_type="manual",
+        vendor_name=payload.vendor_name,
+        invoice_number=payload.invoice_number,
+        invoice_date=invoice_date,
+        total_amount=payload.total_amount,
+        tax_amount=payload.tax_amount,
+        currency=payload.currency,
+        transaction_type=payload.transaction_type,
+        category=payload.category,
+        description=payload.description,
+        vendor_tax_id=payload.vendor_tax_id,
+        vendor_country=payload.vendor_country,
+        goods_services_type=payload.goods_services_type,
+        line_items_data=line_items_data,
+        source_type="manual",
+        processed=True,
+        confidence_score=1.0,
+    )
+    invoice_repo.create(ctx.db, invoice)
     return invoice.to_dict()
 
 
