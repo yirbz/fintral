@@ -109,6 +109,7 @@ htmlcov/
 .opencode/
 AGENTS.md
 .codex
+.agents/
 
 # Frontend (Next.js)
 frontend/node_modules/
@@ -118,3 +119,5 @@ frontend/dist/
 frontend/out/
 frontend/.turbo/
 frontend/.cache/
+
+#Docs
