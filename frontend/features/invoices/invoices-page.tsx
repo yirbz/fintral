@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Play, Send, Trash2 } from "lucide-react";
+import { Download, FileText, Play, Search, Send, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -16,8 +16,24 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import type { Invoice } from "@/lib/types";
 
 const EXPORT_FORMATS = [
@@ -36,7 +52,7 @@ export function InvoicesPage() {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const [search, setSearch] = useState(searchParams.get("search") ?? "");
-  const [transactionType, setTransactionType] = useState("");
+  const [transactionType, setTransactionType] = useState("all");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const invoicesQuery = useQuery({
@@ -44,7 +60,7 @@ export function InvoicesPage() {
     queryFn: () =>
       listInvoices({
         search: search || undefined,
-        transaction_type: transactionType || undefined
+        transaction_type: transactionType === "all" ? undefined : transactionType || undefined
       })
   });
 
@@ -110,31 +126,40 @@ export function InvoicesPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       <Card>
-        <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <CardTitle>Registro de Facturas</CardTitle>
+            <CardTitle className="text-lg">Registro de Facturas</CardTitle>
             <p className="text-xs text-muted-foreground">Busca, filtra y procesa en lote.</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Input
-              className="w-64"
-              placeholder="Buscar proveedor o NCF"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative">
+              <Input
+                className="w-64 rounded-lg border-border bg-muted pl-4 pr-10 text-sm focus:border-ring focus:bg-background focus:ring-2 focus:ring-ring/50"
+                placeholder="Buscar proveedor o NCF"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+              <Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            </div>
             <Select
-              className="w-44"
               value={transactionType}
-              onChange={(event) => setTransactionType(event.target.value)}
+              onValueChange={(value) => setTransactionType(value)}
             >
-              <option value="">Todos</option>
-              <option value="income">Ingresos</option>
-              <option value="expense">Gastos</option>
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="Tipo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="income">Ingresos</SelectItem>
+                  <SelectItem value="expense">Gastos</SelectItem>
+                </SelectGroup>
+              </SelectContent>
             </Select>
             <Button variant="secondary" onClick={() => void processAllPending()}>
-              <Play className="mr-2 h-4 w-4" />
+              <Play className="size-4" data-icon="inline-start" />
               Procesar pendientes
             </Button>
           </div>
@@ -142,67 +167,77 @@ export function InvoicesPage() {
       </Card>
 
       {selectedIds.length > 0 ? (
-        <Card>
-          <CardContent className="flex flex-wrap items-center gap-2 py-3">
-            <p className="text-xs font-semibold">{selectedIds.length} seleccionadas</p>
-            <Button size="sm" variant="secondary" onClick={() => bulkProcessMutation.mutate()}>
-              <Play className="mr-1 h-3 w-3" />
+        <div className="sticky top-20 z-10 rounded-lg border bg-background/80 shadow-lg backdrop-blur-sm">
+          <CardContent className="flex flex-wrap items-center gap-3 py-3">
+            <span className="text-xs font-medium text-foreground">{selectedIds.length} seleccionadas</span>
+            <div className="h-4 w-px bg-border" />
+            <Button size="sm" onClick={() => bulkProcessMutation.mutate()}>
+              <Play className="mr-1.5 h-3.5 w-3.5" />
               Procesar
             </Button>
             <Button size="sm" variant="secondary" onClick={() => pushMutation.mutate()}>
-              <Send className="mr-1 h-3 w-3" />
+              <Send className="mr-1.5 h-3.5 w-3.5" />
               Webhook
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => bulkDeleteMutation.mutate()}
-              className="text-rose-700"
-            >
-              <Trash2 className="mr-1 h-3 w-3" />
+            <Button size="sm" variant="destructive" onClick={() => bulkDeleteMutation.mutate()}>
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
               Borrar
             </Button>
-            {EXPORT_FORMATS.map((format) => (
-              <Button key={format} size="sm" variant="outline" onClick={() => triggerExport(format)}>
-                <Download className="mr-1 h-3 w-3" />
-                {format}
-              </Button>
-            ))}
+            <div className="h-4 w-px bg-border" />
+            <div className="flex flex-wrap gap-1.5">
+              {EXPORT_FORMATS.map((format) => (
+                <Button key={format} size="sm" variant="outline" className="text-xs" onClick={() => triggerExport(format)}>
+                  {format}
+                </Button>
+              ))}
+            </div>
           </CardContent>
-        </Card>
+        </div>
       ) : null}
 
       <Card>
         <CardContent className="p-0">
           <div className="overflow-auto">
-            <table className="min-w-full text-xs">
-              <thead className="border-b bg-muted/40">
-                <tr>
-                  <th className="px-4 py-3 text-left">
-                    <input type="checkbox" checked={allSelected} onChange={toggleAll} />
-                  </th>
-                  <th className="px-2 py-3 text-left">Fecha</th>
-                  <th className="px-2 py-3 text-left">NCF</th>
-                  <th className="px-2 py-3 text-left">Proveedor</th>
-                  <th className="px-2 py-3 text-left">Categoría</th>
-                  <th className="px-2 py-3 text-right">Importe</th>
-                  <th className="px-2 py-3 text-center">Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoices.map((invoice) => (
+            <Table className="min-w-full text-xs">
+              <TableHeader className="bg-muted/80">
+                <TableRow>
+                  <TableHead className="px-4 py-3 text-left">
+                    <Checkbox
+                      checked={allSelected}
+                      onCheckedChange={toggleAll}
+                    />
+                  </TableHead>
+                  <TableHead className="px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Fecha</TableHead>
+                  <TableHead className="px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">NCF</TableHead>
+                  <TableHead className="px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Proveedor</TableHead>
+                  <TableHead className="px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Categoría</TableHead>
+                  <TableHead className="px-3 py-3 text-right text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Importe</TableHead>
+                  <TableHead className="px-3 py-3 text-center text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Estado</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {invoices.map((invoice, idx) => (
                   <InvoiceRow
                     key={invoice.id}
                     invoice={invoice}
                     selected={selectedIds.includes(invoice.id)}
                     onToggle={() => toggleOne(invoice.id)}
                     onOpen={() => router.push(`/dashboard/invoices/${invoice.id}`)}
+                    isEven={idx % 2 === 1}
                   />
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
             {invoices.length === 0 ? (
-              <div className="p-8 text-center text-sm text-muted-foreground">No hay facturas para mostrar.</div>
+              <div className="flex flex-col items-center justify-center py-16">
+                <div className="mb-4 rounded-full bg-primary/10 p-4">
+                  <FileText className="size-8 text-primary/40" />
+                </div>
+                <p className="mb-4 text-sm text-muted-foreground">No hay facturas para mostrar.</p>
+                <Button size="sm" onClick={() => router.push("/dashboard/upload")}>
+                  Subir primera factura
+                </Button>
+              </div>
             ) : null}
           </div>
         </CardContent>
@@ -215,12 +250,14 @@ function InvoiceRow({
   invoice,
   selected,
   onToggle,
-  onOpen
+  onOpen,
+  isEven
 }: {
   invoice: Invoice;
   selected: boolean;
   onToggle: () => void;
   onOpen: () => void;
+  isEven: boolean;
 }) {
   const date = invoice.invoice_date ? new Date(invoice.invoice_date).toLocaleDateString("es-DO") : "-";
   const amount = new Intl.NumberFormat("es-DO", {
@@ -230,22 +267,31 @@ function InvoiceRow({
   }).format(invoice.total_amount ?? 0);
 
   return (
-    <tr className="border-b hover:bg-muted/20">
-      <td className="px-4 py-3">
-        <input type="checkbox" checked={selected} onChange={onToggle} />
-      </td>
-      <td className="px-2 py-3">{date}</td>
-      <td className="px-2 py-3 font-semibold">{invoice.invoice_number || "---"}</td>
-      <td className="px-2 py-3 cursor-pointer text-foreground" onClick={onOpen}>
+    <TableRow
+      className={`border-b border-border transition-colors duration-150 ${
+        selected ? "bg-primary/5 border-l-2 border-l-primary" : isEven ? "bg-muted/30" : ""
+      } hover:bg-primary/5`}
+    >
+      <TableCell className="px-4 py-3">
+        <Checkbox
+          checked={selected}
+          onCheckedChange={onToggle}
+        />
+      </TableCell>
+      <TableCell className="px-3 py-3 text-muted-foreground">{date}</TableCell>
+      <TableCell className="px-3 py-3 font-medium text-foreground">{invoice.invoice_number || "---"}</TableCell>
+      <TableCell className="px-3 py-3 cursor-pointer text-foreground hover:text-primary" onClick={onOpen}>
         {invoice.vendor_name || "Procesando..."}
-      </td>
-      <td className="px-2 py-3">{invoice.category || "PENDIENTE"}</td>
-      <td className="px-2 py-3 text-right font-semibold">{amount}</td>
-      <td className="px-2 py-3 text-center">
-        <Badge variant={invoice.processed ? "success" : "warning"}>
+      </TableCell>
+      <TableCell className="px-3 py-3">
+        <Badge variant={invoice.category ? "default" : "secondary"}>{invoice.category || "PENDIENTE"}</Badge>
+      </TableCell>
+      <TableCell className="px-3 py-3 text-right font-mono tabular-nums font-semibold text-foreground">{amount}</TableCell>
+      <TableCell className="px-3 py-3 text-center">
+        <Badge variant={invoice.processed ? "default" : "secondary"}>
           {invoice.processed ? "Procesado" : "Pendiente"}
         </Badge>
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }

@@ -49,42 +49,42 @@ export function FinanceChat() {
   return (
     <div className="fixed bottom-5 right-5 z-50">
       {open ? (
-        <div className="mb-3 flex h-[520px] w-[360px] flex-col rounded-lg border bg-white">
+        <div className="mb-3 flex h-[520px] w-[360px] flex-col rounded-lg border border-border bg-card">
           <div className="flex items-center justify-between border-b px-4 py-3">
             <div>
               <p className="text-sm font-semibold">Asistente de Datos</p>
               <p className="text-[11px] text-muted-foreground">Motor IA activo</p>
             </div>
             <Button variant="ghost" size="icon" onClick={() => setOpen(false)}>
-              <X className="h-4 w-4" />
+              <X className="size-4" />
             </Button>
           </div>
 
-          <div className="tight-scrollbar flex-1 space-y-3 overflow-auto bg-muted/40 p-3">
-            <div className="rounded-md border bg-white p-2 text-xs text-muted-foreground">
+          <div className="tight-scrollbar flex-1 flex flex-col gap-3 overflow-auto bg-muted/40 p-3">
+            <div className="rounded-md border border-border bg-card p-2 text-xs text-muted-foreground">
               Puedo ayudarte a revisar extracción, detectar inconsistencias y resumir datos.
             </div>
             {messages.map((msg, idx) => (
               <div
                 key={`${msg.isUser ? "u" : "a"}-${idx}`}
-                className={`rounded-md border p-2 text-xs ${msg.isUser ? "ml-10 bg-primary text-white" : "mr-10 bg-white"}`}
+                className={`rounded-md border p-2 text-xs ${msg.isUser ? "ml-10 bg-primary text-primary-foreground" : "mr-10 bg-card"}`}
               >
                 {msg.isUser ? <p>{msg.text}</p> : <ReactMarkdown>{msg.text}</ReactMarkdown>}
               </div>
             ))}
             {loading ? (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" />
+                <Loader2 className="size-3 animate-spin" />
                 Respondiendo...
               </div>
             ) : null}
           </div>
 
-          <div className="space-y-2 border-t p-3">
+          <div className="flex flex-col gap-2 border-t p-3">
             <div className="tight-scrollbar flex gap-2 overflow-auto pb-1">
               {PRESET_QUESTIONS.map((question) => (
                 <button
-                  className="whitespace-nowrap rounded-md border bg-white px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted"
+                  className="whitespace-nowrap rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted"
                   key={question}
                   onClick={() => void sendQuestion(question)}
                 >
@@ -105,7 +105,7 @@ export function FinanceChat() {
                 placeholder="Pregunta algo..."
               />
               <Button size="icon" onClick={() => void sendQuestion(input)} disabled={loading}>
-                <Send className="h-4 w-4" />
+                <Send className="size-4" />
               </Button>
             </div>
           </div>
@@ -113,7 +113,7 @@ export function FinanceChat() {
       ) : null}
 
       <Button size="icon" className="rounded-full" onClick={() => setOpen((prev) => !prev)}>
-        <MessageCircle className="h-5 w-5" />
+        <MessageCircle className="size-5" />
       </Button>
     </div>
   );

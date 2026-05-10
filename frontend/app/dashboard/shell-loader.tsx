@@ -1,33 +1,31 @@
 "use client";
 
-/**
- * Client-side only shell loader.
- * dynamic() with ssr:false MUST be called from a "use client" component to work in App Router.
- * Using it in a Server Component causes it to be ignored, running Sidebar (and useQuery) server-side.
- */
 import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
 import { RealtimeProvider } from "@/hooks/use-realtime";
-
-const Sidebar = dynamic(
-  () => import("@/components/layout/sidebar").then((m) => ({ default: m.Sidebar })),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <Loader2 className="h-5 w-5 animate-spin" />
-      </div>
-    )
-  }
-);
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/app-sidebar";
+import { SiteHeader } from "@/components/site-header";
 
 export function ShellLoader({ children }: { children: React.ReactNode }) {
   return (
     <RealtimeProvider>
-      <Sidebar>{children}</Sidebar>
+      <SidebarProvider
+        style={
+          {
+            "--sidebar-width": "18rem",
+            "--header-height": "4rem",
+          } as React.CSSProperties
+        }
+      >
+        <AppSidebar variant="inset" />
+        <SidebarInset>
+          <SiteHeader />
+          <div className="@container/main flex flex-1 flex-col py-4 md:py-6">
+            {children}
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
     </RealtimeProvider>
   );
 }
-
-
-

@@ -21,6 +21,18 @@ install:
 frontend-install:
     cd frontend && npm install
 
+# Start only infrastructure (db + redis + proxy) - for local dev with local app/frontend
+infran:
+    docker compose -f compose-database.yml up -d
+    @echo "{{GREEN}} Infraestructura iniciada:{{RESET}}"
+    @echo "{{BLUE}} Proxy: {{RESET}}http://localhost:8001"
+    @echo "{{BLUE}} DB:    {{RESET}}localhost:5440"
+    @echo "{{BLUE}} Redis: {{RESET}}localhost:6381"
+
+infdown:
+    docker compose -f compose-database.yml down
+    @echo "{{RED}} Infraestructura detenida.{{RESET}}"
+
 frontend-dev:
     cd frontend && npm run dev
 
@@ -33,12 +45,13 @@ frontend-lint:
 frontend-typecheck:
     cd frontend && npm run typecheck
 
+# Full stack with Docker (app + frontend)
 up:
     docker compose up -d
     @echo "{{GREEN}} Servicios iniciados correctamente:{{RESET}}"
-    @echo "{{BLUE}} App:   {{RESET}}http://localhost:$(docker compose port proxy 80 | sed 's/.*://')"
-    @echo "{{BLUE}} DB:    {{RESET}}localhost:$(docker compose port db 5432 | sed 's/.*://')"
-    @echo "{{BLUE}} Redis: {{RESET}}localhost:$(docker compose port redis 6379 | sed 's/.*://')"
+    @echo "{{BLUE}} Proxy: {{RESET}}http://localhost:$(docker compose port proxy 80 | sed 's/.*://')"
+    @echo "{{BLUE}} DB:    {{RESET}}localhost:5440"
+    @echo "{{BLUE}} Redis: {{RESET}}localhost:6381"
 
 down:
     docker compose down
