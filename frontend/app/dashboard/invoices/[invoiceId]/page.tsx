@@ -1,11 +1,9 @@
+import { use } from "react"
 import { InvoiceDetailPage } from "@/features/invoices/invoice-detail-page";
 
-export default function InvoiceDetailRoutePage({
-  params
-}: {
-  params: {
-    invoiceId: string;
-  };
+export default function InvoiceDetailRoutePage(props: {
+  params: Promise<{ invoiceId: string }>
 }) {
-  return <InvoiceDetailPage invoiceId={params.invoiceId} />;
+  const { invoiceId } = use(props.params)
+  return <InvoiceDetailPage invoiceId={invoiceId} />;
 }
