@@ -25,9 +25,9 @@ frontend-install:
 infran:
     docker compose -f compose-database.yml up -d
     @echo "{{GREEN}} Infraestructura iniciada:{{RESET}}"
-    @echo "{{BLUE}} Proxy: {{RESET}}http://localhost:8001"
-    @echo "{{BLUE}} DB:    {{RESET}}localhost:5440"
-    @echo "{{BLUE}} Redis: {{RESET}}localhost:6381"
+    @echo "{{BLUE}} Proxy: {{RESET}}http://localhost:$(docker compose -f compose-database.yml port proxy 80 | sed 's/.*://')"
+    @echo "{{BLUE}} DB:    {{RESET}}localhost:$(docker compose -f compose-database.yml port db 5432 | sed 's/.*://')"
+    @echo "{{BLUE}} Redis: {{RESET}}localhost:$(docker compose -f compose-database.yml port redis 6379 | sed 's/.*://')"
 
 infdown:
     docker compose -f compose-database.yml down
@@ -50,8 +50,8 @@ up:
     docker compose up -d
     @echo "{{GREEN}} Servicios iniciados correctamente:{{RESET}}"
     @echo "{{BLUE}} Proxy: {{RESET}}http://localhost:$(docker compose port proxy 80 | sed 's/.*://')"
-    @echo "{{BLUE}} DB:    {{RESET}}localhost:5440"
-    @echo "{{BLUE}} Redis: {{RESET}}localhost:6381"
+    @echo "{{BLUE}} DB:    {{RESET}}localhost:$(docker compose port db 5432 | sed 's/.*://')"
+    @echo "{{BLUE}} Redis: {{RESET}}localhost:$(docker compose port redis 6379 | sed 's/.*://')"
 
 down:
     docker compose down

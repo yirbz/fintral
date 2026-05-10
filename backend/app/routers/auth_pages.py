@@ -1,4 +1,3 @@
-from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -8,16 +7,16 @@ from sqlalchemy import desc
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from app.config import ADMIN_EMAIL, ADMIN_PASSWORD
+from app.config import ADMIN_EMAIL, ADMIN_PASSWORD, IS_PRODUCTION
 from app.core.auth import create_access_token, verify_password
-from app.database import get_db
-from app.models import Invoice, User
-
 from app.core.container import openai_processor
 from app.core.ui import templates
+from app.database import get_db
 from app.dependencies.tenant import TenantContext, optional_tenant, require_tenant
 from app.dependencies.tenancy import get_company_context
+from app.models import Invoice, User
 from app.schemas import ChatRequest
+from app.services.auth_service import sign_in, provision_local_user
 
 router = APIRouter()
 
@@ -27,17 +26,33 @@ async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
+    user = None
+
+    # 1) PROD: try Supabase Auth first
+    if IS_PRODUCTION:
+        result = sign_in(form_data.username, form_data.password)
+        if result:
+            user = provision_local_user(db, result["user"])
+            if user and not user.is_active:
+                raise HTTPException(status_code=400, detail="Usuario inactivo")
+            return _create_token_response(result["access_token"])
+        # fall through to local verification if Supabase fails
+
+    # 2) Legacy password verification (PROD fallback + DEVELOPMENT primary)
     try:
         user = db.query(User).filter(User.email == form_data.username).first()
         if user and verify_password(form_data.password, user.hashed_password):
             if not user.is_active:
                 raise HTTPException(status_code=400, detail="Usuario inactivo")
-            return _create_token_response(form_data.username)
+            token = create_access_token(data={"sub": form_data.username})
+            return _create_token_response(token)
     except OperationalError:
         pass
 
+    # 3) Hardcoded admin fallback (DB unavailable)
     if ADMIN_EMAIL and form_data.username == ADMIN_EMAIL and ADMIN_PASSWORD == form_data.password:
-        return _create_token_response(form_data.username)
+        token = create_access_token(data={"sub": form_data.username})
+        return _create_token_response(token)
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -46,12 +61,11 @@ async def login_for_access_token(
     )
 
 
-def _create_token_response(email: str):
-    access_token = create_access_token(data={"sub": email}, expires_delta=timedelta(minutes=300))
-    response = JSONResponse({"access_token": access_token, "token_type": "bearer"})
+def _create_token_response(token: str):
+    response = JSONResponse({"access_token": token, "token_type": "bearer"})
     response.set_cookie(
         key="access_token",
-        value=access_token,
+        value=token,
         httponly=True,
         samesite="lax",
         max_age=300 * 60,
@@ -94,6 +108,7 @@ async def get_current_session(ctx: TenantContext = Depends(require_tenant)):
         },
         "tenant": {
             "id": str(ctx.tenant_id),
+            "plan": ctx.tenant.plan if ctx.tenant else None,
         },
         "organization": {
             "id": str(ctx.org_id),
@@ -103,7 +118,7 @@ async def get_current_session(ctx: TenantContext = Depends(require_tenant)):
         },
         "role": ctx.role,
         **get_company_context(ctx.organization),
-        "company_plan": "Free Plan",
+        "company_plan": ctx.tenant.plan if ctx.tenant else "free",
     }
 
 

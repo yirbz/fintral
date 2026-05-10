@@ -12,10 +12,9 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from app.config import ADMIN_EMAIL, ALGORITHM, SECRET_KEY
 from app.database import get_db
 from app.dependencies.auth import FallbackUser, get_current_user_from_cookie
-from app.models import Organization, User, UserOrganization
+from app.models import Organization, Tenant, User, UserOrganization
 
 
 @dataclass
@@ -24,6 +23,7 @@ class TenantContext:
 
     db: Session
     user: User
+    tenant: Tenant
     tenant_id: UUID
     org_id: UUID
     organization: Organization
@@ -65,9 +65,10 @@ async def require_tenant(
         return TenantContext(
             db=db,
             user=user,
+            tenant=None,
             tenant_id=user.tenant_id,
             org_id=fake_org.id,
-            organization=fake_org,  # type: ignore
+            organization=fake_org,
             role="owner",
         )
 
@@ -134,6 +135,7 @@ async def require_tenant(
     return TenantContext(
         db=db,
         user=user,
+        tenant=user.tenant,
         tenant_id=user.tenant_id,
         org_id=org.id,
         organization=org,
@@ -160,9 +162,10 @@ async def optional_tenant(
         return TenantContext(
             db=db,
             user=user,
+            tenant=None,
             tenant_id=user.tenant_id,
             org_id=fake_org.id,
-            organization=fake_org,  # type: ignore
+            organization=fake_org,
             role="owner",
         )
 
@@ -197,6 +200,7 @@ async def optional_tenant(
     return TenantContext(
         db=db,
         user=user,
+        tenant=user.tenant,
         tenant_id=user.tenant_id,
         org_id=org.id,
         organization=org,

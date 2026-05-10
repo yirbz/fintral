@@ -145,3 +145,31 @@
     background: hsl(var(--muted-foreground) / 0.3);
   }
 }
+
+/* ── Logo loader animations ── */
+@keyframes logo-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.08); opacity: 0.85; }
+}
+
+@keyframes logo-fade {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes logo-dot {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+.animate-logo-pulse {
+  animation: logo-pulse 2s ease-in-out infinite;
+}
+
+.animate-logo-fade {
+  animation: logo-fade 0.6s ease-out forwards;
+}
+
+.animate-logo-dot {
+  animation: logo-dot 1.4s ease-in-out infinite;
+}

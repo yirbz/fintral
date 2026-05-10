@@ -15,6 +15,12 @@ from app.core.redis import cache_get, cache_set, rate_limit, is_duplicate_messag
 from app.repositories import InvoiceRepository
 from app.services.invoice_processing_service import InvoiceProcessingService
 from app.services.settings_service import SettingsService
+from app.config import (
+    EVOLUTION_API_URL as _EVOLUTION_API_URL,
+    EVOLUTION_API_KEY as _EVOLUTION_API_KEY,
+    EVOLUTION_INSTANCE_NAME as _EVOLUTION_INSTANCE_NAME,
+    AUTHORIZED_WHATSAPP_NUMBER as _AUTHORIZED_WHATSAPP_NUMBER,
+)
 
 # Permitir cargar imágenes truncadas
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -40,10 +46,10 @@ class WhatsAppService:
             org_id = org.id if org else None
         except Exception as exc:  # noqa: BLE001
             logger.warning("⚠️ No se pudo leer organización para config de WhatsApp: %s", exc)
-            self.evolution_url = os.getenv("EVOLUTION_API_URL", "")
-            self.api_key = os.getenv("EVOLUTION_API_KEY", "")
-            self.instance_name = os.getenv("EVOLUTION_INSTANCE_NAME", "")
-            self.authorized_number = os.getenv("AUTHORIZED_WHATSAPP_NUMBER", "")
+            self.evolution_url = _EVOLUTION_API_URL
+            self.api_key = _EVOLUTION_API_KEY
+            self.instance_name = _EVOLUTION_INSTANCE_NAME
+            self.authorized_number = _AUTHORIZED_WHATSAPP_NUMBER
             db.close()
             return
 
@@ -101,10 +107,10 @@ class WhatsAppService:
         except Exception as e:
             logger.warning("⚠️ Error cargando config de WhatsApp: %s", e)
             # Fallback a env vars si falla DB
-            self.evolution_url = os.getenv("EVOLUTION_API_URL", "")
-            self.api_key = os.getenv("EVOLUTION_API_KEY", "")
-            self.instance_name = os.getenv("EVOLUTION_INSTANCE_NAME", "")
-            self.authorized_number = os.getenv("AUTHORIZED_WHATSAPP_NUMBER", "")
+            self.evolution_url = _EVOLUTION_API_URL
+            self.api_key = _EVOLUTION_API_KEY
+            self.instance_name = _EVOLUTION_INSTANCE_NAME
+            self.authorized_number = _AUTHORIZED_WHATSAPP_NUMBER
         finally:
             db.close()
         

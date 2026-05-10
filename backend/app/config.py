@@ -14,27 +14,59 @@ env_path = Path(__file__).parent.parent.parent / ".env"
 load_dotenv(env_path)
 
 # ---------------------------------------------------------------------------
+# Environment
+# ---------------------------------------------------------------------------
+ENVIRONMENT: str = os.getenv("ENVIRONMENT", "DEVELOPMENT").upper()
+IS_PRODUCTION: bool = ENVIRONMENT == "PROD"
+IS_DEVELOPMENT: bool = ENVIRONMENT == "DEVELOPMENT"
+
+# ---------------------------------------------------------------------------
 # Core
 # ---------------------------------------------------------------------------
 SECRET_KEY: str = os.getenv("SECRET_KEY", "")
-DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./invoices.db")
 PORT: int = int(os.getenv("PORT", "8000"))
 
-# Detect Heroku environment
-IS_HEROKU: bool = (
-    os.getenv("DYNO") is not None
-    or (DATABASE_URL.startswith("postgres") if DATABASE_URL else False)
-)
+# Database — MUST be set explicitly in PROD
+DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+if not DATABASE_URL:
+    if IS_PRODUCTION:
+        raise RuntimeError(
+            "DATABASE_URL must be set in PROD environment. "
+            "Set it in .env or as an environment variable."
+        )
+    DATABASE_URL = "sqlite:///./invoices.db"
+
+# Detect Heroku environment (separate from ENVIRONMENT — auto-detected)
+IS_HEROKU: bool = os.getenv("DYNO") is not None
 
 # Heroku uses postgres:// but SQLAlchemy 1.4+ requires postgresql://
-if IS_HEROKU and DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+if IS_HEROKU and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
+# Detect PostgreSQL (Supabase, Heroku, or standalone PG)
+IS_POSTGRES: bool = DATABASE_URL.startswith("postgresql://") or DATABASE_URL.startswith("postgres://")
+
 # ---------------------------------------------------------------------------
-# Admin (auto-created on startup)
+# Supabase (Auth + Database — required in PROD, ignored in DEVELOPMENT)
+# ---------------------------------------------------------------------------
+SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
+
+# ---------------------------------------------------------------------------
+# Admin (auto-created on startup via Supabase Auth)
 # ---------------------------------------------------------------------------
 ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "")
 ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "")
+ADMIN_FULL_NAME: str = os.getenv("ADMIN_FULL_NAME", "Admin")
+
+# ---------------------------------------------------------------------------
+# Default organization (created on bootstrap)
+# ---------------------------------------------------------------------------
+ORG_NAME: str = os.getenv("ORG_NAME", "Mi Empresa S.A.")
+ORG_TAX_ID: str = os.getenv("ORG_TAX_ID", "")
+ORG_COUNTRY: str = os.getenv("ORG_COUNTRY", "DO")
+TENANT_PLAN: str = os.getenv("TENANT_PLAN", "free")
 
 # ---------------------------------------------------------------------------
 # Redis
@@ -50,6 +82,13 @@ OPENAI_HOURLY_LIMIT_REQUESTS: int = int(os.getenv("OPENAI_HOURLY_LIMIT_REQUESTS"
 OLLAMA_HOST: str = os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434")
 OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "gemma4:e2b-it-q4_K_M")
 
+# Gemini (alternative LLM via Google AI)
+GEMINI_API_URL: str = os.getenv(
+    "GEMINI_API_URL",
+    "https://generativelanguage.googleapis.com/v1beta/models",
+)
+GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+
 # ---------------------------------------------------------------------------
 # WhatsApp / Evolution API
 # ---------------------------------------------------------------------------
@@ -60,7 +99,11 @@ EVOLUTION_INSTANCE_TOKEN: str = os.getenv("EVOLUTION_INSTANCE_TOKEN", "")
 AUTHORIZED_WHATSAPP_NUMBER: str = os.getenv("AUTHORIZED_WHATSAPP_NUMBER", "15555550100")
 
 # ---------------------------------------------------------------------------
-# JWT
+# JWT (Supabase RS256 — configurable expiry for custom tokens)
 # ---------------------------------------------------------------------------
-ALGORITHM: str = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES: int = 300  # 5 hours
+ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "300"))
+
+# ---------------------------------------------------------------------------
+# Heartbeat
+# ---------------------------------------------------------------------------
+DISABLE_HEARTBEAT_TASK: bool = os.getenv("DISABLE_HEARTBEAT_TASK", "false").lower() == "true"

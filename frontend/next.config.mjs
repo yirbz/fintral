@@ -3,7 +3,7 @@ const nextConfig = {
   output: "standalone",
   poweredByHeader: false,
   async rewrites() {
-    const backend = process.env.BACKEND_URL || "http://app:8000";
+    const backend = process.env.BACKEND_URL || "http://localhost:8000";
     return [
       { source: "/api/:path*", destination: `${backend}/api/:path*` },
       { source: "/token", destination: `${backend}/token` },
