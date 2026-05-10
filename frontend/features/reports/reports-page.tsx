@@ -23,6 +23,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const PERIODS = ["7d", "30d", "90d"] as const;
 
+const CHART_COLORS = [
+  "oklch(0.488 0.243 264.376)",
+  "oklch(0.7 0.12 80)",
+  "oklch(0.577 0.245 27.325)",
+  "oklch(0.6 0.15 160)",
+  "oklch(0.5 0.2 320)",
+];
+
 export function ReportsPage() {
   const [period, setPeriod] = useState<(typeof PERIODS)[number]>("30d");
   const query = useQuery({
@@ -37,14 +45,14 @@ export function ReportsPage() {
   }, [query.data?.audit.distribution.data, query.data?.audit.distribution.labels]);
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <CardTitle>Analítica de Rendimiento</CardTitle>
             <p className="text-xs text-muted-foreground">Costos, volumen y comportamiento de extracción.</p>
           </div>
-          <div className="inline-flex rounded-md border bg-white p-1">
+          <div className="inline-flex rounded-md border border-border bg-card p-1">
             {PERIODS.map((key) => (
               <Button
                 key={key}
@@ -71,7 +79,7 @@ export function ReportsPage() {
                 <YAxis fontSize={11} />
                 <Tooltip />
                 <Legend />
-                <Line type="monotone" dataKey="count" stroke="#0071e3" name="Volumen" strokeWidth={2} />
+                <Line type="monotone" dataKey="count" stroke="oklch(0.488 0.243 264.376)" name="Volumen" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </CardContent>
@@ -88,7 +96,7 @@ export function ReportsPage() {
                   {pieData.map((entry, index) => (
                     <Cell
                       key={`${entry.name}-${index}`}
-                      fill={["#0071e3", "#f59e0b", "#ef4444", "#10b981", "#6366f1"][index % 5]}
+                      fill={CHART_COLORS[index % CHART_COLORS.length]}
                     />
                   ))}
                 </Pie>
@@ -110,7 +118,7 @@ export function ReportsPage() {
               <XAxis dataKey="month" fontSize={11} />
               <YAxis fontSize={11} />
               <Tooltip />
-              <Bar dataKey="count" fill="#1d1d1f" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="count" fill="oklch(0.488 0.243 264.376)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>

@@ -36,12 +36,12 @@ export function NotificationMenu() {
   return (
     <div className="relative">
       <Button variant="ghost" size="icon" onClick={() => setOpen((prev) => !prev)}>
-        <Bell className="h-4 w-4" />
-        {hasUnread ? <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500" /> : null}
+        <Bell className="size-4" />
+        {hasUnread ? <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-destructive" /> : null}
       </Button>
 
       {open ? (
-        <div className="absolute right-0 z-50 mt-2 w-80 rounded-md border bg-white">
+        <div className="absolute right-0 z-50 mt-2 w-80 rounded-md border border-border bg-card">
           <div className="flex items-center justify-between border-b px-3 py-2">
             <p className="text-xs font-semibold uppercase tracking-wide">Notificaciones</p>
             <button className="text-xs text-muted-foreground hover:text-foreground" onClick={clearAll}>
