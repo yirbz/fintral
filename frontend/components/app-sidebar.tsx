@@ -91,16 +91,22 @@ const data = {
   ],
 }
 
+import { useEffect, useState } from "react"
 import { useSession } from "@/hooks/use-session"
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const session = useSession()
+  const [user, setUser] = useState(data.user)
 
-  const user = session.data?.user ? {
-    name: session.data.user.full_name,
-    email: session.data.user.email,
-    avatar: "",
-  } : data.user
+  useEffect(() => {
+    if (session.data?.user) {
+      setUser({
+        name: session.data.user.full_name,
+        email: session.data.user.email,
+        avatar: "",
+      })
+    }
+  }, [session.data])
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>

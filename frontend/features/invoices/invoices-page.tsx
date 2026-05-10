@@ -176,7 +176,7 @@ export function InvoicesPage() {
             </Button>
             <Button onClick={() => setManualOpen(true)}>
               <Plus className="size-4" data-icon="inline-start" />
-              Manual
+              Añadir factura
             </Button>
           </div>
         </CardHeader>
@@ -306,9 +306,8 @@ function InvoiceRow({
 
   return (
     <TableRow
-      className={`border-b border-border transition-colors duration-150 ${
-        selected ? "bg-primary/5 border-l-2 border-l-primary" : isEven ? "bg-muted/30" : ""
-      } hover:bg-primary/5`}
+      className={`border-b border-border transition-colors duration-150 ${selected ? "bg-primary/5 border-l-2 border-l-primary" : isEven ? "bg-muted/30" : ""
+        } hover:bg-primary/5`}
     >
       <TableCell className="px-4 py-3">
         <Checkbox
