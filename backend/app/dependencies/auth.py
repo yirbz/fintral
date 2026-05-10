@@ -1,12 +1,24 @@
 from typing import Optional
+from uuid import uuid4
 
 from fastapi import Depends, HTTPException, Request, WebSocket, status
 from jose import JWTError, jwt
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from app.config import ALGORITHM, SECRET_KEY
+from app.config import ADMIN_EMAIL, ADMIN_PASSWORD, ALGORITHM, SECRET_KEY
 from app.database import get_db
 from app.models import User
+
+
+class FallbackUser:
+    """Fake user when database is unavailable but admin credentials work."""
+    id = uuid4()
+    email = ADMIN_EMAIL or "admin@fintral.local"
+    full_name = "Admin User"
+    is_active = True
+    is_superuser = True
+    tenant_id = uuid4()
 
 
 async def get_current_user_from_cookie(request: Request, db: Session = Depends(get_db)) -> Optional[User]:
@@ -22,10 +34,15 @@ async def get_current_user_from_cookie(request: Request, db: Session = Depends(g
     except JWTError:
         return None
 
-    user = db.query(User).filter(User.email == email).first()
-    if not user or not user.is_active:
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if not user or not user.is_active:
+            return None
+        return user
+    except OperationalError:
+        if email == ADMIN_EMAIL:
+            return FallbackUser()
         return None
-    return user
 
 
 async def get_current_user_from_websocket(websocket: WebSocket, db: Session) -> Optional[User]:
@@ -41,10 +58,15 @@ async def get_current_user_from_websocket(websocket: WebSocket, db: Session) -> 
     except JWTError:
         return None
 
-    user = db.query(User).filter(User.email == email).first()
-    if not user or not user.is_active:
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if not user or not user.is_active:
+            return None
+        return user
+    except OperationalError:
+        if email == ADMIN_EMAIL:
+            return FallbackUser()
         return None
-    return user
 
 
 def require_user(user: Optional[User]) -> User:

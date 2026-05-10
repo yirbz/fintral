@@ -15,12 +15,23 @@ logger = setup_logging()
 
 
 def init_database() -> None:
-    """Create all tables that don't exist yet."""
-    Base.metadata.create_all(bind=engine)
-    logger.info("✅ Base de datos inicializada")
+    from app.database import Base, engine, get_engine
+    if engine is None:
+        logger.warning("⚠️ Base de datos no disponible, saltando inicialización")
+        return
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("✅ Base de datos inicializada")
+    except Exception as e:
+        logger.warning("⚠️ Error inicializando base de datos: %s", e)
 
 
 def ensure_default_admin(db: Session) -> None:
+    from app.database import engine
+    if engine is None:
+        logger.warning("⚠️ DB no disponible, saltando creación de admin por defecto")
+        return
+
     if not ADMIN_EMAIL:
         raise RuntimeError("ADMIN_EMAIL no configurado. Debes definirlo en el entorno.")
 

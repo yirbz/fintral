@@ -6,10 +6,12 @@ Other modules should import from this file instead of calling os.getenv() direct
 """
 
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+env_path = Path(__file__).parent.parent.parent / ".env"
+load_dotenv(env_path)
 
 # ---------------------------------------------------------------------------
 # Core
