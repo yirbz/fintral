@@ -15,7 +15,7 @@ class UserOrganization(Base):
     )
 
     id = Column(GUID, primary_key=True, default=uuid7)
-    user_id = Column(GUID, ForeignKey("users.id"), nullable=False, index=True)
-    organization_id = Column(GUID, ForeignKey("organizations.id"), nullable=False, index=True)
+    user_id = Column(GUID, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    organization_id = Column(GUID, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     role = Column(String, nullable=False, default="member")  # owner / admin / member / viewer
     created_at = Column(DateTime, default=datetime.utcnow)
