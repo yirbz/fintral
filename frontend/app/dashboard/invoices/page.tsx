@@ -9,7 +9,7 @@ export default function InvoicesRoutePage() {
     <Suspense
       fallback={
         <div className="flex h-64 items-center justify-center">
-          <Loader2 className="h-5 w-5 animate-spin" />
+          <Loader2 className="size-5 animate-spin" />
         </div>
       }
     >
