@@ -5,8 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import desc
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.config import ADMIN_EMAIL, ADMIN_PASSWORD
 from app.core.auth import create_access_token, verify_password
 from app.database import get_db
 from app.models import Invoice, User
@@ -25,17 +27,27 @@ async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
-    user = db.query(User).filter(User.email == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Email o contraseña incorrectos",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    if not user.is_active:
-        raise HTTPException(status_code=400, detail="Usuario inactivo")
+    try:
+        user = db.query(User).filter(User.email == form_data.username).first()
+        if user and verify_password(form_data.password, user.hashed_password):
+            if not user.is_active:
+                raise HTTPException(status_code=400, detail="Usuario inactivo")
+            return _create_token_response(form_data.username)
+    except OperationalError:
+        pass
 
-    access_token = create_access_token(data={"sub": user.email}, expires_delta=timedelta(minutes=300))
+    if ADMIN_EMAIL and form_data.username == ADMIN_EMAIL and ADMIN_PASSWORD == form_data.password:
+        return _create_token_response(form_data.username)
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Email o contraseña incorrectos",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _create_token_response(email: str):
+    access_token = create_access_token(data={"sub": email}, expires_delta=timedelta(minutes=300))
     response = JSONResponse({"access_token": access_token, "token_type": "bearer"})
     response.set_cookie(
         key="access_token",

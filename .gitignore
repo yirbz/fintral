@@ -118,3 +118,6 @@ frontend/dist/
 frontend/out/
 frontend/.turbo/
 frontend/.cache/
+
+#Docs
+docs/plans/

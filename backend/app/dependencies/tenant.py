@@ -6,13 +6,15 @@ Provides TenantContext which guarantees data isolation by tenant + organization.
 
 from dataclasses import dataclass
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import Depends, HTTPException, Request
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.config import ADMIN_EMAIL, ALGORITHM, SECRET_KEY
 from app.database import get_db
-from app.dependencies.auth import get_current_user_from_cookie
+from app.dependencies.auth import FallbackUser, get_current_user_from_cookie
 from app.models import Organization, User, UserOrganization
 
 
@@ -26,6 +28,16 @@ class TenantContext:
     org_id: UUID
     organization: Organization
     role: str  # owner / admin / member / viewer
+
+
+@dataclass
+class FallbackOrganization:
+    """Fake organization when database is unavailable."""
+    id: UUID
+    tenant_id: UUID
+    name: str = "Mi Empresa S.A."
+    tax_id: str = ""
+    country: str = "DO"
 
 
 async def require_tenant(
@@ -44,6 +56,21 @@ async def require_tenant(
     if not user:
         raise HTTPException(status_code=401, detail="No autorizado")
 
+    # Check if user is a fallback user (DB is down)
+    if isinstance(user, FallbackUser):
+        fake_org = FallbackOrganization(
+            id=uuid4(),
+            tenant_id=user.tenant_id,
+        )
+        return TenantContext(
+            db=db,
+            user=user,
+            tenant_id=user.tenant_id,
+            org_id=fake_org.id,
+            organization=fake_org,  # type: ignore
+            role="owner",
+        )
+
     # Determine which org the user wants to work with
     org_id_str = (
         request.headers.get("X-Organization-Id")
@@ -56,39 +83,51 @@ async def require_tenant(
         except ValueError:
             raise HTTPException(status_code=400, detail="ID de organización inválido")
 
-        user_org = (
-            db.query(UserOrganization)
-            .filter(
-                UserOrganization.user_id == user.id,
-                UserOrganization.organization_id == org_id,
+        try:
+            user_org = (
+                db.query(UserOrganization)
+                .filter(
+                    UserOrganization.user_id == user.id,
+                    UserOrganization.organization_id == org_id,
+                )
+                .first()
             )
-            .first()
-        )
+        except OperationalError:
+            user_org = None
+
         if not user_org:
             raise HTTPException(status_code=403, detail="Sin acceso a esta organización")
         role = user_org.role
     else:
         # Fallback: first org the user has access to
-        user_org = (
-            db.query(UserOrganization)
-            .filter(UserOrganization.user_id == user.id)
-            .first()
-        )
+        try:
+            user_org = (
+                db.query(UserOrganization)
+                .filter(UserOrganization.user_id == user.id)
+                .first()
+            )
+        except OperationalError:
+            user_org = None
+
         if not user_org:
             raise HTTPException(status_code=403, detail="Sin acceso a ninguna organización")
         org_id = user_org.organization_id
         role = user_org.role
 
     # Critical: validate org belongs to same tenant as user
-    org = (
-        db.query(Organization)
-        .filter(
-            Organization.id == org_id,
-            Organization.tenant_id == user.tenant_id,
-            Organization.is_active.is_(True),
+    try:
+        org = (
+            db.query(Organization)
+            .filter(
+                Organization.id == org_id,
+                Organization.tenant_id == user.tenant_id,
+                Organization.is_active.is_(True),
+            )
+            .first()
         )
-        .first()
-    )
+    except OperationalError:
+        org = None
+
     if not org:
         raise HTTPException(status_code=403, detail="Organización no encontrada o inactiva")
 
@@ -112,23 +151,46 @@ async def optional_tenant(
     if not user:
         return None
 
-    user_org = (
-        db.query(UserOrganization)
-        .filter(UserOrganization.user_id == user.id)
-        .first()
-    )
+    # Check if user is a fallback user (DB is down)
+    if isinstance(user, FallbackUser):
+        fake_org = FallbackOrganization(
+            id=uuid4(),
+            tenant_id=user.tenant_id,
+        )
+        return TenantContext(
+            db=db,
+            user=user,
+            tenant_id=user.tenant_id,
+            org_id=fake_org.id,
+            organization=fake_org,  # type: ignore
+            role="owner",
+        )
+
+    try:
+        user_org = (
+            db.query(UserOrganization)
+            .filter(UserOrganization.user_id == user.id)
+            .first()
+        )
+    except OperationalError:
+        user_org = None
+
     if not user_org:
         return None
 
-    org = (
-        db.query(Organization)
-        .filter(
-            Organization.id == user_org.organization_id,
-            Organization.tenant_id == user.tenant_id,
-            Organization.is_active.is_(True),
+    try:
+        org = (
+            db.query(Organization)
+            .filter(
+                Organization.id == user_org.organization_id,
+                Organization.tenant_id == user.tenant_id,
+                Organization.is_active.is_(True),
+            )
+            .first()
         )
-        .first()
-    )
+    except OperationalError:
+        org = None
+
     if not org:
         return None
 

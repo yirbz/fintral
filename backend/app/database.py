@@ -59,6 +59,8 @@ class GUID(TypeDecorator):
 # ---------------------------------------------------------------------------
 # Engine
 # ---------------------------------------------------------------------------
+engine = None
+
 try:
     if DATABASE_URL.startswith("sqlite"):
         logger.info("📄 Configurando SQLite")
@@ -76,8 +78,24 @@ try:
         logger.info("✅ Conexión a base de datos establecida correctamente")
 
 except Exception as e:
-    logger.error("❌ Error configurando base de datos: %s", e)
-    raise
+    logger.warning("⚠️ Base de datos no disponible: %s", e)
+    logger.info("🔄 Modo degradado activado - usando credenciales hardcodeadas")
+
+
+def get_engine():
+    """Get the database engine, creating it if necessary."""
+    global engine
+    if engine is None:
+        if DATABASE_URL.startswith("sqlite"):
+            engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+        else:
+            engine = create_engine(
+                DATABASE_URL,
+                pool_pre_ping=True,
+                pool_recycle=300,
+                echo=False,
+            )
+    return engine
 
 # ---------------------------------------------------------------------------
 # Session & Base
