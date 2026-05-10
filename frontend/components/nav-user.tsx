@@ -19,7 +19,7 @@ import Link from "next/link"
 
 export function NavUser({ user }: { user: { name: string; email: string; avatar: string } }) {
   const { isMobile } = useSidebar()
-  const { data: session } = useSession()
+  const { data: session, isLoading } = useSession()
   const [displayName, setDisplayName] = useState(user.name)
   const [displayEmail, setDisplayEmail] = useState(user.email)
 
@@ -27,6 +27,23 @@ export function NavUser({ user }: { user: { name: string; email: string; avatar:
     if (session?.user?.full_name) setDisplayName(session.user.full_name)
     if (session?.user?.email) setDisplayEmail(session.user.email)
   }, [session])
+
+  if (isLoading) {
+    return (
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton size="lg" className="pointer-events-none">
+            <div className="flex h-8 w-8 animate-pulse rounded-lg bg-sidebar-accent" />
+            <div className="grid flex-1 gap-1.5 text-left text-sm leading-tight">
+              <div className="h-3 w-24 animate-pulse rounded bg-sidebar-accent" />
+              <div className="h-2.5 w-32 animate-pulse rounded bg-sidebar-accent" />
+            </div>
+            <EllipsisVerticalIcon className="ml-auto size-4 text-sidebar-accent" />
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    )
+  }
 
   return (
     <SidebarMenu>
