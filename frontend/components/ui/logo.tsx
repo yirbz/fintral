@@ -36,7 +36,7 @@ export function Logo({ variant = "dark", size = "md", showWordmark = true, class
 
   return (
     <div className={cn("flex items-center gap-3", className)}>
-      <div className={cn("rounded-xl flex items-center justify-center", sizeConfig.container, containerStyles[variant])}>
+      <div className={cn("rounded-lg flex items-center justify-center", sizeConfig.container, containerStyles[variant])}>
         <div className="flex flex-col gap-1.5">
           <div className={cn("rounded-sm", sizeConfig.bars.top, barStyles[variant].top)} />
           <div className={cn("rounded-sm", sizeConfig.bars.mid, barStyles[variant].mid)} />
