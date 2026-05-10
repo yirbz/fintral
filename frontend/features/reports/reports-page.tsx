@@ -20,6 +20,7 @@ import {
 import { getStatistics } from "@/lib/api/statistics";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const PERIODS = ["7d", "30d", "90d"] as const;
 
@@ -43,6 +44,8 @@ export function ReportsPage() {
     const data = query.data?.audit.distribution.data ?? [];
     return labels.map((label, index) => ({ name: label, value: data[index] ?? 0 }));
   }, [query.data?.audit.distribution.data, query.data?.audit.distribution.labels]);
+
+  const loading = query.isLoading;
 
   return (
     <div className="flex flex-col gap-4">
@@ -73,15 +76,27 @@ export function ReportsPage() {
             <CardTitle>Eficiencia de costos</CardTitle>
           </CardHeader>
           <CardContent className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={query.data?.charts.volume_history ?? []}>
-                <XAxis dataKey="date" fontSize={11} />
-                <YAxis fontSize={11} />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="count" stroke="oklch(0.488 0.243 264.376)" name="Volumen" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
+            {loading ? (
+              <div className="flex h-full items-end justify-center gap-2 px-4 pb-8">
+                {Array.from({ length: 12 }).map((_, i) => (
+                  <Skeleton
+                    key={i}
+                    className="flex-1 rounded-t-md"
+                    style={{ height: `${30 + Math.random() * 50}%` }}
+                  />
+                ))}
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={query.data?.charts.volume_history ?? []}>
+                  <XAxis dataKey="date" fontSize={11} />
+                  <YAxis fontSize={11} />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="count" stroke="oklch(0.488 0.243 264.376)" name="Volumen" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
 
@@ -90,20 +105,26 @@ export function ReportsPage() {
             <CardTitle>Distribución de alertas</CardTitle>
           </CardHeader>
           <CardContent className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90}>
-                  {pieData.map((entry, index) => (
-                    <Cell
-                      key={`${entry.name}-${index}`}
-                      fill={CHART_COLORS[index % CHART_COLORS.length]}
-                    />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
+            {loading ? (
+              <div className="flex h-full items-center justify-center">
+                <Skeleton className="size-44 rounded-full" />
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90}>
+                    {pieData.map((entry, index) => (
+                      <Cell
+                        key={`${entry.name}-${index}`}
+                        fill={CHART_COLORS[index % CHART_COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -113,14 +134,26 @@ export function ReportsPage() {
           <CardTitle>Tendencia de volumen</CardTitle>
         </CardHeader>
         <CardContent className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={query.data?.monthly_stats ?? []}>
-              <XAxis dataKey="month" fontSize={11} />
-              <YAxis fontSize={11} />
-              <Tooltip />
-              <Bar dataKey="count" fill="oklch(0.488 0.243 264.376)" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {loading ? (
+            <div className="flex h-full items-end justify-center gap-2 px-4 pb-8">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <Skeleton
+                  key={i}
+                  className="flex-1 rounded-t-md"
+                  style={{ height: `${20 + Math.random() * 60}%` }}
+                />
+              ))}
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={query.data?.monthly_stats ?? []}>
+                <XAxis dataKey="month" fontSize={11} />
+                <YAxis fontSize={11} />
+                <Tooltip />
+                <Bar dataKey="count" fill="oklch(0.488 0.243 264.376)" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -29,6 +29,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type SectionId = "profile" | "organization" | "ai" | "whatsapp" | "webhooks" | "email" | "preferences" | "notifications" | "billing";
 
@@ -126,9 +127,46 @@ export function SettingsPage() {
       </div>
 
       {settingsQuery.isLoading ? (
-        <div className="flex items-center gap-2 py-12 justify-center text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" />
-          Cargando configuración...
+        <div className="grid gap-5 lg:grid-cols-[200px_1fr]">
+          <Card className="h-fit">
+            <CardContent className="flex flex-col gap-1 p-2">
+              {Array.from({ length: 9 }).map((_, i) => (
+                <Skeleton key={i} className="h-8 w-full rounded-lg" />
+              ))}
+            </CardContent>
+          </Card>
+          <div className="space-y-5">
+            <Card>
+              <CardHeader>
+                <Skeleton className="h-4 w-28 rounded-md" />
+                <Skeleton className="h-3 w-44 rounded-md" />
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i}>
+                      <Skeleton className="mb-1 h-3 w-16 rounded-md" />
+                      <Skeleton className="h-7 w-full rounded-md" />
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <Skeleton className="h-4 w-32 rounded-md" />
+                <Skeleton className="h-3 w-36 rounded-md" />
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i}>
+                    <Skeleton className="mb-1 h-3 w-20 rounded-md" />
+                    <Skeleton className="h-7 w-full rounded-md" />
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
         </div>
       ) : (
         <div className="grid gap-5 lg:grid-cols-[200px_1fr]">

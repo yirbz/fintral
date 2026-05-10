@@ -37,6 +37,8 @@ import {
 import type { Invoice } from "@/lib/types";
 import { createInvoice } from "@/lib/api/invoices";
 import { ManualInvoiceDialog } from "@/features/invoices/manual-invoice-dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
 const EXPORT_FORMATS = [
   "csv",
@@ -230,29 +232,44 @@ export function InvoicesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {invoices.map((invoice, idx) => (
-                  <InvoiceRow
-                    key={invoice.id}
-                    invoice={invoice}
-                    selected={selectedIds.includes(invoice.id)}
-                    onToggle={() => toggleOne(invoice.id)}
-                    onOpen={() => router.push(`/dashboard/invoices/${invoice.id}`)}
-                    isEven={idx % 2 === 1}
-                  />
-                ))}
+                {invoicesQuery.isLoading ? (
+                  Array.from({ length: 6 }).map((_, i) => (
+                    <TableRow key={i}>
+                      {Array.from({ length: 7 }).map((_, j) => (
+                        <TableCell key={j} className="px-3 py-3">
+                          <Skeleton className={cn("h-4 rounded-md", j === 0 ? "size-4" : j === 5 ? "h-4 w-16 ml-auto" : j === 6 ? "h-5 w-16 mx-auto" : "h-4 w-full")} />
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                ) : invoices.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center">
+                      <div className="flex flex-col items-center justify-center py-16">
+                        <div className="mb-4 rounded-full bg-primary/10 p-4">
+                          <FileText className="size-8 text-primary/40" />
+                        </div>
+                        <p className="mb-4 text-sm text-muted-foreground">No hay facturas para mostrar.</p>
+                        <Button size="sm" onClick={() => router.push("/dashboard/upload")}>
+                          Subir primera factura
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  invoices.map((invoice, idx) => (
+                    <InvoiceRow
+                      key={invoice.id}
+                      invoice={invoice}
+                      selected={selectedIds.includes(invoice.id)}
+                      onToggle={() => toggleOne(invoice.id)}
+                      onOpen={() => router.push(`/dashboard/invoices/${invoice.id}`)}
+                      isEven={idx % 2 === 1}
+                    />
+                  ))
+                )}
               </TableBody>
             </Table>
-            {invoices.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16">
-                <div className="mb-4 rounded-full bg-primary/10 p-4">
-                  <FileText className="size-8 text-primary/40" />
-                </div>
-                <p className="mb-4 text-sm text-muted-foreground">No hay facturas para mostrar.</p>
-                <Button size="sm" onClick={() => router.push("/dashboard/upload")}>
-                  Subir primera factura
-                </Button>
-              </div>
-            ) : null}
           </div>
         </CardContent>
       </Card>

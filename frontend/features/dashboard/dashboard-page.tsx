@@ -9,12 +9,14 @@ import { useRealtime } from "@/hooks/use-realtime";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import Link from "next/link";
 
 export function DashboardPage() {
   const stats = useQuery({ queryKey: ["statistics", "30d"], queryFn: () => getStatistics("30d") });
   const invoices = useQuery({ queryKey: ["invoices", "dashboard"], queryFn: () => listInvoices() });
   const { events, connected } = useRealtime();
+  const loading = stats.isLoading || stats.isFetching;
 
   const data = stats.data;
 
@@ -42,34 +44,45 @@ export function DashboardPage() {
 
       {/* Stat cards */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="Cola pendiente"
-          value={String(data?.queue.pending ?? 0)}
-          description="Documentos en espera"
-          icon={<Layers className="size-4" />}
-          color="sky"
-        />
-        <StatCard
-          label="Procesadas hoy"
-          value={String(data?.performance.daily_processed ?? 0)}
-          description="Últimas 24 horas"
-          icon={<Activity className="size-4" />}
-          color="emerald"
-        />
-        <StatCard
-          label="Confianza promedio"
-          value={`${Math.round((data?.performance.avg_confidence ?? 0) * 100)}%`}
-          description="Calidad de extracción"
-          icon={<Brain className="size-4" />}
-          color="amber"
-        />
-        <StatCard
-          label="Costo promedio"
-          value={`$${(data?.costs.avg_cost_per_doc ?? 0).toFixed(4)}`}
-          description="Por documento"
-          icon={<Coins className="size-4" />}
-          color="rose"
-        />
+        {loading ? (
+          <>
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+          </>
+        ) : (
+          <>
+            <StatCard
+              label="Cola pendiente"
+              value={String(data?.queue.pending ?? 0)}
+              description="Documentos en espera"
+              icon={<Layers className="size-4" />}
+              color="sky"
+            />
+            <StatCard
+              label="Procesadas hoy"
+              value={String(data?.performance.daily_processed ?? 0)}
+              description="Últimas 24 horas"
+              icon={<Activity className="size-4" />}
+              color="emerald"
+            />
+            <StatCard
+              label="Confianza promedio"
+              value={`${Math.round((data?.performance.avg_confidence ?? 0) * 100)}%`}
+              description="Calidad de extracción"
+              icon={<Brain className="size-4" />}
+              color="amber"
+            />
+            <StatCard
+              label="Costo promedio"
+              value={`$${(data?.costs.avg_cost_per_doc ?? 0).toFixed(4)}`}
+              description="Por documento"
+              icon={<Coins className="size-4" />}
+              color="rose"
+            />
+          </>
+        )}
       </div>
 
       {/* Activity + Live */}
@@ -81,7 +94,7 @@ export function DashboardPage() {
                 <CardTitle className="text-sm font-heading">Actividad reciente</CardTitle>
                 <CardDescription className="text-xs">Últimas facturas procesadas</CardDescription>
               </div>
-              {(invoices.data?.invoices ?? []).length > 0 && (
+              {!invoices.isLoading && (invoices.data?.invoices ?? []).length > 0 && (
                 <Link href="/dashboard/invoices">
                   <Button variant="ghost" size="xs" className="gap-1 text-muted-foreground hover:text-primary">
                     Ver todo
@@ -92,7 +105,22 @@ export function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            {(invoices.data?.invoices ?? []).length === 0 ? (
+            {invoices.isLoading ? (
+              <div className="flex flex-col gap-1.5 py-2">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="flex items-center justify-between px-3 py-2.5">
+                    <div className="flex items-center gap-3">
+                      <Skeleton className="size-2 rounded-full" />
+                      <div className="space-y-1.5">
+                        <Skeleton className="h-3.5 w-36 rounded-md" />
+                        <Skeleton className="h-3 w-24 rounded-md" />
+                      </div>
+                    </div>
+                    <Skeleton className="h-5 w-16 rounded-md" />
+                  </div>
+                ))}
+              </div>
+            ) : (invoices.data?.invoices ?? []).length === 0 ? (
               <div className="flex flex-col items-center justify-center py-14 text-center">
                 <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
                   <FileText className="size-6 text-primary" />
@@ -204,6 +232,23 @@ function StatCard({
           <div className={`rounded-xl p-2.5 ring-1 ${c.bg} ${c.ring}`}>
             <div className={c.icon}>{icon}</div>
           </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function StatCardSkeleton() {
+  return (
+    <Card>
+      <CardContent className="pt-5 pb-4">
+        <div className="flex items-start justify-between">
+          <div className="space-y-3">
+            <Skeleton className="h-3 w-20 rounded-md" />
+            <Skeleton className="h-7 w-16 rounded-md" />
+            <Skeleton className="h-3 w-24 rounded-md" />
+          </div>
+          <Skeleton className="size-10 rounded-xl" />
         </div>
       </CardContent>
     </Card>
