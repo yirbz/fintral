@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   const router = useRouter();
@@ -68,7 +69,61 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   }, [query.data?.audit_flags]);
 
   if (query.isLoading || !query.data) {
-    return <div className="text-sm text-muted-foreground">Cargando factura...</div>;
+    return (
+      <div className="flex flex-col gap-4">
+        <Card>
+          <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-start gap-3">
+              <Skeleton className="size-8 rounded-md" />
+              <div className="space-y-1.5">
+                <Skeleton className="h-5 w-48 rounded-md" />
+                <Skeleton className="h-3 w-24 rounded-md" />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Skeleton className="h-6 w-20 rounded-md" />
+              <Skeleton className="h-7 w-24 rounded-md" />
+              <Skeleton className="h-7 w-20 rounded-md" />
+              <Skeleton className="h-7 w-20 rounded-md" />
+            </div>
+          </CardHeader>
+        </Card>
+        <div className="grid gap-4 xl:grid-cols-3">
+          <div className="flex flex-col gap-4 xl:col-span-2">
+            <Card>
+              <CardHeader><Skeleton className="h-4 w-24 rounded-md" /></CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-2">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className={i === 7 ? "md:col-span-2" : ""}>
+                    <Skeleton className="mb-1 h-3 w-16 rounded-md" />
+                    <Skeleton className="h-7 w-full rounded-md" />
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+          <div className="flex flex-col gap-4">
+            <Card>
+              <CardHeader><Skeleton className="h-4 w-28 rounded-md" /></CardHeader>
+              <CardContent>
+                <Skeleton className="h-40 w-full rounded-md" />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader><Skeleton className="h-4 w-24 rounded-md" /></CardHeader>
+              <CardContent className="space-y-2.5">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="flex justify-between">
+                    <Skeleton className="h-3 w-16 rounded-md" />
+                    <Skeleton className="h-3 w-20 rounded-md" />
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const invoice = query.data;
