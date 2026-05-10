@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.config import IS_HEROKU
+from app.config import IS_POSTGRES
 from app.models import Invoice
 from app.core.redis import cache_get, cache_set
 
@@ -67,7 +67,7 @@ class StatisticsService:
             Invoice.organization_id == org_id,
         ]
 
-        if IS_HEROKU:
+        if IS_POSTGRES:
             rows = (
                 db.query(
                     func.to_char(Invoice.updated_at, "YYYY-MM-DD").label("day"),
@@ -102,7 +102,7 @@ class StatisticsService:
         ]
 
         if days <= 31:
-            if IS_HEROKU:
+            if IS_POSTGRES:
                 rows = (
                     db.query(
                         func.to_char(Invoice.updated_at, "YYYY-MM-DD").label("day"),
@@ -126,7 +126,7 @@ class StatisticsService:
                 )
             return [{"month": day, "count": count} for day, count in rows]
 
-        if IS_HEROKU:
+        if IS_POSTGRES:
             rows = (
                 db.query(
                     func.to_char(Invoice.updated_at, "YYYY-MM").label("month"),

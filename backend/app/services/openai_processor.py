@@ -9,7 +9,7 @@ import PyPDF2
 from io import BytesIO
 from typing import Optional, Dict, Any, Tuple
 from app.services.cost_control import CostControlService, OpenAICostInfo
-from app.config import OPENAI_API_KEY, OLLAMA_HOST, OLLAMA_MODEL
+from app.config import OPENAI_API_KEY, OLLAMA_HOST, OLLAMA_MODEL, GEMINI_API_URL, GEMINI_MODEL
 from app.database import SessionLocal
 from app.models import Invoice, Setting, UserSetting
 
@@ -257,7 +257,7 @@ class OpenAIInvoiceProcessor:
                     return self._create_error_response(f"Ollama Error: {resp.text}")
             elif is_gemini:
                 import requests
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+                url = f"{GEMINI_API_URL}/{GEMINI_MODEL}:generateContent?key={api_key}"
                 payload = {
                     "contents": [{
                         "parts": [
@@ -854,7 +854,7 @@ class OpenAIInvoiceProcessor:
                     return self._create_error_response(f"Ollama Error: {resp.text}")
             elif is_gemini:
                 import requests
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+                url = f"{GEMINI_API_URL}/{GEMINI_MODEL}:generateContent?key={api_key}"
                 # Adjunta el texto procesado del PDF
                 payload = {
                     "contents": [{
