@@ -32,6 +32,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Install runtime dependencies ONLY (much smaller than build-essential)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
+    tesseract-ocr \
+    tesseract-ocr-spa \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

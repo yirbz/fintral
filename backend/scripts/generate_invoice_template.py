@@ -6,7 +6,7 @@ Output: templates/invoice_import_template.xlsx
 
 import openpyxl
 from openpyxl.styles import (
-    Alignment, Border, Font, PatternFill, Side, NamedStyle, Protection, numbers
+    Alignment, Border, Font, PatternFill, Side
 )
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -499,8 +499,8 @@ def main():
     wb.save(output_path)
     print(f"✅ Template saved to {output_path}")
     print(f"   Sheets: {wb.sheetnames}")
-    print(f"   Data rows: 1000 (rows 4–1003)")
-    print(f"   Validations: Moneda, Tipo B/S, Forma Pago, Tipo Transacción, Monto, ITBIS")
+    print("   Data rows: 1000 (rows 4–1003)")
+    print("   Validations: Moneda, Tipo B/S, Forma Pago, Tipo Transacción, Monto, ITBIS")
 
 
 if __name__ == "__main__":
