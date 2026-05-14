@@ -16,8 +16,7 @@ const nextConfig = {
       { source: "/categories", destination: `${backend}/categories` },
       { source: "/export/:path*", destination: `${backend}/export/:path*` },
       { source: "/evolution/:path*", destination: `${backend}/evolution/:path*` },
-      { source: "/websocket/:path*", destination: `${backend}/websocket/:path*` },
-      { source: "/uploads/:path*", destination: `${backend}/uploads/:path*` }
+      { source: "/websocket/:path*", destination: `${backend}/websocket/:path*` }
     ];
   }
 };
