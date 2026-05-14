@@ -32,14 +32,18 @@ async def evolution_webhook(request: Request, db: Session = Depends(get_db)):
             if invoice_result.get("status") == "success":
                 invoice_id = invoice_result.get("invoice_id")
                 org_id = None
+                tenant_id = None
                 if invoice_id:
                     inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
-                    org_id = str(inv.organization_id) if inv else None
+                    if inv:
+                        org_id = str(inv.organization_id)
+                        tenant_id = str(inv.tenant_id)
 
                 await websocket_manager.notify_new_whatsapp_image(
                     sender_info=invoice_result.get("sender_info", {}),
                     invoice_id=invoice_id,
                     org_id=org_id,
+                    tenant_id=tenant_id,
                 )
 
                 openai_result = invoice_result.get("openai_result", {})
@@ -52,6 +56,7 @@ async def evolution_webhook(request: Request, db: Session = Depends(get_db)):
                     invoice_id=invoice_id,
                     result=notification_result,
                     org_id=org_id,
+                    tenant_id=tenant_id,
                 )
 
                 alerts = cost_control.get_cost_alerts(db, org_id=org_id)

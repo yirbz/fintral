@@ -1,7 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends
 
-from app.database import get_db
 from app.core.redis import get_cache_stats
 from app.services.websocket import websocket_manager
 
