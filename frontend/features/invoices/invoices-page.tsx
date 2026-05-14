@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, FileText, Play, Plus, Search, Send, Trash2 } from "lucide-react";
+import { Download, FileImage, FileText, Loader2, Play, Plus, Search, Send, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -37,6 +37,7 @@ import {
 import type { Invoice } from "@/lib/types";
 import { createInvoice } from "@/lib/api/invoices";
 import { ManualInvoiceDialog } from "@/features/invoices/manual-invoice-dialog";
+import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -59,6 +60,7 @@ export function InvoicesPage() {
   const [transactionType, setTransactionType] = useState("all");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [manualOpen, setManualOpen] = useState(false);
+  const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
 
   const invoicesQuery = useQuery({
     queryKey: ["invoices", search, transactionType],
@@ -81,12 +83,37 @@ export function InvoicesPage() {
   };
 
   const processMutation = useMutation({
-    mutationFn: (invoiceId: string) => processInvoice(invoiceId),
-    onSuccess: refresh
+    mutationFn: async (invoiceId: string) => {
+      setProcessingIds((prev) => new Set(prev).add(invoiceId));
+      try {
+        return await processInvoice(invoiceId);
+      } finally {
+        setProcessingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(invoiceId);
+          return next;
+        });
+      }
+    },
+    onSuccess: (data) => {
+      toast.success(data.message || "Factura procesada exitosamente");
+      void refresh();
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Error al procesar factura");
+    }
   });
 
   const bulkProcessMutation = useMutation({
-    mutationFn: () => bulkProcess(selectedIds),
+    mutationFn: async () => {
+      const promise = bulkProcess(selectedIds);
+      toast.promise(promise, {
+        loading: `Procesando ${selectedIds.length} facturas...`,
+        success: (data) => data.message || `${selectedIds.length} facturas procesadas`,
+        error: (err) => err instanceof Error ? err.message : "Error al procesar",
+      });
+      return promise;
+    },
     onSuccess: async () => {
       setSelectedIds([]);
       await refresh();
@@ -94,7 +121,15 @@ export function InvoicesPage() {
   });
 
   const bulkDeleteMutation = useMutation({
-    mutationFn: () => bulkDelete(selectedIds),
+    mutationFn: async () => {
+      const promise = bulkDelete(selectedIds);
+      toast.promise(promise, {
+        loading: `Moviendo ${selectedIds.length} facturas a la papelera...`,
+        success: (data) => data.message || `${selectedIds.length} facturas movidas a la papelera`,
+        error: (err) => err instanceof Error ? err.message : "Error al eliminar",
+      });
+      return promise;
+    },
     onSuccess: async () => {
       setSelectedIds([]);
       await refresh();
@@ -102,22 +137,40 @@ export function InvoicesPage() {
   });
 
   const pushMutation = useMutation({
-    mutationFn: () => pushWebhook(selectedIds),
+    mutationFn: async () => {
+      const promise = pushWebhook(selectedIds);
+      toast.promise(promise, {
+        loading: `Enviando ${selectedIds.length} facturas...`,
+        success: (data) => data?.status === "ok" ? "Webhook enviado exitosamente" : "Webhook enviado",
+        error: (err) => err instanceof Error ? err.message : "Error al enviar webhook",
+      });
+      return promise;
+    },
     onSuccess: () => setSelectedIds([])
   });
 
   const createMutation = useMutation({
     mutationFn: (payload: Parameters<typeof createInvoice>[0]) => createInvoice(payload),
     onSuccess: async () => {
+      toast.success("Factura creada manualmente");
       await queryClient.invalidateQueries({ queryKey: ["invoices"] });
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Error al crear factura");
     }
   });
 
   async function processAllPending() {
     const pending = invoices.filter((invoice) => !invoice.processed);
+    if (pending.length === 0) {
+      toast.info("No hay facturas pendientes por procesar");
+      return;
+    }
+    toast.info(`Procesando ${pending.length} facturas pendientes...`);
     for (const invoice of pending) {
       await processMutation.mutateAsync(invoice.id);
     }
+    toast.success(`${pending.length} facturas procesadas`);
   }
 
   function toggleAll() {
@@ -178,6 +231,10 @@ export function InvoicesPage() {
               <Plus className="size-4" data-icon="inline-start" />
               Añadir factura
             </Button>
+            <Button variant="outline" onClick={() => router.push("/dashboard/invoices/trash")}>
+              <Trash2 className="size-4" data-icon="inline-start" />
+              Ver Papelera
+            </Button>
           </div>
         </CardHeader>
       </Card>
@@ -197,7 +254,7 @@ export function InvoicesPage() {
             </Button>
             <Button size="sm" variant="destructive" onClick={() => bulkDeleteMutation.mutate()}>
               <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-              Borrar
+              Papelera
             </Button>
             <div className="h-4 w-px bg-border" />
             <div className="flex flex-wrap gap-1.5">
@@ -228,23 +285,25 @@ export function InvoicesPage() {
                   <TableHead className="px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Proveedor</TableHead>
                   <TableHead className="px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Categoría</TableHead>
                   <TableHead className="px-3 py-3 text-right text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Importe</TableHead>
+                  <TableHead className="px-3 py-3 text-center text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Tipo</TableHead>
                   <TableHead className="px-3 py-3 text-center text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Estado</TableHead>
+                  <TableHead className="px-3 py-3 text-right text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Acción</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {invoicesQuery.isLoading ? (
                   Array.from({ length: 6 }).map((_, i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 7 }).map((_, j) => (
+                      {Array.from({ length: 9 }).map((_, j) => (
                         <TableCell key={j} className="px-3 py-3">
-                          <Skeleton className={cn("h-4 rounded-md", j === 0 ? "size-4" : j === 5 ? "h-4 w-16 ml-auto" : j === 6 ? "h-5 w-16 mx-auto" : "h-4 w-full")} />
+                          <Skeleton className={cn("h-4 rounded-md", j === 0 ? "size-4" : j === 5 ? "h-4 w-16 ml-auto" : j === 6 ? "h-5 w-16 mx-auto" : j === 7 ? "h-5 w-16 mx-auto" : j === 8 ? "h-5 w-16 ml-auto" : "h-4 w-full")} />
                         </TableCell>
                       ))}
                     </TableRow>
                   ))
                 ) : invoices.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center">
+                    <TableCell colSpan={9} className="text-center">
                       <div className="flex flex-col items-center justify-center py-16">
                         <div className="mb-4 rounded-full bg-primary/10 p-4">
                           <FileText className="size-8 text-primary/40" />
@@ -264,6 +323,8 @@ export function InvoicesPage() {
                       selected={selectedIds.includes(invoice.id)}
                       onToggle={() => toggleOne(invoice.id)}
                       onOpen={() => router.push(`/dashboard/invoices/${invoice.id}`)}
+                      onProcess={() => processMutation.mutate(invoice.id)}
+                      isProcessing={processingIds.has(invoice.id)}
                       isEven={idx % 2 === 1}
                     />
                   ))
@@ -289,12 +350,16 @@ function InvoiceRow({
   selected,
   onToggle,
   onOpen,
+  onProcess,
+  isProcessing,
   isEven
 }: {
   invoice: Invoice;
   selected: boolean;
   onToggle: () => void;
   onOpen: () => void;
+  onProcess: () => void;
+  isProcessing: boolean;
   isEven: boolean;
 }) {
   const date = invoice.invoice_date ? new Date(invoice.invoice_date).toLocaleDateString("es-DO") : "-";
@@ -325,9 +390,28 @@ function InvoiceRow({
       </TableCell>
       <TableCell className="px-3 py-3 text-right font-mono tabular-nums font-semibold text-foreground">{amount}</TableCell>
       <TableCell className="px-3 py-3 text-center">
+        <span className="inline-flex items-center gap-1 text-muted-foreground">
+          {invoice.file_type === "image" ? (
+            <FileImage className="size-3.5" />
+          ) : (
+            <FileText className="size-3.5" />
+          )}
+          <span className="text-[11px]">{invoice.file_type === "image" ? "IMG" : "PDF"}</span>
+        </span>
+      </TableCell>
+      <TableCell className="px-3 py-3 text-center">
         <Badge variant={invoice.processed ? "default" : "secondary"}>
           {invoice.processed ? "Procesado" : "Pendiente"}
         </Badge>
+      </TableCell>
+      <TableCell className="px-3 py-3 text-right">
+        {isProcessing ? (
+          <Loader2 className="size-4 animate-spin text-muted-foreground ml-auto" />
+        ) : !invoice.processed ? (
+          <Button variant="ghost" size="icon-sm" onClick={onProcess} title="Procesar">
+            <Play className="size-3.5" />
+          </Button>
+        ) : null}
       </TableCell>
     </TableRow>
   );

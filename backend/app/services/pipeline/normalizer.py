@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -37,7 +38,7 @@ class Normalizer:
         """Normalize extraction data to canonical schema."""
         normalized = {
             "vendor_name": self._clean_string(data.get("vendor_name")),
-            "vendor_tax_id": self._clean_string(data.get("vendor_tax_id")),
+            "vendor_tax_id": self._normalize_rnc(data.get("vendor_tax_id")),
             "vendor_fiscal_address": self._clean_string(data.get("vendor_fiscal_address")),
             "invoice_number": self._normalize_ncf(data.get("invoice_number")),
             "invoice_date": self._validate_date(data.get("invoice_date")),
@@ -108,8 +109,13 @@ class Normalizer:
         currency = str(value).upper().strip()
         return currency if currency in valid else "DOP"
 
+    def _normalize_rnc(self, value: Any) -> Optional[str]:
+        if value is None or value == "null":
+            return None
+        rnc = re.sub(r"[^0-9]", "", str(value))
+        return rnc if rnc else None
+
     def _normalize_ncf(self, value: Any) -> Optional[str]:
-        import re
         if value is None or value == "null":
             return None
         ncf = str(value).upper().strip()

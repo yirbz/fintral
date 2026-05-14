@@ -1,6 +1,8 @@
 import json
 from datetime import datetime
 
+from app.config import SUPABASE_URL, SUPABASE_STORAGE_BUCKET
+
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
 from uuid_utils import uuid7
@@ -23,6 +25,7 @@ class Invoice(Base):
 
     filename = Column(String, index=True)
     file_path = Column(String)
+    processed_path = Column(String, nullable=True)
     file_type = Column(String)  # 'image' or 'pdf'
 
     # Datos extraídos de la factura
@@ -60,6 +63,7 @@ class Invoice(Base):
 
     # Pipeline metadata
     source_type = Column(String(20))  # xml, pdf_text, pdf_image, image_ocr, image_ai, xlsx, manual
+    quality_report = Column(Text, nullable=True)  # JSON with quality analysis
     original_xml_data = Column(Text)  # Raw XML content for e-CF invoices
     ecf_type = Column(String(2))  # e-CF type code (31-47)
     batch_id = Column(GUID, nullable=True)  # Groups XLSX bulk imports
@@ -69,14 +73,26 @@ class Invoice(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     processed = Column(Boolean, default=False)
 
+    # Soft delete
+    deleted_at = Column(DateTime, nullable=True, index=True)
+    deleted_by = Column(GUID, nullable=True)
+
     # Relationships
     organization = relationship("Organization", back_populates="invoices")
 
     def to_dict(self):
+        file_url = None
+        processed_url = None
+        if self.file_path:
+            file_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{self.file_path.lstrip('/')}"
+            if self.processed_path:
+                processed_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{self.processed_path.lstrip('/')}"
         return {
             "id": str(self.id),
             "filename": self.filename,
             "file_type": self.file_type,
+            "file_url": file_url,
+            "processed_url": processed_url,
             "vendor_name": self.vendor_name,
             "invoice_number": self.invoice_number,
             "invoice_date": self.invoice_date.isoformat() if self.invoice_date else None,
@@ -107,4 +123,5 @@ class Invoice(Base):
             "original_xml_data": self.original_xml_data,
             "ecf_type": self.ecf_type,
             "batch_id": str(self.batch_id) if self.batch_id else None,
+            "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
         }

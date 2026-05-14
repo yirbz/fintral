@@ -1,12 +1,12 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Download, Expand, Save, Sparkles, Trash2 } from "lucide-react";
+import { ArrowLeft, Download, Expand, FileText, Flame, RotateCcw, Save, Sparkles, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-import { deleteInvoice, getInvoice, getOptimizedImage, processInvoice, updateInvoice } from "@/lib/api/invoices";
+import { bulkPermanentDelete as permanentDeleteApi, deleteInvoice, getInvoice, getOptimizedImage, processInvoice, restoreInvoice, updateInvoice } from "@/lib/api/invoices";
 import type { Invoice } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +22,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
 
 export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   const router = useRouter();
@@ -31,6 +32,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   });
   const [editable, setEditable] = useState<Partial<Invoice>>({});
   const [showFullImage, setShowFullImage] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const image = useQuery({
     queryKey: ["invoice-image", invoiceId],
     queryFn: () => getOptimizedImage(invoiceId),
@@ -40,6 +42,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   useEffect(() => {
     if (query.data) {
       setEditable(query.data);
+      setImageLoaded(false);
     }
   }, [query.data]);
 
@@ -56,6 +59,24 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   const deleteMutation = useMutation({
     mutationFn: () => deleteInvoice(invoiceId),
     onSuccess: () => router.push("/dashboard/invoices")
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: () => restoreInvoice(invoiceId),
+    onSuccess: () => {
+      toast.success("Factura restaurada exitosamente");
+      void query.refetch();
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Error al restaurar"),
+  });
+
+  const permanentDeleteMutation = useMutation({
+    mutationFn: () => permanentDeleteApi([invoiceId]),
+    onSuccess: (data) => {
+      toast.success(`${data.count} factura eliminada permanentemente`);
+      router.push("/dashboard/invoices/trash");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Error al eliminar"),
   });
 
   const flags = useMemo(() => {
@@ -127,6 +148,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   }
 
   const invoice = query.data;
+  const isTrashed = !!invoice.deleted_at;
   const amount = new Intl.NumberFormat("es-DO", {
     style: "currency",
     currency: editable.currency || invoice.currency || "USD"
@@ -137,7 +159,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
       <Card>
         <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-3">
-            <Link href="/dashboard/invoices">
+            <Link href={isTrashed ? "/dashboard/invoices/trash" : "/dashboard/invoices"}>
               <Button variant="ghost" size="icon">
                 <ArrowLeft className="size-4" />
               </Button>
@@ -148,34 +170,59 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={invoice.processed ? "default" : "secondary"}>
-              {invoice.processed ? "Procesado" : "Borrador"}
-            </Badge>
-            <Button variant="secondary" onClick={() => processMutation.mutate()} disabled={invoice.processed}>
-              <Sparkles className="size-4" data-icon="inline-start" />
-              Analizar
-            </Button>
-            <Button variant="outline" onClick={() => saveMutation.mutate()}>
-              <Save className="size-4" data-icon="inline-start" />
-              Guardar
-            </Button>
-            <Button variant="destructive" onClick={() => deleteMutation.mutate()}>
-              <Trash2 className="size-4" data-icon="inline-start" />
-              Eliminar
-            </Button>
-            <Button variant="outline" asChild>
-              <a
-                href={`/uploads/${invoice.filename}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <Download className="size-4" data-icon="inline-start" />
-                Descargar
-              </a>
-            </Button>
+            {isTrashed ? (
+              <>
+                <Badge variant="destructive">En papelera</Badge>
+                <Button size="sm" variant="outline" onClick={() => restoreMutation.mutate()} disabled={restoreMutation.isPending}>
+                  <RotateCcw className="size-3.5" data-icon="inline-start" />
+                  Restaurar
+                </Button>
+                <Button size="sm" variant="destructive" onClick={() => permanentDeleteMutation.mutate()} disabled={permanentDeleteMutation.isPending}>
+                  <Flame className="size-3.5" data-icon="inline-start" />
+                  Eliminar permanentemente
+                </Button>
+              </>
+            ) : (
+              <>
+                <Badge variant={invoice.processed ? "default" : "secondary"}>
+                  {invoice.processed ? "Procesado" : "Borrador"}
+                </Badge>
+                <Button size="sm" variant="secondary" onClick={() => processMutation.mutate()} disabled={invoice.processed}>
+                  <Sparkles className="size-3.5" data-icon="inline-start" />
+                  Analizar
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => saveMutation.mutate()}>
+                  <Save className="size-3.5" data-icon="inline-start" />
+                  Guardar
+                </Button>
+                <Button size="sm" variant="destructive" onClick={() => deleteMutation.mutate()}>
+                  <Trash2 className="size-3.5" data-icon="inline-start" />
+                  Eliminar
+                </Button>
+              </>
+            )}
+            {invoice.file_url ? (
+              <Button size="sm" variant="outline" asChild>
+                <a href={invoice.file_url} target="_blank" rel="noreferrer">
+                  <Download className="size-3.5" data-icon="inline-start" />
+                  Descargar
+                </a>
+              </Button>
+            ) : null}
           </div>
         </CardHeader>
       </Card>
+
+      {isTrashed ? (
+        <Card className="border-destructive/30 bg-destructive/5">
+          <CardContent className="py-3">
+            <p className="text-xs text-destructive">
+              Esta factura está en la papelera. No se puede modificar hasta que sea restaurada.
+              {invoice.deleted_at ? ` Eliminada el ${new Date(invoice.deleted_at).toLocaleDateString("es-DO", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}.` : null}
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {flags.length > 0 ? (
         <Card className="border-amber-200 bg-amber-50">
@@ -201,12 +248,14 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                 <Input
                   value={editable.vendor_name ?? ""}
                   onChange={(event) => setEditable((prev) => ({ ...prev, vendor_name: event.target.value }))}
+                  disabled={isTrashed}
                 />
               </Field>
               <Field label="NCF">
                 <Input
                   value={editable.invoice_number ?? ""}
                   onChange={(event) => setEditable((prev) => ({ ...prev, invoice_number: event.target.value }))}
+                  disabled={isTrashed}
                 />
               </Field>
               <Field label="Fecha">
@@ -214,12 +263,14 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                   type="date"
                   value={(editable.invoice_date ?? "") as string}
                   onChange={(event) => setEditable((prev) => ({ ...prev, invoice_date: event.target.value }))}
+                  disabled={isTrashed}
                 />
               </Field>
               <Field label="Moneda">
                 <Select
                   value={(editable.currency ?? "USD") as string}
                   onValueChange={(value) => setEditable((prev) => ({ ...prev, currency: value }))}
+                  disabled={isTrashed}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -238,12 +289,14 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                 <Input
                   value={editable.category ?? ""}
                   onChange={(event) => setEditable((prev) => ({ ...prev, category: event.target.value }))}
+                  disabled={isTrashed}
                 />
               </Field>
               <Field label="Tipo transacción">
                 <Select
                   value={(editable.transaction_type ?? "expense") as string}
                   onValueChange={(value) => setEditable((prev) => ({ ...prev, transaction_type: value }))}
+                  disabled={isTrashed}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -263,6 +316,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                   onChange={(event) =>
                     setEditable((prev) => ({ ...prev, total_amount: Number(event.target.value) || 0 }))
                   }
+                  disabled={isTrashed}
                 />
               </Field>
               <Field label="ITBIS">
@@ -272,12 +326,14 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                   onChange={(event) =>
                     setEditable((prev) => ({ ...prev, tax_amount: Number(event.target.value) || 0 }))
                   }
+                  disabled={isTrashed}
                 />
               </Field>
               <Field label="Tipo bienes/servicios (DGII 606)">
                 <Select
                   value={(editable.goods_services_type || "none") as string}
                   onValueChange={(value) => setEditable((prev) => ({ ...prev, goods_services_type: value === "none" ? "" : value }))}
+                  disabled={isTrashed}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Seleccionar" />
@@ -304,6 +360,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                 <Textarea
                   value={editable.description ?? ""}
                   onChange={(event) => setEditable((prev) => ({ ...prev, description: event.target.value }))}
+                  disabled={isTrashed}
                 />
               </Field>
             </CardContent>
@@ -344,29 +401,88 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Documento fuente</CardTitle>
-              {invoice.file_type === "image" ? (
-                <Button variant="ghost" size="icon" onClick={() => setShowFullImage(true)}>
-                  <Expand className="size-4" />
-                </Button>
-              ) : null}
+              <div className="flex items-center gap-1">
+                {invoice.file_url ? (
+                  <Button variant="ghost" size="icon-xs" asChild>
+                    <a href={invoice.file_url} target="_blank" rel="noreferrer">
+                      <Download className="size-3.5" />
+                    </a>
+                  </Button>
+                ) : null}
+                {invoice.file_type === "image" && image.data?.optimized_image ? (
+                  <Button variant="ghost" size="icon-xs" onClick={() => setShowFullImage(true)}>
+                    <Expand className="size-3.5" />
+                  </Button>
+                ) : null}
+              </div>
             </CardHeader>
-            <CardContent>
-              {invoice.file_type === "image" && image.data?.optimized_image ? (
-                <img
-                  alt="Factura"
-                  className="max-h-64 w-full cursor-zoom-in rounded-md border object-contain"
-                  src={image.data.optimized_image}
-                  onClick={() => setShowFullImage(true)}
-                />
+            <CardContent className="p-0">
+              {invoice.file_type === "image" ? (
+                image.isLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Skeleton className="h-48 w-full rounded-b-md" />
+                  </div>
+                ) : image.data?.optimized_image ? (
+                  <div className="relative">
+                    {!imageLoaded ? (
+                      <div className="flex items-center justify-center py-12 absolute inset-0 z-10">
+                        <Skeleton className="h-48 w-full rounded-b-md" />
+                      </div>
+                    ) : null}
+                    <img
+                      alt="Factura"
+                      className={`max-h-72 w-full cursor-zoom-in rounded-b-md border-t object-contain transition-opacity duration-300 ${imageLoaded ? "opacity-100" : "opacity-0"}`}
+                      src={image.data.optimized_image}
+                      onClick={() => setShowFullImage(true)}
+                      onLoad={() => setImageLoaded(true)}
+                      onError={() => setImageLoaded(true)}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-3 py-8 text-muted-foreground">
+                    <FileText className="size-10" />
+                    <span className="text-xs">Vista previa no disponible</span>
+                    {invoice.file_url ? (
+                      <a href={invoice.file_url} target="_blank" rel="noreferrer" className="text-xs underline hover:text-primary">
+                        Abrir documento original
+                      </a>
+                    ) : null}
+                  </div>
+                )
+              ) : invoice.file_type === "pdf" && invoice.file_url ? (
+                <div className="relative">
+                  {!imageLoaded ? (
+                    <div className="flex items-start justify-center pt-4 absolute inset-0 z-10">
+                      <Skeleton className="h-40 w-[90%] rounded-md" />
+                    </div>
+                  ) : null}
+                  <iframe
+                    src={invoice.file_url}
+                    className={`w-full max-h-72 rounded-b-md border-t transition-opacity duration-300 ${imageLoaded ? "opacity-100" : "opacity-0"}`}
+                    style={{ minHeight: "280px" }}
+                    title="Visor de PDF"
+                    onLoad={() => setImageLoaded(true)}
+                  />
+                  <a
+                    href={invoice.file_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`absolute inset-0 ${imageLoaded ? "z-30" : "z-0"}`}
+                    aria-label="Abrir PDF"
+                  />
+                </div>
+              ) : invoice.file_url ? (
+                <div className="flex flex-col items-center gap-3 py-8 text-muted-foreground">
+                  <FileText className="size-10" />
+                  <a href={invoice.file_url} target="_blank" rel="noreferrer" className="text-xs underline hover:text-primary">
+                    Abrir documento original
+                  </a>
+                </div>
               ) : (
-                <a
-                  href={`/uploads/${invoice.filename}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center rounded-md border px-3 py-2 text-sm"
-                >
-                  Abrir PDF original
-                </a>
+                <div className="flex flex-col items-center gap-3 py-8 text-muted-foreground">
+                  <FileText className="size-10" />
+                  <span className="text-xs">Sin documento adjunto</span>
+                </div>
               )}
             </CardContent>
           </Card>

@@ -428,5 +428,117 @@ class TestPDFTextParserEdgeCases:
         assert method == "2"
 
 
+class TestPipelineOrchestrator:
+    """Test PipelineOrchestrator pure logic (no external deps)."""
+
+    def test_correct_ocr_chars_O_to_0_then_leading_zero_removed(self):
+        from app.services.pipeline_orchestrator import PipelineOrchestrator
+        p = PipelineOrchestrator()
+        # O between [A-Z] and \d -> 0, then BE lead zero removed
+        assert p._correct_ocr_chars("BO123456789") == "B123456789"
+
+    def test_correct_ocr_chars_leading_I_to_1(self):
+        from app.services.pipeline_orchestrator import PipelineOrchestrator
+        p = PipelineOrchestrator()
+        assert p._correct_ocr_chars("I234567") == "1234567"
+
+    def test_correct_ocr_chars_digit_I_to_1(self):
+        from app.services.pipeline_orchestrator import PipelineOrchestrator
+        p = PipelineOrchestrator()
+        # I between digits -> 1
+        assert p._correct_ocr_chars("10I5") == "1015"
+
+    def test_correct_ocr_chars_S_to_5_between_digits(self):
+        from app.services.pipeline_orchestrator import PipelineOrchestrator
+        p = PipelineOrchestrator()
+        # S between digits -> 5
+        assert p._correct_ocr_chars("10S5") == "1055"
+
+    def test_correct_ocr_chars_empty(self):
+        from app.services.pipeline_orchestrator import PipelineOrchestrator
+        p = PipelineOrchestrator()
+        assert p._correct_ocr_chars("") == ""
+
+    def test_correct_ocr_chars_no_changes(self):
+        from app.services.pipeline_orchestrator import PipelineOrchestrator
+        p = PipelineOrchestrator()
+        assert p._correct_ocr_chars("ABC 123") == "ABC 123"
+
+    def test_text_quality_suspect_good_text(self):
+        from app.services.pipeline_orchestrator import PipelineOrchestrator
+        p = PipelineOrchestrator()
+        assert p._text_quality_suspect("Hello World 123", ["Hello", "World", "123"]) is False
+
+    def test_text_quality_suspect_bad_text(self):
+        from app.services.pipeline_orchestrator import PipelineOrchestrator
+        p = PipelineOrchestrator()
+        # Many special chars -> low alphanumeric ratio
+        text = "|||| === *** >>> |||"
+        assert p._text_quality_suspect(text, text.split()) is True
+
+    def test_text_quality_suspect_empty(self):
+        from app.services.pipeline_orchestrator import PipelineOrchestrator
+        p = PipelineOrchestrator()
+        assert p._text_quality_suspect("", []) is True
+
+    def test_calculate_field_confidence_all_required(self):
+        from app.services.pipeline_orchestrator import PipelineOrchestrator
+        p = PipelineOrchestrator()
+        data = {"vendor_name": "Test", "invoice_number": "B01000001", "total_amount": 100.0}
+        confidence = p._calculate_field_confidence(data, {})
+        assert confidence == pytest.approx(1.0 + 0.0, abs=0.01)  # 3/3 = 1.0, no extras
+
+    def test_calculate_field_confidence_two_of_three(self):
+        from app.services.pipeline_orchestrator import PipelineOrchestrator
+        p = PipelineOrchestrator()
+        data = {"vendor_name": "Test", "invoice_number": None, "total_amount": 100.0}
+        confidence = p._calculate_field_confidence(data, {})
+        assert confidence == pytest.approx(2.0 / 3.0, abs=0.01)
+
+    def test_calculate_field_confidence_with_extras(self):
+        from app.services.pipeline_orchestrator import PipelineOrchestrator
+        p = PipelineOrchestrator()
+        data = {
+            "vendor_name": "Test", "invoice_number": "B01000001", "total_amount": 100.0,
+            "vendor_tax_id": "123456789", "tax_amount": 18.0, "invoice_date": "2026-01-01",
+        }
+        confidence = p._calculate_field_confidence(data, {})
+        assert confidence == pytest.approx(min(1.0 + 0.1 + 0.05 + 0.05, 1.0), abs=0.01)
+
+    def test_calculate_field_confidence_none_found(self):
+        from app.services.pipeline_orchestrator import PipelineOrchestrator
+        p = PipelineOrchestrator()
+        data = {}
+        confidence = p._calculate_field_confidence(data, {})
+        assert confidence == 0.0
+
+    def test_combine_confidences_weighted(self):
+        from app.services.pipeline_orchestrator import PipelineOrchestrator
+        p = PipelineOrchestrator()
+        result = p._combine_confidences(0.5, 0.8)
+        expected = 0.4 * 0.5 + 0.6 * 0.8
+        assert result == pytest.approx(expected, abs=0.001)
+
+    def test_combine_confidences_boundary(self):
+        from app.services.pipeline_orchestrator import PipelineOrchestrator
+        p = PipelineOrchestrator()
+        assert p._combine_confidences(0.0, 0.0) == 0.0
+        assert p._combine_confidences(1.0, 1.0) == 1.0
+
+    def test_process_unknown_strategy_returns_error(self):
+        from app.services.pipeline_orchestrator import PipelineOrchestrator
+        p = PipelineOrchestrator()
+        success, data, source = p.process("/nonexistent/file.xyz", "xyz")
+        assert success is False
+        assert "error" in data
+
+    def test_orchestrator_constants(self):
+        from app.services.pipeline_orchestrator import CONFIDENCE_THRESHOLD, LOW_CONFIDENCE_AI_THRESHOLD, AI_FALLBACK_STRATEGIES
+        assert CONFIDENCE_THRESHOLD == 0.7
+        assert LOW_CONFIDENCE_AI_THRESHOLD == 0.4
+        assert "image_ocr" in AI_FALLBACK_STRATEGIES
+        assert "pdf_image" in AI_FALLBACK_STRATEGIES
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

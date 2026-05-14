@@ -1,6 +1,4 @@
-from types import SimpleNamespace
 
-from uuid_utils import uuid7
 
 from app.core.container import webhook_sender
 from app.database import SessionLocal

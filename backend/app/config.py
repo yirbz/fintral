@@ -26,7 +26,7 @@ IS_DEVELOPMENT: bool = ENVIRONMENT == "DEVELOPMENT"
 SECRET_KEY: str = os.getenv("SECRET_KEY", "")
 PORT: int = int(os.getenv("PORT", "8000"))
 
-# Database — MUST be set explicitly in PROD
+# Database — PostgreSQL only. MUST be set in PROD.
 DATABASE_URL: str = os.getenv("DATABASE_URL", "")
 if not DATABASE_URL:
     if IS_PRODUCTION:
@@ -34,7 +34,7 @@ if not DATABASE_URL:
             "DATABASE_URL must be set in PROD environment. "
             "Set it in .env or as an environment variable."
         )
-    DATABASE_URL = "sqlite:///./invoices.db"
+    DATABASE_URL = "postgresql://postgres:postgres@localhost:5440/invoices"
 
 # Detect Heroku environment (separate from ENVIRONMENT — auto-detected)
 IS_HEROKU: bool = os.getenv("DYNO") is not None
@@ -52,6 +52,7 @@ IS_POSTGRES: bool = DATABASE_URL.startswith("postgresql://") or DATABASE_URL.sta
 SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
+SUPABASE_STORAGE_BUCKET: str = os.getenv("SUPABASE_STORAGE_BUCKET", "invoices")
 
 # ---------------------------------------------------------------------------
 # Admin (auto-created on startup via Supabase Auth)

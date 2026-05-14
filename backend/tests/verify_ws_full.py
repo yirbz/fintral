@@ -6,7 +6,6 @@ import asyncio
 import json
 import requests
 import websockets
-from datetime import datetime
 
 import pytest
 
@@ -77,7 +76,7 @@ def test_statistics_endpoint():
             general = data.get('general', {})
             totals = data.get('totals', {})
             
-            print(f"📋 Resumen de estadísticas:")
+            print("📋 Resumen de estadísticas:")
             print(f"   📄 Total facturas: {general.get('total_invoices', 0)}")
             print(f"   ✅ Procesadas: {general.get('processed_invoices', 0)}")
             print(f"   ⏳ Pendientes: {general.get('pending_invoices', 0)}")
@@ -108,7 +107,7 @@ def test_websocket_status_endpoint():
             print("✅ Estado WebSocket obtenido exitosamente")
             
             ws_status = data.get('websocket_status', {})
-            print(f"📊 Estado WebSocket:")
+            print("📊 Estado WebSocket:")
             print(f"   🔗 Conexiones activas: {ws_status.get('active_connections', 0)}")
             print(f"   📬 Notificaciones enviadas: {ws_status.get('notifications_sent', 0)}")
             print(f"   🔄 Estado: {ws_status.get('status', 'unknown')}")

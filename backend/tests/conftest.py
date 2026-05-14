@@ -3,9 +3,11 @@ from types import SimpleNamespace
 
 import pytest
 
-# Force local SQLite during tests before importing app/models.
+# Tests usan SQLite efímero por velocidad — NO refleja el stack de producción (PostgreSQL).
+# No agregues dependencias de PostgreSQL aquí; los tests deben correr sin DB externa.
 os.environ.pop("DYNO", None)
 os.environ["DATABASE_URL"] = "sqlite:///./test_refactor.db"
+os.environ["SUPABASE_URL"] = ""
 os.environ["DISABLE_HEARTBEAT_TASK"] = "true"
 
 # Remove stale test DB BEFORE the engine is created (which happens at first import)

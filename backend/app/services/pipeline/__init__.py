@@ -1,5 +1,8 @@
 from app.services.pipeline.base import BaseProcessor, ProcessingResult
 from app.services.pipeline.classifier import FileClassifier, classifier
+from app.services.pipeline.image_preprocessor import (
+    ImagePreprocessor, PreprocessConfig, QualityReport, OcrReadiness, image_preprocessor,
+)
 from app.services.pipeline.normalizer import Normalizer, normalizer
 from app.services.pipeline.xml_processor import xml_processor
 from app.services.pipeline.pdf_text_parser import pdf_text_parser
@@ -17,6 +20,11 @@ __all__ = [
     "ProcessingResult",
     "FileClassifier",
     "classifier",
+    "ImagePreprocessor",
+    "PreprocessConfig",
+    "QualityReport",
+    "OcrReadiness",
+    "image_preprocessor",
     "Normalizer",
     "normalizer",
     "xml_processor",

@@ -25,6 +25,7 @@ import {
   DatabaseIcon,
   BarChart3Icon,
   FileSpreadsheetIcon,
+  Trash2Icon,
 } from "lucide-react"
 
 const data = {
@@ -43,6 +44,11 @@ const data = {
       title: "Facturas",
       url: "/dashboard/invoices",
       icon: <FileTextIcon />,
+    },
+    {
+      title: "Papelera",
+      url: "/dashboard/invoices/trash",
+      icon: <Trash2Icon />,
     },
     {
       title: "Captura",

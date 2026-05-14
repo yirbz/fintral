@@ -25,3 +25,6 @@ uuid_utils>=0.9.0
 supabase>=2.5.0
 pytest==8.3.5
 lxml>=5.0.0
+pytesseract>=0.3.13
+opencv-python-headless<4.10
+numpy>=1.18.0,<2

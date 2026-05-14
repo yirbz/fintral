@@ -34,16 +34,18 @@ def _request(path: str = "/") -> Request:
 
 
 @pytest.fixture()
-def tenant_context(test_user, test_org):
+def tenant_context(test_tenant, test_user, test_org):
     db = SessionLocal()
     try:
-        from app.models import User, Organization
+        from app.models import Tenant, User, Organization
 
         user = db.query(User).filter(User.id == test_user.id).first()
         org = db.query(Organization).filter(Organization.id == test_org.id).first()
+        tenant = db.query(Tenant).filter(Tenant.id == test_tenant.id).first()
         yield TenantContext(
             db=db,
             user=user,
+            tenant=tenant,
             tenant_id=test_user.tenant_id,
             org_id=test_org.id,
             organization=org,
