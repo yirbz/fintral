@@ -21,6 +21,18 @@ logger = logging.getLogger(__name__)
 
 LEGACY_ALGORITHM = "HS256"
 
+
+def is_token_expired(token: str) -> bool:
+    """Check if a JWT has expired by reading its claims without verifying signature."""
+    try:
+        claims = jwt.get_unverified_claims(token)
+        exp = claims.get("exp")
+        if exp:
+            return datetime.utcnow().timestamp() > exp
+    except Exception:
+        pass
+    return False
+
 # ---------------------------------------------------------------------------
 # JWKS (cached) — verify Supabase RS256 tokens locally
 # ---------------------------------------------------------------------------
@@ -92,7 +104,10 @@ def verify_supabase_token(token: str) -> dict | None:
         )
         return payload
     except JWTError as e:
-        logger.warning("JWT verification failed: %s", e)
+        if is_token_expired(token):
+            logger.warning("Supabase token expired")
+        else:
+            logger.warning("JWT verification failed: %s", e)
         return None
 
 

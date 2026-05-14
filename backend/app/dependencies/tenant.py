@@ -12,6 +12,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.core.auth import is_token_expired
 from app.database import get_db
 from app.dependencies.auth import FallbackUser, get_current_user_from_cookie
 from app.models import Organization, Tenant, User, UserOrganization
@@ -54,6 +55,9 @@ async def require_tenant(
     """
     user = await get_current_user_from_cookie(request, db)
     if not user:
+        token = request.cookies.get("access_token")
+        if token and is_token_expired(token):
+            raise HTTPException(status_code=401, detail="Sesión expirada")
         raise HTTPException(status_code=401, detail="No autorizado")
 
     # Check if user is a fallback user (DB is down)
