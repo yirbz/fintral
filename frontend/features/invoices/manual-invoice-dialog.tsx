@@ -139,6 +139,8 @@ export function ManualInvoiceDialog({
       await onSave(payload);
       reset();
       onOpenChange(false);
+    } catch {
+      // error toast is handled by the mutation's onError in invoices-page
     } finally {
       setSaving(false);
     }
