@@ -10,7 +10,7 @@ from app.database import get_db
 from app.config import SUPABASE_URL
 from app.core.bootstrap import run_startup
 from app.core.ui import ensure_runtime_dirs, templates
-from app.routers import auth_pages, evolution, invoices, notifications, settings, statistics, websocket, webhooks
+from app.routers import admin, auth_pages, evolution, invoices, notifications, settings, statistics, websocket, webhooks
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,9 @@ def create_app() -> FastAPI:
             await run_startup(db)
         finally:
             db.close()
+
+    # Admin
+    app.include_router(admin.router)
 
     # Router registration (path parity)
     app.include_router(auth_pages.router)

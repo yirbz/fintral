@@ -210,3 +210,13 @@ async def optional_tenant(
         organization=org,
         role=user_org.role,
     )
+
+
+async def require_admin(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> TenantContext:
+    ctx = await require_tenant(request, db)
+    if not ctx.user.is_superuser:
+        raise HTTPException(status_code=403, detail="Se requieren permisos de administrador")
+    return ctx

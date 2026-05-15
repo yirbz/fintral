@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { bulkPermanentDelete as permanentDeleteApi, deleteInvoice, getInvoice, getOptimizedImage, processInvoice, restoreInvoice, updateInvoice } from "@/lib/api/invoices";
 import type { Invoice } from "@/lib/types";
+import { useReferenceData } from "@/hooks/use-reference-data";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,6 +23,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DgiiSelect } from "@/components/dgii-select";
 import { toast } from "sonner";
 
 export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
@@ -330,31 +332,12 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                 />
               </Field>
               <Field label="Tipo bienes/servicios (DGII 606)">
-                <Select
+                <DgiiSelect
+                  domain="goods_services_types"
                   value={(editable.goods_services_type || "none") as string}
-                  onValueChange={(value) => setEditable((prev) => ({ ...prev, goods_services_type: value === "none" ? "" : value }))}
+                  onChange={(value) => setEditable((prev) => ({ ...prev, goods_services_type: value === "none" ? "" : value }))}
                   disabled={isTrashed}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="none">Sin especificar</SelectItem>
-                      <SelectItem value="01">01 — Gastos de personal</SelectItem>
-                      <SelectItem value="02">02 — Gastos por trabajos</SelectItem>
-                      <SelectItem value="03">03 — Arrendamientos</SelectItem>
-                      <SelectItem value="04">04 — Gastos de activos fijos</SelectItem>
-                      <SelectItem value="05">05 — Gastos de representación</SelectItem>
-                      <SelectItem value="06">06 — Gastos financieros</SelectItem>
-                      <SelectItem value="07">07 — Gastos de seguros</SelectItem>
-                      <SelectItem value="08">08 — Gastos por regalías</SelectItem>
-                      <SelectItem value="09">09 — Otros gastos</SelectItem>
-                      <SelectItem value="10">10 — Costo/Gasto menor</SelectItem>
-                      <SelectItem value="11">11 — Adquisiciones</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                />
               </Field>
               <Field label="Descripción" className="md:col-span-2">
                 <Textarea
