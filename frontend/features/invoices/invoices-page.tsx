@@ -37,6 +37,8 @@ import {
 import type { Invoice } from "@/lib/types";
 import { createInvoice } from "@/lib/api/invoices";
 import { ManualInvoiceDialog } from "@/features/invoices/manual-invoice-dialog";
+import { AdvancedInvoiceDialog } from "@/features/invoices/advanced-invoice-dialog";
+import type { CreateInvoicePayload } from "@/lib/api/invoices";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -60,6 +62,8 @@ export function InvoicesPage() {
   const [transactionType, setTransactionType] = useState("all");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [manualOpen, setManualOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedInitial, setAdvancedInitial] = useState<Partial<CreateInvoicePayload> | undefined>(undefined);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
 
   const invoicesQuery = useQuery({
@@ -339,6 +343,23 @@ export function InvoicesPage() {
         onOpenChange={setManualOpen}
         onSave={async (payload) => {
           await createMutation.mutateAsync(payload);
+        }}
+        onOpenAdvanced={(current) => {
+          setAdvancedInitial(current);
+          setManualOpen(false);
+          setTimeout(() => setAdvancedOpen(true), 150);
+        }}
+      />
+      <AdvancedInvoiceDialog
+        open={advancedOpen}
+        onOpenChange={setAdvancedOpen}
+        onSave={async (payload) => {
+          await createMutation.mutateAsync(payload);
+        }}
+        initial={advancedInitial}
+        onBackToSimple={() => {
+          setAdvancedOpen(false);
+          setTimeout(() => setManualOpen(true), 150);
         }}
       />
     </div>
