@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2, Calculator } from "lucide-react";
+import { Plus, Trash2, Calculator, ChevronRightIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,21 +22,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { DgiiSelect } from "@/components/dgii-select";
 import type { CreateInvoicePayload } from "@/lib/api/invoices";
-
-const GOODS_TYPES = [
-  { value: "none", label: "No especificado" },
-  { value: "B01", label: "B01 - Productos locales" },
-  { value: "B02", label: "B02 - Productos importados" },
-  { value: "B03", label: "B03 - Materia prima local" },
-  { value: "B04", label: "B04 - Materia prima importada" },
-  { value: "B05", label: "B05 - Combustibles" },
-  { value: "B06", label: "B06 - Energía eléctrica" },
-  { value: "S01", label: "S01 - Servicios profesionales" },
-  { value: "S02", label: "S02 - Servicios técnicos" },
-  { value: "S03", label: "S03 - Arrendamiento" },
-  { value: "S04", label: "S04 - Otros servicios" },
-];
 
 interface LineItem {
   description: string;
@@ -49,10 +36,12 @@ export function ManualInvoiceDialog({
   open,
   onOpenChange,
   onSave,
+  onOpenAdvanced,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (data: CreateInvoicePayload) => Promise<void>;
+  onOpenAdvanced?: (current: Partial<CreateInvoicePayload>) => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [vendorName, setVendorName] = useState("");
@@ -65,7 +54,7 @@ export function ManualInvoiceDialog({
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [vendorTaxId, setVendorTaxId] = useState("");
-  const [goodsType, setGoodsType] = useState("");
+  const [goodsType, setGoodsType] = useState("none");
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -80,7 +69,7 @@ export function ManualInvoiceDialog({
     setCategory("");
     setDescription("");
     setVendorTaxId("");
-    setGoodsType("");
+    setGoodsType("none");
     setLineItems([]);
     setErrors({});
   }
@@ -296,14 +285,12 @@ export function ManualInvoiceDialog({
                 <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                   Tipo B/S (606)
                 </label>
-                <Select value={goodsType} onValueChange={setGoodsType}>
-                  <SelectTrigger><SelectValue placeholder="No especificado" /></SelectTrigger>
-                  <SelectContent>
-                    {GOODS_TYPES.map((gt) => (
-                      <SelectItem key={gt.value} value={gt.value}>{gt.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <DgiiSelect
+                  domain="goods_services_types"
+                  value={goodsType}
+                  onChange={setGoodsType}
+                  noneLabel="No especificado"
+                />
               </div>
             </div>
           </div>
@@ -320,6 +307,41 @@ export function ManualInvoiceDialog({
               rows={2}
             />
           </div>
+
+          {onOpenAdvanced && (
+            <div className="border-t border-border/40 pt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  const current: Partial<CreateInvoicePayload> = {};
+                  if (vendorName.trim()) current.vendor_name = vendorName.trim();
+                  if (vendorTaxId.trim()) current.vendor_tax_id = vendorTaxId.trim();
+                  if (invoiceNumber.trim()) current.invoice_number = invoiceNumber.trim();
+                  if (invoiceDate) current.invoice_date = invoiceDate;
+                  if (currency) current.currency = currency;
+                  if (transactionType) current.transaction_type = transactionType;
+                  if (category.trim()) current.category = category.trim();
+                  if (goodsType !== "none") current.goods_services_type = goodsType;
+                  if (totalAmount) current.total_amount = Number(totalAmount);
+                  if (taxAmount) current.tax_amount = Number(taxAmount);
+                  if (description.trim()) current.description = description.trim();
+                  onOpenAdvanced(current);
+                }}
+                className="group flex w-full items-center gap-3 rounded-lg border border-dashed border-primary/30 bg-primary/[0.03] px-3 py-2.5 text-left text-xs text-muted-foreground hover:border-primary/60 hover:bg-primary/[0.06] hover:text-foreground transition-all"
+              >
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary group-hover:bg-primary/20">
+                  <ChevronRightIcon className="size-3.5" />
+                </span>
+                <span className="flex-1 leading-snug">
+                  <span className="font-medium text-foreground/80 group-hover:text-foreground">Formulario avanzado</span>
+                  <br />
+                  <span className="text-[11px] text-muted-foreground/60 group-hover:text-muted-foreground/80">
+                    País del proveedor, dirección fiscal, moneda desde catálogo, categoría desde lista DGII
+                  </span>
+                </span>
+              </button>
+            </div>
+          )}
 
           {/* Line items */}
           <div>
