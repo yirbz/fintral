@@ -57,3 +57,10 @@ def require_user(user: Optional[User]) -> User:
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No autorizado")
     return user
+
+
+def require_superuser(user: Optional[User]) -> User:
+    user = require_user(user)
+    if not user.is_superuser:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Se requieren permisos de administrador")
+    return user
