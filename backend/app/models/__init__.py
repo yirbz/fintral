@@ -8,6 +8,7 @@ Usage:
 from .invoice import Invoice
 from .notification import Notification
 from .organization import Organization
+from .reference_data import ReferenceData
 from .setting import Setting, UserSetting
 from .tenant import Tenant
 from .user import User
@@ -18,6 +19,7 @@ __all__ = [
     "Invoice",
     "Notification",
     "Organization",
+    "ReferenceData",
     "Setting",
     "Tenant",
     "User",
