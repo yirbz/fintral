@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
@@ -7,11 +8,14 @@ from uuid import UUID
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
+from app.config import SUPABASE_URL
 from app.repositories import InvoiceRepository
 from app.models import Invoice
 from app.core.redis import invalidate_cache_pattern
 
 logger = logging.getLogger(__name__)
+
+INVOICES_PREFIX = "invoices"
 
 
 class InvoiceProcessingService:
@@ -19,6 +23,15 @@ class InvoiceProcessingService:
         self.invoice_repo = invoice_repo or InvoiceRepository()
         self.openai_processor = openai_processor
         self.webhook_sender = webhook_sender
+        
+        self._orchestrator = None
+    
+    @property
+    def orchestrator(self):
+        if self._orchestrator is None:
+            from app.services.pipeline_orchestrator import PipelineOrchestrator
+            self._orchestrator = PipelineOrchestrator(openai_processor=self.openai_processor)
+        return self._orchestrator
 
     @staticmethod
     def _parse_invoice_date(value: Optional[str]) -> Optional[datetime]:
@@ -65,6 +78,10 @@ class InvoiceProcessingService:
         line_items = extracted_data.get("line_items")
         invoice.line_items_data = json.dumps(line_items or [], ensure_ascii=False)
 
+        qa_warnings = extracted_data.get("quality_warnings")
+        if qa_warnings and isinstance(qa_warnings, list):
+            invoice.quality_report = json.dumps({"pipeline_warnings": qa_warnings})
+
         duplicate = None
         if extracted_data.get("invoice_number") and extracted_data.get("vendor_name"):
             duplicate = self.invoice_repo.find_duplicate_processed(
@@ -110,23 +127,49 @@ class InvoiceProcessingService:
                 "message": "Factura ya procesada",
             }
 
-        extracted_data = await run_in_threadpool(
-            self.openai_processor.process_invoice,
-            invoice.file_path,
-            invoice.file_type,
-            invoice,
-            db,
-            str(user_id) if user_id else None,
-        )
+        from app.services.supabase_storage import download_to_temp, resolve_invoice_path
 
-        if not extracted_data or "error" in extracted_data:
+        ocr_path = resolve_invoice_path(invoice, variant="processed")
+        if not ocr_path:
+            ocr_path = resolve_invoice_path(invoice, variant="original")
+        local_path = ocr_path
+        cleanup_path = None
+        if SUPABASE_URL:
+            local_path = download_to_temp(ocr_path)
+            if not local_path:
+                return {"status": "error", "error": "No se pudo descargar el archivo del storage"}
+            cleanup_path = local_path
+
+        try:
+            success, extracted_data, source_type = await run_in_threadpool(
+                self.orchestrator.process,
+                local_path,
+                invoice.file_type,
+                invoice,
+                db,
+                str(user_id) if user_id else None,
+            )
+        finally:
+            if cleanup_path and os.path.exists(cleanup_path):
+                os.unlink(cleanup_path)
+
+        if not success or extracted_data.get("error"):
             return {
                 "status": "error",
-                "error": (extracted_data or {}).get("error", "No se pudieron extraer datos"),
+                "error": extracted_data.get("error", "No se pudieron extraer datos"),
                 "extracted_data": extracted_data,
             }
 
         self.apply_extracted_data(db, invoice, extracted_data, tenant_id, org_id)
+        
+        invoice.source_type = source_type or invoice.file_type
+        
+        if extracted_data.get("original_xml_data"):
+            invoice.original_xml_data = extracted_data["original_xml_data"]
+        
+        if extracted_data.get("ecf_type"):
+            invoice.ecf_type = extracted_data["ecf_type"]
+
         db.commit()
         db.refresh(invoice)
 

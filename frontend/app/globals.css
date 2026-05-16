@@ -1,0 +1,429 @@
+@import "tw-animate-css";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Fintral Design System
+ * Logo colors: #38BDF8 · #7DD3FC · #0EA5E9
+ * Brand (marketing): Indigo/dark-navy palette per DESIGN.md
+ * Product (dashboard): Sky-blue shadcn defaults
+ */
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
+  }
+
+  :root {
+    /* ── Product UI (shadcn, dashboard) ── */
+    --background: 210 20% 98%;
+    --foreground: 224 71% 4%;
+    --card: 0 0% 100%;
+    --card-foreground: 224 71% 4%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 71% 4%;
+    --primary: 199 89% 48%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 200 12% 95%;
+    --secondary-foreground: 224 71% 4%;
+    --muted: 210 14% 95%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 200 14% 94%;
+    --accent-foreground: 224 71% 4%;
+    --border: 214 20% 91%;
+    --input: 214 20% 91%;
+    --ring: 199 89% 48%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --chart-1: 199 89% 48%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 43 96% 56%;
+    --chart-4: 262 83% 58%;
+    --chart-5: 12 76% 61%;
+    --radius: 0.875rem;
+    --sidebar: 0 0% 100%;
+    --sidebar-foreground: 224 71% 4%;
+    --sidebar-primary: 199 89% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 14% 96%;
+    --sidebar-accent-foreground: 224 71% 4%;
+    --sidebar-border: 214 20% 91%;
+    --sidebar-ring: 199 89% 48%;
+
+    /* ── Brand (marketing / landing) ── */
+    --brand-primary: #533afd;
+    --brand-primary-deep: #4434d4;
+    --brand-primary-press: #2e2b8c;
+    --brand-primary-soft: #665efd;
+    --brand-primary-subdued: #b9b9f9;
+    --brand-dark-900: #1c1e54;
+    --brand-ink: #0d253d;
+    --brand-ink-secondary: #273951;
+    --brand-ink-mute: #64748d;
+    --brand-ink-mute-2: #61718a;
+    --brand-on-primary: #ffffff;
+    --brand-canvas: #ffffff;
+    --brand-canvas-soft: #f6f9fc;
+    --brand-canvas-cream: #f5e9d4;
+    --brand-hairline: #e3e8ee;
+    --brand-hairline-input: #a8c3de;
+    --brand-ruby: #ea2261;
+    --brand-magenta: #f96bee;
+    --brand-lemon: #9b6829;
+    --brand-shadow-blue: #003770;
+  }
+
+  .dark {
+    --background: 224 71% 4%;
+    --foreground: 210 20% 98%;
+    --card: 222 47% 7%;
+    --card-foreground: 210 20% 98%;
+    --popover: 222 47% 7%;
+    --popover-foreground: 210 20% 98%;
+    --primary: 199 89% 48%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 215 28% 12%;
+    --secondary-foreground: 210 20% 98%;
+    --muted: 215 28% 12%;
+    --muted-foreground: 214 16% 55%;
+    --accent: 215 28% 14%;
+    --accent-foreground: 210 20% 98%;
+    --border: 215 28% 16%;
+    --input: 215 28% 18%;
+    --ring: 199 89% 48%;
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 98%;
+    --chart-1: 199 89% 55%;
+    --chart-2: 173 58% 45%;
+    --chart-3: 43 96% 56%;
+    --chart-4: 262 83% 60%;
+    --chart-5: 12 76% 61%;
+    --sidebar: 224 71% 3%;
+    --sidebar-foreground: 210 20% 92%;
+    --sidebar-primary: 199 89% 55%;
+    --sidebar-primary-foreground: 224 71% 4%;
+    --sidebar-accent: 215 28% 10%;
+    --sidebar-accent-foreground: 210 20% 90%;
+    --sidebar-border: 215 28% 12%;
+    --sidebar-ring: 199 89% 48%;
+  }
+
+  * {
+    @apply border-border;
+    outline-color: hsl(var(--ring) / 0.5);
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "ss01", "rlig" 1, "calt" 1;
+  }
+
+  html {
+    @apply font-sans scroll-smooth;
+  }
+
+  ::selection {
+    background-color: hsl(199 89% 48% / 20%);
+    color: hsl(var(--foreground));
+  }
+
+  /* Brand selection override for marketing pages */
+  .brand-selection ::selection {
+    background-color: rgb(83 58 253 / 0.15);
+    color: #0d253d;
+  }
+}
+
+/* ── Mesh Blob Animations ── */
+
+@keyframes blob-float {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(30px, -20px) scale(1.03); }
+  50% { transform: translate(-10px, -30px) scale(0.97); }
+  75% { transform: translate(-20px, 10px) scale(1.02); }
+}
+
+@keyframes blob-float-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-20px, 30px) scale(1.05); }
+  66% { transform: translate(25px, -10px) scale(0.95); }
+}
+
+@keyframes blob-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0.85; }
+}
+
+@keyframes mesh-reveal {
+  0% { opacity: 0; transform: scale(0.95); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.animate-blob-float {
+  animation: blob-float 12s ease-in-out infinite;
+}
+
+.animate-blob-float-2 {
+  animation: blob-float-2 15s ease-in-out infinite;
+}
+
+.animate-blob-pulse {
+  animation: blob-pulse 6s ease-in-out infinite;
+}
+
+.animate-mesh-reveal {
+  animation: mesh-reveal 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ── Dashboard mockup tilt ── */
+
+@keyframes tilt-in {
+  0% { transform: perspective(1000px) rotateY(-5deg) rotateX(5deg); }
+  100% { transform: perspective(1000px) rotateY(0deg) rotateX(0deg); }
+}
+
+.dashboard-tilt {
+  animation: tilt-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ── Staggered reveal ── */
+
+@keyframes fade-up {
+  0% { opacity: 0; transform: translateY(16px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.stagger-1 { animation: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both; }
+.stagger-2 { animation: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both; }
+.stagger-3 { animation: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both; }
+.stagger-4 { animation: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both; }
+.stagger-5 { animation: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.5s both; }
+.stagger-6 { animation: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.6s both; }
+
+/* ── Scrollbar ── */
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@layer base {
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 100px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.3);
+  }
+}
+
+/* ── Logo loader animations ── */
+
+@keyframes logo-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.08); opacity: 0.85; }
+}
+
+@keyframes logo-fade {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes logo-dot {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+.animate-logo-pulse {
+  animation: logo-pulse 2s ease-in-out infinite;
+}
+
+.animate-logo-fade {
+  animation: logo-fade 0.6s ease-out forwards;
+}
+
+.animate-logo-dot {
+  animation: logo-dot 1.4s ease-in-out infinite;
+}
+
+/* ── Hero entrance stagger ── */
+
+@keyframes hero-fade-up {
+  0% { opacity: 0; transform: translateY(18px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes hero-scale-in {
+  0% { opacity: 0; transform: scale(0.92) translateY(14px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.hero-line-1 { animation: hero-fade-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.05s both; }
+.hero-line-2 { animation: hero-fade-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both; }
+.hero-line-3 { animation: hero-fade-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.25s both; }
+.hero-mockup { animation: hero-scale-in 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both; }
+
+@media (max-width: 1023px) {
+  .hero-mockup { animation-delay: 0.05s; }
+}
+
+/* ── Hero floating UI ── */
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes float-delayed {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-6px); }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.animate-float-delayed {
+  animation: float-delayed 7s ease-in-out infinite;
+}
+
+@media (max-width: 767px) {
+  .animate-float { animation-duration: 9s; }
+  .animate-float-delayed { animation-duration: 10s; }
+}
+
+/* ── Live invoice feed ── */
+
+@keyframes slide-down {
+  0% { opacity: 0; transform: translateY(-12px); margin-bottom: -40px; }
+  100% { opacity: 1; transform: translateY(0); margin-bottom: 0; }
+}
+
+@keyframes status-flash {
+  0% { background-color: transparent; }
+  30% { background-color: rgb(239 246 255); }
+  100% { background-color: transparent; }
+}
+
+.animate-slide-down {
+  animation: slide-down 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-status-flash {
+  animation: status-flash 0.8s ease-out forwards;
+}
+
+/* ── Growing expense card ── */
+
+@keyframes float-up {
+  0% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-18px); }
+}
+
+.animate-float-up {
+  animation: float-up 1.2s ease-out forwards;
+}
+
+/* ── Progress bar shimmer ── */
+
+@keyframes shimmer-bar {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+.animate-shimmer-bar {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    transparent 100%
+  );
+  animation: shimmer-bar 2s ease-in-out infinite;
+}
+
+/* ── Shimmer scan line ── */
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255,255,255,0.15) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 3s ease-in-out infinite;
+}
+
+/* ── Gentle breath pulse ── */
+
+@keyframes breath {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.animate-breath {
+  animation: breath 3s ease-in-out infinite;
+}
+
+/* ── Scroll reveal ── */
+
+@keyframes reveal-up {
+  0% { opacity: 0; transform: translateY(24px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes reveal-scale {
+  0% { opacity: 0; transform: scale(0.95); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* ── Arrow slide on hover ── */
+
+@keyframes arrow-slide {
+  0% { transform: translateX(0); opacity: 1; }
+  100% { transform: translateX(5px); opacity: 1; }
+}
+
+.group-hover\:animate-arrow-slide:hover .animate-arrow-slide {
+  animation: arrow-slide 0.3s ease-out forwards;
+}
+
+/* ── Logo marquee ── */
+
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  animation: marquee 40s linear infinite;
+  width: fit-content;
+}
+
+/* ── Reduced motion ── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

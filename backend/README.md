@@ -187,7 +187,7 @@ Las empresas pierden **decenas de horas al mes** digitando facturas manualmente,
 
 ```
 Backend:       FastAPI + Uvicorn/Gunicorn
-Base de Datos: SQLAlchemy (SQLite local / PostgreSQL producción)
+Base de Datos: PostgreSQL (Supabase en prod, Docker local)
 Frontend:      Jinja2 Templates + TailwindCSS + Alpine.js
 IA:            OpenAI GPT-4 Vision + GPT-4o
 Integraciones: Evolution API (WhatsApp) + Webhooks
@@ -382,7 +382,7 @@ WS     /ws                          # Notificaciones en tiempo real
 ### Requisitos
 
 - Python 3.9+
-- PostgreSQL 12+ (producción) o SQLite (desarrollo)
+- PostgreSQL 12+ (Supabase en prod, Docker en desarrollo)
 - Redis 6+ (opcional, para caché)
 - OpenAI API Key (GPT-4 Vision habilitado)
 - Evolution API (opcional, para WhatsApp)

@@ -1,7 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends
 
-from app.database import get_db
 from app.core.redis import get_cache_stats
 from app.services.websocket import websocket_manager
 
@@ -17,9 +15,10 @@ statistics_service = StatisticsService(cost_control=cost_control)
 
 @router.get("/statistics")
 async def get_statistics(
+    period: str = "30d",
     ctx: TenantContext = Depends(require_tenant),
 ):
-    stats_data = statistics_service.get_statistics(ctx.db, ctx.tenant_id, ctx.org_id)
+    stats_data = statistics_service.get_statistics(ctx.db, ctx.tenant_id, ctx.org_id, period=period)
 
     await websocket_manager.notify_statistics_update(stats_data, str(ctx.org_id))
     return stats_data

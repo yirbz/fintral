@@ -2,20 +2,19 @@ import openai
 import os
 import base64
 import json
-import time
+import tempfile
 from datetime import datetime
 from PIL import Image
 import PyPDF2
 from io import BytesIO
-from typing import Optional, Dict, Any, Tuple
-from app.services.cost_control import CostControlService, OpenAICostInfo
-from app.config import OPENAI_API_KEY, OLLAMA_HOST, OLLAMA_MODEL
+from typing import Optional
+from app.services.cost_control import CostControlService
+from app.config import OPENAI_API_KEY, OLLAMA_HOST, OLLAMA_MODEL, GEMINI_API_URL, GEMINI_MODEL, SUPABASE_URL
 from app.database import SessionLocal
-from app.models import Invoice, Setting, UserSetting
+from app.models import Setting, UserSetting
 
 class OpenAIInvoiceProcessor:
     def __init__(self):
-        # Intentar cargar API Key desde BD, fallback a variable de entorno
         self.api_key = self._get_api_key()
         self.ollama_host = OLLAMA_HOST
         self.ollama_model = OLLAMA_MODEL
@@ -27,7 +26,7 @@ class OpenAIInvoiceProcessor:
             self.client = None
             print(f"✅ Ollama local LLM detected — using {self.ollama_model} at {self.ollama_host}")
         elif self.api_key.startswith("AIza"):
-            self.client = None  # Gemini uses REST API, no OpenAI client needed
+            self.client = None
             print("✅ Gemini API key detected — using Google Gemini for processing")
         elif self.api_key.startswith("demo"):
             self.client = None
@@ -40,8 +39,28 @@ class OpenAIInvoiceProcessor:
                 self.client = None
                 print(f"❌ Error configuring OpenAI API key: {e}")
         
-        # Inicializar control de costos
         self.cost_control = CostControlService()
+
+    @staticmethod
+    def _call_gemini_with_retry(url, payload, max_retries=3, timeout=60.0):
+        import requests
+        import time
+
+        last_resp = None
+        for attempt in range(max_retries):
+            resp = requests.post(url, json=payload, timeout=timeout)
+            if resp.status_code == 200:
+                return resp
+            last_resp = resp
+            if resp.status_code in (429, 500, 502, 503):
+                if attempt < max_retries - 1:
+                    wait = 2 ** attempt
+                    print(f"⚠️ Gemini API error {resp.status_code}, retrying in {wait}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait)
+                    continue
+            else:
+                break
+        return last_resp
     
     def _get_api_key(self, org_id: Optional[int] = None, user_id: Optional[int] = None):
         """Resolución consistente: user override -> org setting -> env default."""
@@ -256,8 +275,7 @@ class OpenAIInvoiceProcessor:
                 else:
                     return self._create_error_response(f"Ollama Error: {resp.text}")
             elif is_gemini:
-                import requests
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+                url = f"{GEMINI_API_URL}/{GEMINI_MODEL}:generateContent?key={api_key}"
                 payload = {
                     "contents": [{
                         "parts": [
@@ -270,9 +288,20 @@ class OpenAIInvoiceProcessor:
                         "responseMimeType": "application/json"
                     }
                 }
-                resp = requests.post(url, json=payload, timeout=60.0)
+                resp = self._call_gemini_with_retry(url, payload)
                 if resp.status_code == 200:
-                    content = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    resp_json = resp.json()
+                    content = resp_json["candidates"][0]["content"]["parts"][0]["text"]
+                    if db and invoice:
+                        usage = resp_json.get("usageMetadata", {})
+                        self.cost_control.record_openai_usage(
+                            invoice=invoice,
+                            model=GEMINI_MODEL,
+                            input_tokens=usage.get("promptTokenCount", 0),
+                            output_tokens=usage.get("candidatesTokenCount", 0),
+                            start_time=start_time,
+                            db=db,
+                        )
                 else:
                     return self._create_error_response(f"Gemini API Error: {resp.text}")
             else:
@@ -581,9 +610,9 @@ class OpenAIInvoiceProcessor:
         import re
         if not ncf:
             return True
-        if re.match(r'^B\\d{2}\\d{8}$', ncf):
+        if re.match(r'^B\d{2}\d{8}$', ncf):
             return True
-        if re.match(r'^E\\d{2}\\d{10}$', ncf):
+        if re.match(r'^E\d{2}\d{10}$', ncf):
             return True
         return False
 
@@ -746,6 +775,15 @@ class OpenAIInvoiceProcessor:
                 return {"error": "OpenAI client failed to initialize."}
         
         try:
+            if db and invoice:
+                can_process = self.cost_control.can_process_request(db, org_id=org_id)
+                if not can_process["allowed"]:
+                    error_msg = f"Límite excedido: {can_process['reason']}"
+                    print(f"🚫 {error_msg}")
+                    return self._create_error_response(error_msg)
+
+            start_time = self.cost_control.record_request_start()
+
             text = self.extract_text_from_pdf(pdf_path)
             
             if not text or len(text.strip()) < 10:
@@ -853,9 +891,7 @@ class OpenAIInvoiceProcessor:
                 else:
                     return self._create_error_response(f"Ollama Error: {resp.text}")
             elif is_gemini:
-                import requests
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
-                # Adjunta el texto procesado del PDF
+                url = f"{GEMINI_API_URL}/{GEMINI_MODEL}:generateContent?key={api_key}"
                 payload = {
                     "contents": [{
                         "parts": [
@@ -867,9 +903,20 @@ class OpenAIInvoiceProcessor:
                         "responseMimeType": "application/json"
                     }
                 }
-                resp = requests.post(url, json=payload, timeout=60.0)
+                resp = self._call_gemini_with_retry(url, payload)
                 if resp.status_code == 200:
-                    content = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    resp_json = resp.json()
+                    content = resp_json["candidates"][0]["content"]["parts"][0]["text"]
+                    if db and invoice:
+                        usage = resp_json.get("usageMetadata", {})
+                        self.cost_control.record_openai_usage(
+                            invoice=invoice,
+                            model=GEMINI_MODEL,
+                            input_tokens=usage.get("promptTokenCount", 0),
+                            output_tokens=usage.get("candidatesTokenCount", 0),
+                            start_time=start_time,
+                            db=db,
+                        )
                 else:
                     return self._create_error_response(f"Gemini API Error: {resp.text}")
             else:
@@ -903,12 +950,28 @@ class OpenAIInvoiceProcessor:
     
     def process_invoice(self, file_path, file_type, invoice=None, db=None, user_id: Optional[int] = None):
         """Procesa una factura según su tipo"""
-        if file_type == "image":
-            return self.process_image_invoice(file_path, invoice, db, user_id=user_id)
-        elif file_type == "pdf":
-            return self.process_pdf_invoice(file_path, invoice, db, user_id=user_id)
-        else:
-            raise ValueError(f"Tipo de archivo no soportado: {file_type}")
+        local_path = file_path
+        cleanup = False
+        if SUPABASE_URL and file_path.startswith("invoices/"):
+            from app.services.supabase_storage import download_file
+            data = download_file(file_path)
+            if data:
+                suffix = os.path.splitext(file_path)[1] or ".tmp"
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+                tmp.write(data)
+                local_path = tmp.name
+                cleanup = True
+                tmp.close()
+        try:
+            if file_type == "image":
+                return self.process_image_invoice(local_path, invoice, db, user_id=user_id)
+            elif file_type == "pdf":
+                return self.process_pdf_invoice(local_path, invoice, db, user_id=user_id)
+            else:
+                raise ValueError(f"Tipo de archivo no soportado: {file_type}")
+        finally:
+            if cleanup and os.path.exists(local_path):
+                os.unlink(local_path)
 
 
     def process_finance_chat(self, query: str, context_data: list, org_id: Optional[int] = None, user_id: Optional[int] = None):

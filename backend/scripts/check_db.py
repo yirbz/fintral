@@ -51,13 +51,7 @@ def main():
             if result:
                 print("✅ Conexión exitosa")
                 
-                # Verificar qué base de datos estamos usando
-                if str(engine.url).startswith("sqlite"):
-                    print("📄 Usando SQLite")
-                elif str(engine.url).startswith("postgresql"):
-                    print("🐘 Usando PostgreSQL")
-                else:
-                    print(f"❓ Base de datos desconocida: {engine.url}")
+                print("🐘 Usando PostgreSQL")
             else:
                 print("❌ Error en la consulta de prueba")
                 

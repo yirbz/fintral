@@ -10,18 +10,46 @@ test-colors:
     @echo "{{BLUE}}Azul{{RESET}}"
 
 test:
-    python -m pytest tests/
+    cd backend && python -m pytest tests/
 
 venv-test:
-    venv/bin/python -m pytest tests/
+    cd backend && venv/bin/python -m pytest tests/
 
 install:
-    pip install -r requirements.txt
+    cd backend && pip install -r requirements.txt
 
+frontend-install:
+    cd frontend && npm install
+
+# Start only infrastructure (db + redis + proxy) - for local dev with local app/frontend
+infran:
+    docker compose -f compose-database.yml up -d
+    @echo "{{GREEN}} Infraestructura iniciada:{{RESET}}"
+    @echo "{{BLUE}} Proxy: {{RESET}}http://localhost:$(docker compose -f compose-database.yml port proxy 80 | sed 's/.*://')"
+    @echo "{{BLUE}} DB:    {{RESET}}localhost:$(docker compose -f compose-database.yml port db 5432 | sed 's/.*://')"
+    @echo "{{BLUE}} Redis: {{RESET}}localhost:$(docker compose -f compose-database.yml port redis 6379 | sed 's/.*://')"
+
+infdown:
+    docker compose -f compose-database.yml down
+    @echo "{{RED}} Infraestructura detenida.{{RESET}}"
+
+frontend-dev:
+    cd frontend && npm run dev
+
+frontend-build:
+    cd frontend && npm run build
+
+frontend-lint:
+    cd frontend && npm run lint
+
+frontend-typecheck:
+    cd frontend && npm run typecheck
+
+# Full stack with Docker (app + frontend)
 up:
     docker compose up -d
     @echo "{{GREEN}} Servicios iniciados correctamente:{{RESET}}"
-    @echo "{{BLUE}} App:   {{RESET}}http://localhost:$(docker compose port app 8000 | sed 's/.*://')"
+    @echo "{{BLUE}} Proxy: {{RESET}}http://localhost:$(docker compose port proxy 80 | sed 's/.*://')"
     @echo "{{BLUE}} DB:    {{RESET}}localhost:$(docker compose port db 5432 | sed 's/.*://')"
     @echo "{{BLUE}} Redis: {{RESET}}localhost:$(docker compose port redis 6379 | sed 's/.*://')"
 

@@ -1,5 +1,4 @@
 import time
-import json
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
@@ -34,6 +33,10 @@ class CostControlService:
         "gpt-4-vision-preview": {
             "input": 0.01,
             "output": 0.03
+        },
+        "gemini-2.5-flash": {
+            "input": 0.000075,
+            "output": 0.0003
         }
     }
     

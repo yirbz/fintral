@@ -15,6 +15,18 @@ class InvoiceRepository:
                 Invoice.id == invoice_id,
                 Invoice.tenant_id == tenant_id,
                 Invoice.organization_id == org_id,
+                Invoice.deleted_at.is_(None),
+            )
+            .first()
+        )
+
+    def get_including_trashed(self, db: Session, invoice_id: UUID, tenant_id: UUID, org_id: UUID) -> Optional[Invoice]:
+        return (
+            db.query(Invoice)
+            .filter(
+                Invoice.id == invoice_id,
+                Invoice.tenant_id == tenant_id,
+                Invoice.organization_id == org_id,
             )
             .first()
         )
@@ -26,8 +38,8 @@ class InvoiceRepository:
                 Invoice.id == invoice_id,
                 Invoice.tenant_id == tenant_id,
                 Invoice.organization_id == org_id,
+                Invoice.deleted_at.is_(None),
             )
-            .with_for_update()
             .first()
         )
 
@@ -46,6 +58,7 @@ class InvoiceRepository:
         query = db.query(Invoice).filter(
             Invoice.tenant_id == tenant_id,
             Invoice.organization_id == org_id,
+            Invoice.deleted_at.is_(None),
         )
 
         if transaction_type:
@@ -75,6 +88,7 @@ class InvoiceRepository:
                 Invoice.id.in_(invoice_ids),
                 Invoice.tenant_id == tenant_id,
                 Invoice.organization_id == org_id,
+                Invoice.deleted_at.is_(None),
             )
             .all()
         )
@@ -86,6 +100,7 @@ class InvoiceRepository:
                 Invoice.id.in_(invoice_ids),
                 Invoice.tenant_id == tenant_id,
                 Invoice.organization_id == org_id,
+                Invoice.deleted_at.is_(None),
                 Invoice.processed.is_(False),
             )
             .all()
@@ -115,6 +130,7 @@ class InvoiceRepository:
                 Invoice.processed.is_(True),
                 Invoice.tenant_id == tenant_id,
                 Invoice.organization_id == org_id,
+                Invoice.deleted_at.is_(None),
             )
             .first()
         )
@@ -126,8 +142,30 @@ class InvoiceRepository:
                 Invoice.category.isnot(None),
                 Invoice.tenant_id == tenant_id,
                 Invoice.organization_id == org_id,
+                Invoice.deleted_at.is_(None),
             )
             .distinct()
             .all()
         )
         return [cat[0] for cat in categories if cat and cat[0]]
+
+    def list_trashed(
+        self,
+        db: Session,
+        tenant_id: UUID,
+        org_id: UUID,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> tuple[list[Invoice], int]:
+        query = db.query(Invoice).filter(
+            Invoice.tenant_id == tenant_id,
+            Invoice.organization_id == org_id,
+            Invoice.deleted_at.isnot(None),
+        )
+        total = query.count()
+        invoices = query.order_by(desc(Invoice.deleted_at)).offset(skip).limit(limit).all()
+        return invoices, total
+
+    def hard_delete(self, db: Session, invoice: Invoice) -> None:
+        db.delete(invoice)
+        db.commit()

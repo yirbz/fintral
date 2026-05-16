@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -5,18 +7,25 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.database import get_db
 
+from app.config import SUPABASE_URL
 from app.core.bootstrap import run_startup
 from app.core.ui import ensure_runtime_dirs, templates
-from app.routers import auth_pages, evolution, invoices, notifications, settings, statistics, websocket, webhooks
+from app.routers import admin, auth_pages, evolution, invoices, notifications, settings, statistics, websocket, webhooks
+
+logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
     ensure_runtime_dirs()
+    if SUPABASE_URL:
+        from app.services.supabase_storage import ensure_bucket
+        ensure_bucket()
+    else:
+        logger.info("Supabase not configured (SUPABASE_URL empty) — storage and auth features disabled")
 
     app = FastAPI(title="Sistema de Gestión de Facturas", version="1.0.0")
 
     app.mount("/static", StaticFiles(directory="static"), name="static")
-    app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
     @app.exception_handler(404)
     async def not_found_exception_handler(request: Request, exc: StarletteHTTPException):
@@ -37,6 +46,9 @@ def create_app() -> FastAPI:
             await run_startup(db)
         finally:
             db.close()
+
+    # Admin
+    app.include_router(admin.router)
 
     # Router registration (path parity)
     app.include_router(auth_pages.router)

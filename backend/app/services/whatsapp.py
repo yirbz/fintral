@@ -7,6 +7,7 @@ import logging
 from datetime import datetime
 from PIL import Image, ImageFile
 from typing import Optional, Dict, Any
+from uuid import UUID
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models import Invoice, Organization
@@ -15,6 +16,14 @@ from app.core.redis import cache_get, cache_set, rate_limit, is_duplicate_messag
 from app.repositories import InvoiceRepository
 from app.services.invoice_processing_service import InvoiceProcessingService
 from app.services.settings_service import SettingsService
+from app.services.supabase_storage import upload_invoice_file
+from app.config import (
+    SUPABASE_URL,
+    EVOLUTION_API_URL as _EVOLUTION_API_URL,
+    EVOLUTION_API_KEY as _EVOLUTION_API_KEY,
+    EVOLUTION_INSTANCE_NAME as _EVOLUTION_INSTANCE_NAME,
+    AUTHORIZED_WHATSAPP_NUMBER as _AUTHORIZED_WHATSAPP_NUMBER,
+)
 
 # Permitir cargar imágenes truncadas
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -40,10 +49,10 @@ class WhatsAppService:
             org_id = org.id if org else None
         except Exception as exc:  # noqa: BLE001
             logger.warning("⚠️ No se pudo leer organización para config de WhatsApp: %s", exc)
-            self.evolution_url = os.getenv("EVOLUTION_API_URL", "")
-            self.api_key = os.getenv("EVOLUTION_API_KEY", "")
-            self.instance_name = os.getenv("EVOLUTION_INSTANCE_NAME", "")
-            self.authorized_number = os.getenv("AUTHORIZED_WHATSAPP_NUMBER", "")
+            self.evolution_url = _EVOLUTION_API_URL
+            self.api_key = _EVOLUTION_API_KEY
+            self.instance_name = _EVOLUTION_INSTANCE_NAME
+            self.authorized_number = _AUTHORIZED_WHATSAPP_NUMBER
             db.close()
             return
 
@@ -101,10 +110,10 @@ class WhatsAppService:
         except Exception as e:
             logger.warning("⚠️ Error cargando config de WhatsApp: %s", e)
             # Fallback a env vars si falla DB
-            self.evolution_url = os.getenv("EVOLUTION_API_URL", "")
-            self.api_key = os.getenv("EVOLUTION_API_KEY", "")
-            self.instance_name = os.getenv("EVOLUTION_INSTANCE_NAME", "")
-            self.authorized_number = os.getenv("AUTHORIZED_WHATSAPP_NUMBER", "")
+            self.evolution_url = _EVOLUTION_API_URL
+            self.api_key = _EVOLUTION_API_KEY
+            self.instance_name = _EVOLUTION_INSTANCE_NAME
+            self.authorized_number = _AUTHORIZED_WHATSAPP_NUMBER
         finally:
             db.close()
         
@@ -294,8 +303,11 @@ class WhatsAppService:
         """
         try:
             print(f"🔄 Procesando imagen: {message_id}")
-            
-            # Obtener imagen original desde Evolution API
+
+            org = db.query(Organization).first()
+            org_id = org.id if org else None
+            tenant_id = org.tenant_id if org else None
+
             image_base64 = await self._get_image_from_evolution(message_id)
             
             if not image_base64:
@@ -303,13 +315,28 @@ class WhatsAppService:
                     "status": "error",
                     "error": "No se pudo obtener imagen desde Evolution API"
                 }
-            
-            # Procesar y guardar imagen
+
+            invoice = Invoice(
+                filename=f"whatsapp_{message_id}.jpg",
+                file_type="image",
+                processed=False,
+                description=f"WhatsApp de {sender_name} ({sender_phone})",
+                organization_id=org_id,
+                tenant_id=tenant_id,
+            )
+            db.add(invoice)
+            db.commit()
+            db.refresh(invoice)
+            print(f"📄 Invoice creado: {invoice.id}")
+
             processed_image = await self._process_image_data(
                 image_base64=image_base64,
                 sender_phone=sender_phone,
                 sender_name=sender_name,
-                message_id=message_id
+                message_id=message_id,
+                org_id=org_id,
+                tenant_id=tenant_id,
+                invoice_id=invoice.id,
             )
             
             if not processed_image["success"]:
@@ -317,29 +344,19 @@ class WhatsAppService:
                     "status": "error",
                     "error": processed_image["error"]
                 }
-            
-            # Crear registro en base de datos
-            org = db.query(Organization).first()
-            org_id = org.id if org else None
-            invoice = Invoice(
-                filename=processed_image["filename"],
-                file_path=processed_image["file_path"],
-                file_type="image",
-                processed=False,
-                description=f"WhatsApp de {sender_name} ({sender_phone})",
-                organization_id=org_id
-            )
-            db.add(invoice)
+
+            invoice.file_path = processed_image["file_path"]
+            invoice.processed_path = processed_image.get("processed_path")
+            invoice.filename = processed_image["filename"]
             db.commit()
             db.refresh(invoice)
             
             print(f"💾 Imagen guardada: {invoice.id}")
 
-            # Notificar que inicia el procesamiento con IA
             from app.services.websocket import websocket_manager
             await websocket_manager.broadcast({
                 "type": "processing_started",
-                "message": f"Analizando factura con IA...",
+                "message": "Analizando factura con IA...",
                 "data": {
                     "invoice_id": invoice.id,
                     "sender": {
@@ -349,7 +366,6 @@ class WhatsAppService:
                 }
             }, org_id=org_id)
 
-            # Procesar con OpenAI
             openai_result = await self._process_with_openai(invoice, db)
             
             return {
@@ -449,83 +465,73 @@ class WhatsAppService:
         image_base64: str, 
         sender_phone: str, 
         sender_name: str, 
-        message_id: str
+        message_id: str,
+        org_id: Optional[UUID] = None,
+        tenant_id: Optional[UUID] = None,
+        invoice_id: Optional[UUID] = None,
     ) -> Dict[str, Any]:
         """
-        Procesa datos de imagen base64
+        Procesa datos de imagen base64 con ImagePreprocessor
         """
         try:
-            # Decodificar base64
             image_data = base64.b64decode(image_base64)
             
             if len(image_data) < 100:
                 return {"success": False, "error": f"Imagen muy pequeña: {len(image_data)} bytes"}
             
-            # Procesar imagen con PIL
-            processed_data = self._optimize_image_for_ocr(image_data)
+            from app.services.pipeline.image_preprocessor import image_preprocessor as preprocessor
             
-            if not processed_data:
-                return {"success": False, "error": "No se pudo procesar la imagen"}
+            try:
+                processed_pil, quality = preprocessor.preprocess_bytes(image_data)
+            except Exception:
+                processed_pil = None
+                processed_buffer = io.BytesIO(image_data)
+                processed_pil = Image.open(processed_buffer)
+                if processed_pil.mode != 'RGB':
+                    processed_pil = processed_pil.convert('RGB')
             
-            # Generar nombre de archivo
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             phone_clean = sender_phone.replace("@s.whatsapp.net", "").replace("@c.us", "")
             filename = f"whatsapp_{phone_clean}_{timestamp}.jpg"
-            file_path = os.path.join("uploads", filename)
-            
-            # Crear directorio y guardar
-            os.makedirs("uploads", exist_ok=True)
-            with open(file_path, "wb") as f:
-                f.write(processed_data)
+
+            if SUPABASE_URL and org_id and tenant_id and invoice_id:
+                original_path = upload_invoice_file(
+                    image_data,
+                    tenant_id, org_id, invoice_id,
+                    "original", "jpg",
+                    content_type="image/jpeg",
+                )
+                processed_buffer = io.BytesIO()
+                processed_pil.save(processed_buffer, format="JPEG", quality=95)
+                processed_path = upload_invoice_file(
+                    processed_buffer.getvalue(),
+                    tenant_id, org_id, invoice_id,
+                    "processed", "jpg",
+                    content_type="image/jpeg",
+                )
+                file_path = original_path or "unknown"
+                print(f"💾 Guardado en Supabase: {file_path}")
+            else:
+                upload_dir = os.path.join("uploads", "whatsapp", phone_clean, timestamp)
+                os.makedirs(upload_dir, exist_ok=True)
+                original_path = os.path.join(upload_dir, "original.jpg")
+                with open(original_path, "wb") as f:
+                    f.write(image_data)
+                processed_path = os.path.join(upload_dir, "processed.jpg")
+                processed_pil.save(processed_path, format="JPEG", quality=95)
+                file_path = original_path
             
             return {
                 "success": True,
                 "filename": filename,
                 "file_path": file_path,
-                "size": len(processed_data)
+                "processed_path": processed_path if SUPABASE_URL or os.path.exists(processed_path) else None,
+                "size": len(image_data),
             }
             
         except Exception as e:
             print(f"❌ Error procesando imagen: {e}")
             return {"success": False, "error": str(e)}
-    
-    def _optimize_image_for_ocr(self, image_data: bytes) -> Optional[bytes]:
-        """
-        Optimiza imagen para OCR
-        """
-        try:
-            image_buffer = io.BytesIO(image_data)
-            
-            with Image.open(image_buffer) as img:
-                print(f"🔍 Imagen original: {img.format} {img.width}x{img.height}")
-                
-                # Convertir a RGB
-                if img.mode != 'RGB':
-                    img = img.convert('RGB')
-                
-                # Escalar si es muy pequeña (para mejor OCR)
-                if img.width < 400 or img.height < 400:
-                    scale_factor = max(400 / img.width, 400 / img.height)
-                    new_size = (int(img.width * scale_factor), int(img.height * scale_factor))
-                    img = img.resize(new_size, Image.Resampling.LANCZOS)
-                    print(f"📐 Escalada a {img.width}x{img.height}")
-                
-                # Redimensionar si es muy grande
-                if img.width > 2048 or img.height > 2048:
-                    img.thumbnail((2048, 2048), Image.Resampling.LANCZOS)
-                    print(f"📐 Reducida a {img.width}x{img.height}")
-                
-                # Guardar como JPEG optimizado
-                output_buffer = io.BytesIO()
-                img.save(output_buffer, format='JPEG', quality=95, optimize=True)
-                
-                result = output_buffer.getvalue()
-                print(f"✅ Imagen optimizada: {len(result)} bytes")
-                return result
-                
-        except Exception as e:
-            print(f"❌ Error optimizando imagen: {e}")
-            return None
     
     async def _process_with_openai(self, invoice: Invoice, db: Session) -> Dict[str, Any]:
         """

@@ -1,7 +1,7 @@
 import json
 import asyncio
 from typing import List, Dict, Any
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import WebSocket
 from datetime import datetime
 
 from app.database import SessionLocal
@@ -46,7 +46,7 @@ class WebSocketManager:
             print(f"❌ Error enviando mensaje personal: {e}")
             self.disconnect(websocket)
     
-    async def broadcast(self, message: Dict[str, Any], org_id: int = None):
+    async def broadcast(self, message: Dict[str, Any], org_id: int = None, tenant_id: int = None):
         """Enviar mensaje a todos los clientes conectados y guardar en BD"""
         
         # 1. Guardar en Base de Datos (Persistencia)
@@ -54,21 +54,26 @@ class WebSocketManager:
             try:
                 db = SessionLocal()
                 resolved_org_id = org_id
+                resolved_tenant_id = tenant_id
                 try:
                     invoice_id = message.get("data", {}).get("invoice_id")
                     if invoice_id:
                         inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
-                        resolved_org_id = inv.organization_id if inv else None
+                        if inv:
+                            resolved_org_id = inv.organization_id
+                            resolved_tenant_id = inv.tenant_id
                 except Exception:
                     resolved_org_id = org_id
+                    resolved_tenant_id = tenant_id
 
                 notification = Notification(
-                    type=message.get("severity", "info") if message.get("type") == "cost_alert" else "info", # Simplificado
+                    tenant_id=resolved_tenant_id,
+                    type=message.get("severity", "info") if message.get("type") == "cost_alert" else "info",
                     title=message.get("type", "Notificación"),
                     message=message.get("message", ""),
                     data=json.dumps(message.get("data", {})),
                     read=False,
-                    organization_id=resolved_org_id
+                    organization_id=resolved_org_id,
                 )
                 
                 # Mapeo específico de tipos
@@ -115,7 +120,7 @@ class WebSocketManager:
         for connection in disconnected:
             self.disconnect(connection)
     
-    async def notify_new_whatsapp_image(self, sender_info: Dict[str, Any], invoice_id: int, org_id: int = None):
+    async def notify_new_whatsapp_image(self, sender_info: Dict[str, Any], invoice_id: int, org_id: int = None, tenant_id: int = None):
         """
         Notificar sobre nueva imagen recibida por WhatsApp
         """
@@ -130,10 +135,10 @@ class WebSocketManager:
                 },
                 "status": "processing"
             }
-        }, org_id=org_id)
+        }, org_id=org_id, tenant_id=tenant_id)
         self.notification_count += 1
     
-    async def notify_processing_complete(self, invoice_id: int, result: Dict[str, Any], org_id: int = None):
+    async def notify_processing_complete(self, invoice_id: int, result: Dict[str, Any], org_id: int = None, tenant_id: int = None):
         """
         Notificar cuando se complete el procesamiento con datos detallados
         """
@@ -170,7 +175,7 @@ class WebSocketManager:
                 "result": result,
                 "extracted_data": result.get("data") if success else None
             }
-        }, org_id=org_id)
+        }, org_id=org_id, tenant_id=tenant_id)
     
     async def notify_cost_alert(self, alert_info: Dict[str, Any], org_id: int = None):
         """
@@ -183,7 +188,7 @@ class WebSocketManager:
             "severity": alert_info.get("severity", "info")
         }, org_id=org_id)
     
-    async def notify_new_invoice_upload(self, invoice_id: int, filename: str, org_id: int = None):
+    async def notify_new_invoice_upload(self, invoice_id: int, filename: str, org_id: int = None, tenant_id: int = None):
         """
         Notificar sobre nueva factura subida manualmente
         """
@@ -194,7 +199,7 @@ class WebSocketManager:
                 "invoice_id": invoice_id,
                 "filename": filename
             }
-        }, org_id=org_id)
+        }, org_id=org_id, tenant_id=tenant_id)
     
     async def notify_statistics_update(self, stats: Dict[str, Any], org_id: int = None):
         """

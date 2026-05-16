@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-invoice_password}
       POSTGRES_DB: ${POSTGRES_DB:-invoice}
     ports:
-      - "5440:5432"
+      - "${PG_PORT:-5440}:5432"
     volumes:
       - invoice_db_data:/var/lib/postgresql/data
 
@@ -17,7 +17,7 @@ services:
     image: redis:7
     container_name: invoice_redis
     ports:
-      - "6381:6379"
+      - "${REDIS_PORT:-6381}:6379"
     volumes:
       - invoice_redis_data:/data
 
@@ -29,20 +29,52 @@ services:
     env_file:
       - .env
     environment:
+      - ENVIRONMENT=PROD
       - PORT=8000
       - DATABASE_URL=postgresql://${POSTGRES_USER:-invoice}:${POSTGRES_PASSWORD:-invoice_password}@db:5432/${POSTGRES_DB:-invoice}
       - REDIS_URL=redis://redis:6379/0
-    ports:
-      - "${PORT:-8000}:8000"
     depends_on:
       - db
       - redis
     volumes:
       - ./backend/uploads:/app/uploads
       - ./backend/static:/app/static
-      - ./backend/templates:/app/templates
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    expose:
+      - "8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: invoice_frontend
+    environment:
+      - BACKEND_URL=http://app:${PORT:-8000}
+      - HOSTNAME=0.0.0.0
+    depends_on:
+      - app
+    expose:
+      - "3000"
+
+  proxy:
+    image: nginx:1.27-alpine
+    container_name: invoice_proxy
+    depends_on:
+      - app
+      - frontend
+    environment:
+      BACKEND_UPSTREAM: ${BACKEND_UPSTREAM:-app:8000}
+      FRONTEND_UPSTREAM: ${FRONTEND_UPSTREAM:-frontend:3000}
+    ports:
+      - "${PROXY_PORT:-8001}:80"
+    volumes:
+      - ./nginx/nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+    command: >
+      sh -c "envsubst '$${BACKEND_UPSTREAM}$${FRONTEND_UPSTREAM}'
+      < /etc/nginx/templates/nginx.conf.template
+      > /etc/nginx/nginx.conf
+      && nginx -g 'daemon off;'"
 
 volumes:
   invoice_db_data:

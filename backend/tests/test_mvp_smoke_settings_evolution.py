@@ -1,5 +1,4 @@
 import pytest
-from uuid_utils import uuid7
 
 from app.routers import evolution as evolution_router
 from app.routers.evolution import evolution_webhook, get_security_config

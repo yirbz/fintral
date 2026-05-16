@@ -1,6 +1,7 @@
-from . import auth_pages, evolution, invoices, notifications, settings, statistics, websocket, webhooks
+from . import admin, auth_pages, evolution, invoices, notifications, settings, statistics, websocket, webhooks
 
 __all__ = [
+    "admin",
     "auth_pages",
     "notifications",
     "settings",

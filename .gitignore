@@ -108,3 +108,17 @@ htmlcov/
 # Opencode
 .opencode/
 AGENTS.md
+.codex
+.agents/
+
+# Frontend (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/coverage/
+frontend/dist/
+frontend/out/
+frontend/.turbo/
+frontend/.cache/
+
+#Docs
+docs/plans/

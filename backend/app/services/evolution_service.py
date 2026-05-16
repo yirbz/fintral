@@ -1,12 +1,16 @@
 import base64
-import json
 import logging
-import os
 from typing import Optional
 
 import requests
 from sqlalchemy.orm import Session
 
+from app.config import (
+    EVOLUTION_API_KEY,
+    EVOLUTION_API_URL,
+    EVOLUTION_INSTANCE_NAME,
+    EVOLUTION_INSTANCE_TOKEN,
+)
 from app.services.settings_service import SettingsService
 
 logger = logging.getLogger(__name__)
@@ -65,8 +69,8 @@ class EvolutionService:
         evolution_api_url: Optional[str] = None,
         api_key: Optional[str] = None,
     ) -> dict:
-        url = evolution_api_url or os.getenv("EVOLUTION_API_URL", "http://localhost:8080")
-        key = api_key if api_key is not None else os.getenv("EVOLUTION_API_KEY", "")
+        url = evolution_api_url or EVOLUTION_API_URL
+        key = api_key if api_key is not None else EVOLUTION_API_KEY
 
         headers = {"Content-Type": "application/json"}
         if key:
@@ -92,8 +96,8 @@ class EvolutionService:
             return {"status": "error", "error": str(exc)}
 
     async def get_instance_status(self, instance_name: str, *, evolution_api_url: Optional[str] = None, api_key: Optional[str] = None) -> dict:
-        url = evolution_api_url or os.getenv("EVOLUTION_API_URL", "http://localhost:8080")
-        key = api_key if api_key is not None else os.getenv("EVOLUTION_API_KEY", "")
+        url = evolution_api_url or EVOLUTION_API_URL
+        key = api_key if api_key is not None else EVOLUTION_API_KEY
 
         headers = {"apikey": key} if key else {}
         try:
@@ -151,7 +155,7 @@ class EvolutionService:
 
     def proxy_create(self, db: Session, org_id: int, user=None) -> dict:
         config = self._resolve_config(db, org_id, user=user)
-        instance_token = os.getenv("EVOLUTION_INSTANCE_TOKEN")
+        instance_token = EVOLUTION_INSTANCE_TOKEN
         if not instance_token:
             return {"error": "EVOLUTION_INSTANCE_TOKEN no configurado"}
 
@@ -180,9 +184,9 @@ class EvolutionService:
         evolution_api_url: Optional[str] = None,
         api_key: Optional[str] = None,
     ) -> Optional[str]:
-        url = evolution_api_url or os.getenv("EVOLUTION_API_URL", "https://your-evolution-api.example.com")
-        key = api_key if api_key is not None else os.getenv("EVOLUTION_API_KEY", "YOUR_EVOLUTION_API_KEY")
-        instance = instance_name or os.getenv("EVOLUTION_INSTANCE_NAME", "your_instance")
+        url = evolution_api_url or EVOLUTION_API_URL
+        key = api_key if api_key is not None else EVOLUTION_API_KEY
+        instance = instance_name or EVOLUTION_INSTANCE_NAME
 
         if not url or not key or not instance:
             logger.error("Evolution API URL, API Key o Instance Name no configurados")
@@ -233,7 +237,7 @@ class EvolutionService:
             return None
 
     def build_test_get_base64_response(self, message_id: str, instance_name: Optional[str] = None) -> dict:
-        instance = instance_name or os.getenv("EVOLUTION_INSTANCE_NAME", "your_instance")
+        instance = instance_name or EVOLUTION_INSTANCE_NAME
         base64_result = self.get_base64_from_evolution_api(message_id, instance_name=instance)
 
         if not base64_result:

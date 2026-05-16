@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fintral — Logo System</title>
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f4f4f5;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+
+    .stage {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      max-width: 860px;
+      width: 100%;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 32px rgba(0, 0, 0, 0.10);
+    }
+
+    .row {
+      display: flex;
+      gap: 0;
+    }
+
+    .panel {
+      flex: 1;
+      padding: 48px 40px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 32px;
+    }
+
+    .panel-light {
+      background: #ffffff;
+      border: 1px solid #e4e4e7;
+    }
+
+    .panel-dark {
+      background: #09090b;
+      border: 1px solid #27272a;
+    }
+
+    .panel-muted {
+      background: #fafafa;
+      border: 1px solid #e4e4e7;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .wordmark {
+      font-size: 22px;
+      font-weight: 500;
+      letter-spacing: -0.6px;
+      line-height: 1;
+    }
+
+    .wm-dark {
+      color: #09090b;
+    }
+
+    .wm-light {
+      color: #fafafa;
+    }
+
+    .tagline {
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 400;
+    }
+
+    .tl-dark {
+      color: #71717a;
+    }
+
+    .tl-light {
+      color: #52525b;
+    }
+
+    .label {
+      font-size: 11px;
+      color: #a1a1aa;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-top: 8px;
+      display: block;
+      font-weight: 400;
+    }
+
+    .mark-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="stage">
+
+    <!-- Row 1: Light + Dark -->
+    <div class="row">
+      <div class="panel panel-light">
+        <div class="logo">
+          <svg width="42" height="42" viewBox="0 0 40 40" fill="none">
+            <rect width="40" height="40" rx="8" fill="#09090b" />
+            <rect x="10" y="11" width="20" height="3.5" rx="1" fill="#38BDF8" />
+            <rect x="10" y="18.25" width="14" height="3.5" rx="1" fill="#7DD3FC" />
+            <rect x="10" y="25.5" width="9" height="3.5" rx="1" fill="white" />
+          </svg>
+          <span class="wordmark wm-dark">Fintral</span>
+        </div>
+        <span class="tagline tl-dark">Financial infrastructure</span>
+      </div>
+
+      <div class="panel panel-dark">
+        <div class="logo">
+          <svg width="42" height="42" viewBox="0 0 40 40" fill="none">
+            <rect width="40" height="40" rx="8" fill="#0c4a6e" />
+            <rect x="10" y="11" width="20" height="3.5" rx="1" fill="#38BDF8" />
+            <rect x="10" y="18.25" width="14" height="3.5" rx="1" fill="#7DD3FC" />
+            <rect x="10" y="25.5" width="9" height="3.5" rx="1" fill="white" />
+          </svg>
+          <span class="wordmark wm-light">Fintral</span>
+        </div>
+        <span class="tagline tl-light">Financial infrastructure</span>
+      </div>
+    </div>
+
+    <!-- Row 2: Sky blue fill variants -->
+    <div class="row">
+      <div class="panel panel-light" style="background:#f0f9ff; border-color:#bae6fd;">
+        <div class="logo">
+          <svg width="42" height="42" viewBox="0 0 40 40" fill="none">
+            <rect width="40" height="40" rx="8" fill="#38BDF8" />
+            <rect x="10" y="11" width="20" height="3.5" rx="1" fill="white" />
+            <rect x="10" y="18.25" width="14" height="3.5" rx="1" fill="white" />
+            <rect x="10" y="25.5" width="9" height="3.5" rx="1" fill="white" />
+          </svg>
+          <span class="wordmark" style="color:#0c4a6e;">Fintral</span>
+        </div>
+        <span class="tagline" style="color:#0369a1;">Financial infrastructure</span>
+      </div>
+
+      <div class="panel panel-dark" style="background:#082f49; border-color:#0c4a6e;">
+        <div class="logo">
+          <svg width="42" height="42" viewBox="0 0 40 40" fill="none">
+            <rect width="40" height="40" rx="8" fill="#0369a1" />
+            <rect x="10" y="11" width="20" height="3.5" rx="1" fill="#38BDF8" />
+            <rect x="10" y="18.25" width="14" height="3.5" rx="1" fill="#7DD3FC" />
+            <rect x="10" y="25.5" width="9" height="3.5" rx="1" fill="white" />
+          </svg>
+          <span class="wordmark" style="color:#e0f2fe;">Fintral</span>
+        </div>
+        <span class="tagline" style="color:#7DD3FC;">Financial infrastructure</span>
+      </div>
+    </div>
+
+    <!-- Row 3: Mark scale showcase -->
+    <div class="panel panel-muted"
+      style="flex-direction: row; justify-content: flex-start; align-items: flex-end; gap: 28px; padding: 36px 40px;">
+      <div class="mark-group">
+        <svg width="64" height="64" viewBox="0 0 40 40" fill="none">
+          <rect width="40" height="40" rx="8" fill="#09090b" />
+          <rect x="10" y="11" width="20" height="3.5" rx="1" fill="#38BDF8" />
+          <rect x="10" y="18.25" width="14" height="3.5" rx="1" fill="#7DD3FC" />
+          <rect x="10" y="25.5" width="9" height="3.5" rx="1" fill="white" />
+        </svg>
+        <span class="label">64px</span>
+      </div>
+
+      <div class="mark-group">
+        <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+          <rect width="40" height="40" rx="8" fill="#09090b" />
+          <rect x="10" y="11" width="20" height="3.5" rx="1" fill="#38BDF8" />
+          <rect x="10" y="18.25" width="14" height="3.5" rx="1" fill="#7DD3FC" />
+          <rect x="10" y="25.5" width="9" height="3.5" rx="1" fill="white" />
+        </svg>
+        <span class="label">40px</span>
+      </div>
+
+      <div class="mark-group">
+        <svg width="28" height="28" viewBox="0 0 40 40" fill="none">
+          <rect width="40" height="40" rx="8" fill="#09090b" />
+          <rect x="10" y="11" width="20" height="3.5" rx="1" fill="#38BDF8" />
+          <rect x="10" y="18.25" width="14" height="3.5" rx="1" fill="#7DD3FC" />
+          <rect x="10" y="25.5" width="9" height="3.5" rx="1" fill="white" />
+        </svg>
+        <span class="label">28px</span>
+      </div>
+
+      <div class="mark-group">
+        <svg width="20" height="20" viewBox="0 0 40 40" fill="none">
+          <rect width="40" height="40" rx="8" fill="#09090b" />
+          <rect x="10" y="11" width="20" height="3.5" rx="1" fill="#38BDF8" />
+          <rect x="10" y="18.25" width="14" height="3.5" rx="1" fill="#7DD3FC" />
+          <rect x="10" y="25.5" width="9" height="3.5" rx="1" fill="white" />
+        </svg>
+        <span class="label">20px</span>
+      </div>
+
+      <div style="flex:1"></div>
+
+      <div class="mark-group">
+        <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+          <rect x="0.5" y="0.5" width="39" height="39" rx="7.5" fill="none" stroke="#38BDF8" stroke-width="1" />
+          <rect x="10" y="11" width="20" height="3.5" rx="1" fill="#38BDF8" />
+          <rect x="10" y="18.25" width="14" height="3.5" rx="1" fill="#38BDF8" />
+          <rect x="10" y="25.5" width="9" height="3.5" rx="1" fill="#38BDF8" />
+        </svg>
+        <span class="label">outline</span>
+      </div>
+
+      <div class="mark-group">
+        <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+          <rect width="40" height="40" rx="8" fill="#38BDF8" />
+          <rect x="10" y="11" width="20" height="3.5" rx="1" fill="white" />
+          <rect x="10" y="18.25" width="14" height="3.5" rx="1" fill="white" />
+          <rect x="10" y="25.5" width="9" height="3.5" rx="1" fill="white" />
+        </svg>
+        <span class="label">sky fill</span>
+      </div>
+    </div>
+
+    <!-- Row 4: Small usage + color tokens -->
+    <div class="panel panel-light" style="flex-direction: row; gap: 48px; align-items: center; padding: 24px 40px;">
+      <div class="logo">
+        <svg width="24" height="24" viewBox="0 0 40 40" fill="none">
+          <rect width="40" height="40" rx="8" fill="#09090b" />
+          <rect x="10" y="11" width="20" height="3.5" rx="1" fill="#38BDF8" />
+          <rect x="10" y="18.25" width="14" height="3.5" rx="1" fill="#7DD3FC" />
+          <rect x="10" y="25.5" width="9" height="3.5" rx="1" fill="white" />
+        </svg>
+        <span
+          style="font-size:16px;font-weight:500;color:#09090b;letter-spacing:-0.4px;line-height:1;font-family:-apple-system,sans-serif">Fintral</span>
+      </div>
+
+      <div style="width:1px;height:20px;background:#e4e4e7;"></div>
+
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:16px;height:16px;border-radius:4px;background:#38BDF8;"></div>
+        <span style="font-size:11px;color:#71717a;letter-spacing:0.04em;font-family:monospace">#38BDF8</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:16px;height:16px;border-radius:4px;background:#7DD3FC;"></div>
+        <span style="font-size:11px;color:#71717a;letter-spacing:0.04em;font-family:monospace">#7DD3FC</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:16px;height:16px;border-radius:4px;background:#0EA5E9;"></div>
+        <span style="font-size:11px;color:#71717a;letter-spacing:0.04em;font-family:monospace">#0EA5E9</span>
+      </div>
+    </div>
+
+  </div>
+</body>
+
+</html>

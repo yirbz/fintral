@@ -3,6 +3,29 @@ from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field
 
 
+class LineItem(BaseModel):
+    description: str = ""
+    quantity: float = 1.0
+    unit_price: float = 0.0
+    subtotal: float = 0.0
+
+
+class ManualInvoiceCreate(BaseModel):
+    vendor_name: str
+    invoice_number: str
+    invoice_date: str = ""  # YYYY-MM-DD
+    total_amount: float = 0.0
+    tax_amount: float | None = None
+    currency: str = "DOP"
+    transaction_type: str = "expense"
+    category: str | None = None
+    description: str | None = None
+    vendor_tax_id: str | None = None
+    vendor_country: str | None = None
+    goods_services_type: str | None = None
+    line_items: list[LineItem] = []
+
+
 class ChatRequest(BaseModel):
     query: str
 

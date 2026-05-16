@@ -40,7 +40,7 @@ def test_evolution_api_connection():
         
         if response.status_code == 200:
             data = response.json()
-            print(f"✅ Conexión exitosa con Evolution API")
+            print("✅ Conexión exitosa con Evolution API")
             print(f"📱 Estado de instancia: {data}")
         else:
             print(f"❌ Error conectando: {response.status_code}")
@@ -77,7 +77,7 @@ def test_local_endpoint():
         
         if response.status_code == 200:
             data = response.json()
-            print(f"✅ Endpoint local funcionando")
+            print("✅ Endpoint local funcionando")
             print(f"📄 Respuesta: {json.dumps(data, indent=2)}")
         else:
             print(f"⚠️ Endpoint respondió con error: {response.status_code}")
@@ -125,7 +125,7 @@ def test_webhook_simulation():
         
         if response.status_code == 200:
             data = response.json()
-            print(f"✅ Webhook procesado correctamente")
+            print("✅ Webhook procesado correctamente")
             print(f"📄 Resultado: {json.dumps(data, indent=2)}")
             
             # Verificar si se procesó con Evolution API
