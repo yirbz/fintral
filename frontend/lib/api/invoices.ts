@@ -1,0 +1,176 @@
+import { apiFetch } from "@/lib/api/client";
+import type { Invoice } from "@/lib/types";
+
+export interface InvoiceFilters {
+  transaction_type?: string;
+  processed?: string;
+  search?: string;
+}
+
+export async function listInvoices(filters: InvoiceFilters = {}) {
+  const params = new URLSearchParams();
+  if (filters.transaction_type) params.set("transaction_type", filters.transaction_type);
+  if (filters.processed) params.set("processed", filters.processed);
+  if (filters.search) params.set("search", filters.search);
+  const query = params.toString();
+  return apiFetch<{ invoices: Invoice[]; total: number }>(`/invoices${query ? `?${query}` : ""}`);
+}
+
+export async function getInvoice(invoiceId: string) {
+  return apiFetch<Invoice>(`/invoices/${invoiceId}`);
+}
+
+export async function getInvoiceRaw(invoiceId: string) {
+  return apiFetch<{ invoice: Invoice; status: string }>(`/invoice/${invoiceId}`);
+}
+
+export async function processInvoice(invoiceId: string) {
+  return apiFetch<{
+    message: string;
+    invoice: Invoice;
+    extracted_data?: Record<string, unknown>;
+  }>(`/process/${invoiceId}`, { method: "POST" });
+}
+
+export async function updateInvoice(invoiceId: string, payload: Partial<Invoice>) {
+  return apiFetch<Invoice>(`/invoices/${invoiceId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteInvoice(invoiceId: string) {
+  return apiFetch<{ message: string }>(`/invoices/${invoiceId}`, { method: "DELETE" });
+}
+
+export async function bulkProcess(invoiceIds: string[]) {
+  return apiFetch<{ message: string; success_count: number; errors: string[] }>(
+    "/api/invoices/bulk-process",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invoice_ids: invoiceIds })
+    }
+  );
+}
+
+export async function bulkDelete(invoiceIds: string[]) {
+  return apiFetch<{ message: string; count: number }>("/api/invoices/bulk-delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ invoice_ids: invoiceIds })
+  });
+}
+
+export async function pushWebhook(invoiceIds: string[]) {
+  return apiFetch<{ status: string }>("/api/invoices/push-webhook", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ invoice_ids: invoiceIds })
+  });
+}
+
+export interface CreateInvoicePayload {
+  vendor_name: string;
+  invoice_number: string;
+  invoice_date: string;
+  total_amount: number;
+  tax_amount?: number;
+  currency: string;
+  transaction_type: string;
+  category?: string;
+  description?: string;
+  vendor_tax_id?: string;
+  vendor_country?: string;
+  goods_services_type?: string;
+  line_items: Array<{
+    description: string;
+    quantity: number;
+    unit_price: number;
+    subtotal: number;
+  }>;
+}
+
+export async function createInvoice(payload: CreateInvoicePayload) {
+  return apiFetch<Invoice>("/invoices", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function uploadInvoices(
+  files: File[],
+  category?: string,
+  transactionType?: string
+) {
+  const formData = new FormData();
+  files.forEach((file) => formData.append("files", file));
+  if (category) formData.append("category", category);
+  if (transactionType) formData.append("transaction_type", transactionType);
+  return apiFetch<{
+    results: Array<{
+      filename: string;
+      success: boolean;
+      invoice_id?: string;
+      error?: string;
+      message?: string;
+    }>;
+  }>("/upload", {
+    method: "POST",
+    body: formData
+  });
+}
+
+export async function getOptimizedImage(invoiceId: string) {
+  return apiFetch<{ optimized_image: string }>(`/invoice/${invoiceId}/optimized-image`);
+}
+
+export function exportUrl(format: string, invoiceIds: string[]) {
+  const params = new URLSearchParams({
+    format,
+    invoice_ids: invoiceIds.join(",")
+  });
+  return `/export/csv?${params.toString()}`;
+}
+
+/* ── Trash / Soft Delete ───────────────────── */
+
+export async function listTrashedInvoices(skip = 0, limit = 100) {
+  return apiFetch<{ invoices: Invoice[]; total: number }>(
+    `/invoices/trash?skip=${skip}&limit=${limit}`
+  );
+}
+
+export async function trashInvoice(invoiceId: string) {
+  return apiFetch<{ message: string }>(`/invoices/${invoiceId}`, { method: "DELETE" });
+}
+
+export async function restoreInvoice(invoiceId: string) {
+  return apiFetch<{ message: string; invoice: Invoice }>(`/invoices/${invoiceId}/restore`, {
+    method: "POST"
+  });
+}
+
+export async function permanentDeleteInvoice(invoiceId: string) {
+  return apiFetch<{ message: string }>(`/invoices/${invoiceId}/permanent`, {
+    method: "DELETE"
+  });
+}
+
+export async function bulkRestore(invoiceIds: string[]) {
+  return apiFetch<{ message: string; count: number }>("/api/invoices/bulk-restore", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ invoice_ids: invoiceIds })
+  });
+}
+
+export async function bulkPermanentDelete(invoiceIds: string[]) {
+  return apiFetch<{ message: string; count: number }>("/api/invoices/bulk-permanent-delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ invoice_ids: invoiceIds })
+  });
+}
