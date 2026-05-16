@@ -15,9 +15,46 @@ const inter = Inter({
 const geistMono = GeistMono;
 
 export const metadata: Metadata = {
-  title: "Fintral — Infraestructura fiscal automatizada para RD",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "https://fintral.do"),
+  title: {
+    default: "Fintral — Infraestructura fiscal automatizada para RD",
+    template: "%s | Fintral"
+  },
   description:
     "Convierte facturas físicas, PDFs y comprobantes en datos estructurados al instante. Visión artificial para extraer y validar contra la DGII.",
+  keywords: [
+    "DGII",
+    "Facturación",
+    "República Dominicana",
+    "NCF",
+    "e-NCF",
+    "Automatización",
+    "Fintech",
+    "Contabilidad",
+    "Reporte 606"
+  ],
+  authors: [{ name: "Fintral Team" }],
+  creator: "Fintral",
+  publisher: "Fintral",
+  formatDetection: {
+    email: false,
+    address: false,
+    telephone: false,
+  },
+  openGraph: {
+    type: "website",
+    locale: "es_DO",
+    url: "https://fintral.do",
+    title: "Fintral — Infraestructura fiscal automatizada para RD",
+    description: "Visión artificial para extraer facturas y validar NCFs contra la DGII.",
+    siteName: "Fintral"
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Fintral — Infraestructura fiscal automatizada para RD",
+    description: "Visión artificial para extraer facturas y validar NCFs contra la DGII.",
+    creator: "@fintral"
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
