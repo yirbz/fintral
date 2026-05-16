@@ -32,7 +32,7 @@ const data = {
   user: {
     name: "Ana Martínez",
     email: "ana@fintral.com",
-    avatar: "/avatars/shadcn.jpg",
+    avatar: "https://i.pravatar.cc/80?u=ana-martinez-fintral",
   },
   navMain: [
     {
