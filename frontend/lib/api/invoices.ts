@@ -5,6 +5,7 @@ export interface InvoiceFilters {
   transaction_type?: string;
   processed?: string;
   search?: string;
+  quality?: string;
 }
 
 export async function listInvoices(filters: InvoiceFilters = {}) {
@@ -12,6 +13,7 @@ export async function listInvoices(filters: InvoiceFilters = {}) {
   if (filters.transaction_type) params.set("transaction_type", filters.transaction_type);
   if (filters.processed) params.set("processed", filters.processed);
   if (filters.search) params.set("search", filters.search);
+  if (filters.quality) params.set("quality", filters.quality);
   const query = params.toString();
   return apiFetch<{ invoices: Invoice[]; total: number }>(`/invoices${query ? `?${query}` : ""}`);
 }
@@ -24,11 +26,22 @@ export async function getInvoiceRaw(invoiceId: string) {
   return apiFetch<{ invoice: Invoice; status: string }>(`/invoice/${invoiceId}`);
 }
 
+export interface DuplicateNcfInfo {
+  invoice_id: string;
+  invoice_number: string;
+  vendor_name?: string;
+  invoice_date?: string;
+  total_amount?: number;
+}
+
 export async function processInvoice(invoiceId: string) {
   return apiFetch<{
     message: string;
+    status?: string;
+    error?: string;
     invoice: Invoice;
     extracted_data?: Record<string, unknown>;
+    duplicate_ncf?: DuplicateNcfInfo;
   }>(`/process/${invoiceId}`, { method: "POST" });
 }
 

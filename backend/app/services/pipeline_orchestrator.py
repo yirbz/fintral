@@ -91,7 +91,7 @@ class PipelineOrchestrator:
 
         except Exception as e:
             logger.exception("Pipeline error processing %s: %s", file_path, e)
-            return False, {"error": f"Pipeline error: {str(e)}"}, None
+            return False, {"error": "Ocurrió un error interno al procesar el documento. Intenta de nuevo o sube un archivo con mejor calidad."}, None
 
     def _process_by_strategy(
         self,
@@ -113,7 +113,7 @@ class PipelineOrchestrator:
         else:
             return ProcessingResult(
                 success=False,
-                error=f"Unknown strategy: {strategy}",
+                error=f"Formato de archivo no soportado ({strategy}). Usa JPG, PNG, PDF o XML.",
                 source_type=source_type,
                 confidence=0.0,
             )
@@ -148,7 +148,7 @@ class PipelineOrchestrator:
             if not text_lines:
                 return ProcessingResult(
                     success=False,
-                    error="OCR produced no text",
+                    error="No se pudo leer texto de la imagen. Asegúrate de que la foto sea nítida y esté bien iluminada.",
                     source_type="image_ocr",
                     confidence=0.0,
                     warnings=quality.warnings,
@@ -185,7 +185,7 @@ class PipelineOrchestrator:
         except ImportError:
             return ProcessingResult(
                 success=False,
-                error="pytesseract not installed",
+                error="El motor de reconocimiento óptico (OCR) no está disponible en este servidor. Contacta al administrador.",
                 source_type="image_ocr",
                 confidence=0.0,
             )
@@ -193,7 +193,7 @@ class PipelineOrchestrator:
             logger.error("OCR error: %s", e)
             return ProcessingResult(
                 success=False,
-                error=f"OCR error: {str(e)}",
+                error="Error al procesar la imagen. Verifica que el archivo no esté dañado e intenta de nuevo.",
                 source_type="image_ocr",
                 confidence=0.0,
             )
@@ -334,7 +334,7 @@ class PipelineOrchestrator:
         user_id: Optional[int] = None,
     ) -> Tuple[bool, Dict[str, Any], str]:
         if not self.openai_processor:
-            return False, {"error": "AI processor not available"}, "image_ai"
+            return False, {"error": "El procesador de inteligencia artificial no está disponible. Contacta al administrador."}, "image_ai"
 
         source_type = "image_ai" if file_type.startswith("image") else "pdf_ai"
 
@@ -354,7 +354,7 @@ class PipelineOrchestrator:
 
         except Exception as e:
             logger.error("AI processing error: %s", e)
-            return False, {"error": str(e)}, source_type
+            return False, {"error": "Error al analizar el documento con inteligencia artificial. Intenta de nuevo en unos minutos."}, source_type
 
 
 orchestrator = PipelineOrchestrator()

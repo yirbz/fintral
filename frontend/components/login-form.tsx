@@ -19,6 +19,7 @@ export function LoginForm({
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -28,7 +29,7 @@ export function LoginForm({
     setLoading(true);
 
     try {
-      await login(email, password);
+      await login(email, password, remember);
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al iniciar sesión");
@@ -82,6 +83,51 @@ export function LoginForm({
             onChange={(e) => setPassword(e.target.value)}
           />
         </Field>
+
+        {/* Remember me */}
+        <label
+          htmlFor="remember"
+          className="flex cursor-pointer items-center gap-2.5 select-none"
+        >
+          <div className="relative flex items-center">
+            <input
+              id="remember"
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+              className="peer sr-only"
+            />
+            {/* Custom checkbox visual */}
+            <div
+              className={cn(
+                "flex size-4 items-center justify-center rounded border transition-all duration-150",
+                remember
+                  ? "border-sky-500 bg-sky-500"
+                  : "border-white/20 bg-white/5 peer-focus-visible:ring-2 peer-focus-visible:ring-sky-500/40"
+              )}
+              aria-hidden="true"
+            >
+              {remember && (
+                <svg
+                  className="size-2.5 text-white"
+                  viewBox="0 0 12 12"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="1.5 6 4.5 9 10.5 3" />
+                </svg>
+              )}
+            </div>
+          </div>
+          <span className="text-sm text-zinc-400">
+            Recordar sesión{" "}
+            <span className="text-zinc-600 text-xs">(mantener iniciada 30 días)</span>
+          </span>
+        </label>
+
         <Field>
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "Ingresando..." : "Ingresar"}

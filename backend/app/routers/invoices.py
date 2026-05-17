@@ -235,24 +235,33 @@ async def process_invoice(
             return {"message": "Factura ya procesada", "invoice": invoice.to_dict()}
 
         if result["status"] == "error":
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "message": "Error al procesar la factura",
-                    "error": result["error"],
-                },
-            )
+            # Return 200 with error details in body instead of 400.
+            # The invoice record already exists and data may have been
+            # partially extracted — a hard HTTP error causes the frontend
+            # to discard everything.
+            invoice_dict = invoice.to_dict()
+            return {
+                "message": "Procesamiento completado con advertencias",
+                "status": "partial",
+                "error": result.get("error"),
+                "invoice": invoice_dict,
+                "extracted_data": result.get("extracted_data", {}),
+            }
 
         return {
             "message": "Factura procesada exitosamente",
             "invoice": result["invoice"].to_dict(),
             "extracted_data": result["extracted_data"],
+            "duplicate_ncf": result.get("duplicate_ncf"),
         }
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Error inesperado procesando factura %s", invoice_id)
-        raise HTTPException(status_code=500, detail=f"Error interno al procesar: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Ocurrió un error inesperado al procesar la factura. Intenta de nuevo en unos minutos.",
+        )
 
 
 @router.get("/invoices")
@@ -263,6 +272,7 @@ async def get_invoices(
     category: Optional[str] = None,
     search: Optional[str] = None,
     processed: Optional[str] = None,
+    quality: Optional[str] = None,
     ctx: TenantContext = Depends(require_tenant),
 ):
     processed_bool = None
@@ -279,6 +289,7 @@ async def get_invoices(
         category=category,
         search=search,
         processed=processed_bool,
+        quality=quality,
     )
 
     return {

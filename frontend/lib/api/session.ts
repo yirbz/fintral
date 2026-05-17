@@ -1,10 +1,11 @@
 import { apiFetch } from "@/lib/api/client";
 import type { SessionPayload } from "@/lib/types";
 
-export async function login(email: string, password: string) {
+export async function login(email: string, password: string, remember = false) {
   const body = new URLSearchParams();
   body.append("username", email);
   body.append("password", password);
+  body.append("remember", remember ? "true" : "false");
 
   try {
     return await apiFetch<{ access_token: string; token_type: string }>("/token", {
