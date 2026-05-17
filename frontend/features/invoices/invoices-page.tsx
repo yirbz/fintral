@@ -1,8 +1,8 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, FileImage, FileText, Loader2, Play, Plus, Search, Send, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AlertTriangle, CheckCircle2, Download, FileImage, FileText, Filter, Loader2, Play, Plus, Search, Send, ShieldAlert, Trash2, XCircle, Zap } from "lucide-react";
+import React, { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import {
@@ -60,6 +60,7 @@ export function InvoicesPage() {
   const searchParams = useSearchParams();
   const [search, setSearch] = useState(searchParams.get("search") ?? "");
   const [transactionType, setTransactionType] = useState("all");
+  const [quality, setQuality] = useState("all");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [manualOpen, setManualOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -67,11 +68,12 @@ export function InvoicesPage() {
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
 
   const invoicesQuery = useQuery({
-    queryKey: ["invoices", search, transactionType],
+    queryKey: ["invoices", search, transactionType, quality],
     queryFn: () =>
       listInvoices({
         search: search || undefined,
-        transaction_type: transactionType === "all" ? undefined : transactionType || undefined
+        transaction_type: transactionType === "all" ? undefined : transactionType || undefined,
+        quality: quality === "all" ? undefined : quality,
       })
   });
 
@@ -241,6 +243,43 @@ export function InvoicesPage() {
             </Button>
           </div>
         </CardHeader>
+
+        {/* Quality / health filter chips */}
+        <div className="border-t border-border/60 px-4 py-2 lg:px-6">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <Filter className="size-3" /> Calidad
+            </span>
+            {([
+              { id: "all",            label: "Todas",              icon: null },
+              { id: "pending",        label: "Pendientes",         icon: Loader2,      cls: "text-muted-foreground" },
+              { id: "high_confidence",label: "Alta confianza",     icon: CheckCircle2, cls: "text-emerald-600" },
+              { id: "low_confidence", label: "Baja confianza",     icon: AlertTriangle, cls: "text-amber-600" },
+              { id: "with_warnings",  label: "Con advertencias",   icon: ShieldAlert,  cls: "text-orange-600" },
+              { id: "has_duplicates", label: "NCF duplicados",     icon: XCircle,      cls: "text-destructive" },
+              { id: "no_ncf",         label: "Sin NCF",            icon: Zap,          cls: "text-violet-600" },
+            ] as { id: string; label: string; icon: React.ElementType | null; cls?: string }[]).map((q) => (
+              <button
+                key={q.id}
+                onClick={() => setQuality(q.id)}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-all duration-150",
+                  quality === q.id
+                    ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                    : "border-border/60 bg-muted/50 text-muted-foreground hover:border-primary/40 hover:bg-muted hover:text-foreground"
+                )}
+              >
+                {q.icon && <q.icon className={cn("size-3", quality === q.id ? "text-primary-foreground" : q.cls)} />}
+                {q.label}
+              </button>
+            ))}
+            {invoicesQuery.data && (
+              <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">
+                {invoicesQuery.data.total} resultado{invoicesQuery.data.total !== 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+        </div>
       </Card>
 
       {selectedIds.length > 0 ? (
@@ -366,6 +405,67 @@ export function InvoicesPage() {
   );
 }
 
+function invoiceHealth(invoice: Invoice): "duplicate" | "warning" | "low_confidence" | "high_confidence" | "pending" | "ok" {
+  if (!invoice.processed) return "pending";
+  const flags: string[] = (() => {
+    try { return JSON.parse(invoice.audit_flags ?? "[]") as string[]; }
+    catch { return []; }
+  })();
+  if (flags.some((f) => f.includes("COMPROBANTE DUPLICADO"))) return "duplicate";
+  if (flags.length > 0) return "warning";
+  const conf = invoice.confidence_score ?? 1;
+  if (conf < 0.6) return "low_confidence";
+  if (conf >= 0.85) return "high_confidence";
+  return "ok";
+}
+
+const HEALTH_ROW: Record<string, string> = {
+  duplicate:      "border-l-2 border-l-destructive bg-destructive/[0.025]",
+  warning:        "border-l-2 border-l-orange-500 bg-orange-500/[0.025]",
+  low_confidence: "border-l-2 border-l-amber-500 bg-amber-500/[0.025]",
+  high_confidence:"",
+  pending:        "border-l-2 border-l-muted-foreground/30",
+  ok:             "",
+};
+
+function HealthBadge({ invoice }: { invoice: Invoice }) {
+  const h = invoiceHealth(invoice);
+  const conf = invoice.confidence_score;
+  const pct = conf != null ? Math.round(conf * 100) : null;
+
+  if (h === "pending") return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+      <Loader2 className="size-2.5 animate-spin" /> Pendiente
+    </span>
+  );
+  if (h === "duplicate") return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive">
+      <XCircle className="size-2.5" /> NCF Duplicado
+    </span>
+  );
+  if (h === "warning") return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-orange-500/30 bg-orange-500/10 px-2 py-0.5 text-[10px] font-medium text-orange-600 dark:text-orange-400">
+      <ShieldAlert className="size-2.5" /> Advertencia
+    </span>
+  );
+  if (h === "low_confidence") return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+      <AlertTriangle className="size-2.5" /> {pct != null ? `${pct}%` : "Baja"}
+    </span>
+  );
+  if (h === "high_confidence") return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+      <CheckCircle2 className="size-2.5" /> {pct != null ? `${pct}%` : "Alta"}
+    </span>
+  );
+  // ok
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+      <CheckCircle2 className="size-2.5 text-emerald-500" /> {pct != null ? `${pct}%` : "OK"}
+    </span>
+  );
+}
+
 function InvoiceRow({
   invoice,
   selected,
@@ -383,6 +483,7 @@ function InvoiceRow({
   isProcessing: boolean;
   isEven: boolean;
 }) {
+  const h = invoiceHealth(invoice);
   const date = invoice.invoice_date ? new Date(invoice.invoice_date).toLocaleDateString("es-DO") : "-";
   const amount = new Intl.NumberFormat("es-DO", {
     style: "currency",
@@ -392,19 +493,23 @@ function InvoiceRow({
 
   return (
     <TableRow
-      className={`border-b border-border transition-colors duration-150 ${selected ? "bg-primary/5 border-l-2 border-l-primary" : isEven ? "bg-muted/30" : ""
-        } hover:bg-primary/5`}
+      className={cn(
+        "border-b border-border transition-colors duration-150 hover:bg-primary/5",
+        selected ? "bg-primary/5" : isEven ? "bg-muted/30" : "",
+        HEALTH_ROW[h] ?? "",
+      )}
     >
       <TableCell className="px-4 py-3">
-        <Checkbox
-          checked={selected}
-          onCheckedChange={onToggle}
-        />
+        <Checkbox checked={selected} onCheckedChange={onToggle} />
       </TableCell>
       <TableCell className="px-3 py-3 text-muted-foreground">{date}</TableCell>
-      <TableCell className="px-3 py-3 font-medium text-foreground">{invoice.invoice_number || "---"}</TableCell>
+      <TableCell className="px-3 py-3 font-mono text-[11px] font-medium text-foreground">
+        {invoice.invoice_number
+          ? <span className={cn(h === "duplicate" && "text-destructive font-semibold")}>{invoice.invoice_number}</span>
+          : <span className="text-muted-foreground/50 italic">sin NCF</span>}
+      </TableCell>
       <TableCell className="px-3 py-3 cursor-pointer text-foreground hover:text-primary" onClick={onOpen}>
-        {invoice.vendor_name || "Procesando..."}
+        {invoice.vendor_name || <span className="italic text-muted-foreground/60">Procesando...</span>}
       </TableCell>
       <TableCell className="px-3 py-3">
         <Badge variant={invoice.category ? "default" : "secondary"}>{invoice.category || "PENDIENTE"}</Badge>
@@ -412,18 +517,12 @@ function InvoiceRow({
       <TableCell className="px-3 py-3 text-right font-mono tabular-nums font-semibold text-foreground">{amount}</TableCell>
       <TableCell className="px-3 py-3 text-center">
         <span className="inline-flex items-center gap-1 text-muted-foreground">
-          {invoice.file_type === "image" ? (
-            <FileImage className="size-3.5" />
-          ) : (
-            <FileText className="size-3.5" />
-          )}
-          <span className="text-[11px]">{invoice.file_type === "image" ? "IMG" : "PDF"}</span>
+          {invoice.file_type === "image" ? <FileImage className="size-3.5" /> : <FileText className="size-3.5" />}
+          <span className="text-[11px]">{invoice.file_type === "image" ? "IMG" : invoice.file_type?.toUpperCase() ?? "PDF"}</span>
         </span>
       </TableCell>
       <TableCell className="px-3 py-3 text-center">
-        <Badge variant={invoice.processed ? "default" : "secondary"}>
-          {invoice.processed ? "Procesado" : "Pendiente"}
-        </Badge>
+        <HealthBadge invoice={invoice} />
       </TableCell>
       <TableCell className="px-3 py-3 text-right">
         {isProcessing ? (

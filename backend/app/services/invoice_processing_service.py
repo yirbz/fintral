@@ -82,13 +82,27 @@ class InvoiceProcessingService:
         if qa_warnings and isinstance(qa_warnings, list):
             invoice.quality_report = json.dumps({"pipeline_warnings": qa_warnings})
 
-        duplicate = None
-        if extracted_data.get("invoice_number") and extracted_data.get("vendor_name"):
-            duplicate = self.invoice_repo.find_duplicate_processed(
+        duplicate_ncf = None
+        duplicate_vendor = None
+        ncf = extracted_data.get("invoice_number")
+
+        if ncf:
+            # Primary rule: NCF/e-NCF must be globally unique per org (DGII fiscal rule)
+            duplicate_ncf = self.invoice_repo.find_by_ncf(
                 db,
                 tenant_id=tenant_id,
                 org_id=org_id,
-                invoice_number=extracted_data["invoice_number"],
+                invoice_number=ncf,
+                exclude_invoice_id=invoice.id,
+            )
+
+        if not duplicate_ncf and ncf and extracted_data.get("vendor_name"):
+            # Secondary rule: same number + same vendor (non-NCF invoices)
+            duplicate_vendor = self.invoice_repo.find_duplicate_processed(
+                db,
+                tenant_id=tenant_id,
+                org_id=org_id,
+                invoice_number=ncf,
                 vendor_name=extracted_data["vendor_name"],
                 exclude_invoice_id=invoice.id,
             )
@@ -97,8 +111,20 @@ class InvoiceProcessingService:
         if not isinstance(warnings, list):
             warnings = []
 
-        if duplicate:
-            warnings.insert(0, f"DUPLICADO: Ya existe la factura #{duplicate.id}")
+        if duplicate_ncf:
+            warnings.insert(
+                0,
+                f"COMPROBANTE DUPLICADO: El NCF/e-NCF \"{ncf}\" ya fue registrado "
+                f"en la factura {duplicate_ncf.id} "
+                f"({duplicate_ncf.vendor_name or 'proveedor desconocido'}). "
+                "Verifica si es un duplicado antes de continuar.",
+            )
+        elif duplicate_vendor:
+            warnings.insert(
+                0,
+                f"DUPLICADO: Ya existe una factura con el n\u00famero \"{ncf}\" "
+                f"del mismo proveedor (ID: {duplicate_vendor.id}).",
+            )
 
         invoice.audit_flags = json.dumps(warnings, ensure_ascii=False)
 
@@ -108,7 +134,9 @@ class InvoiceProcessingService:
         invoice.processed = processed
         invoice.updated_at = datetime.utcnow()
 
-        return invoice
+        # Return the conflicting invoice (if any) so callers can surface structured metadata
+        conflicting = duplicate_ncf or duplicate_vendor
+        return invoice, conflicting
 
     async def process_invoice_record(
         self,
@@ -160,7 +188,7 @@ class InvoiceProcessingService:
                 "extracted_data": extracted_data,
             }
 
-        self.apply_extracted_data(db, invoice, extracted_data, tenant_id, org_id)
+        invoice, conflicting = self.apply_extracted_data(db, invoice, extracted_data, tenant_id, org_id)
         
         invoice.source_type = source_type or invoice.file_type
         
@@ -188,11 +216,22 @@ class InvoiceProcessingService:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Error disparando webhook invoice.processed: %s", exc)
 
-        return {
+        result: dict = {
             "status": "success",
             "invoice": invoice,
             "extracted_data": extracted_data,
         }
+
+        if conflicting:
+            result["duplicate_ncf"] = {
+                "invoice_id": str(conflicting.id),
+                "invoice_number": conflicting.invoice_number,
+                "vendor_name": conflicting.vendor_name,
+                "invoice_date": conflicting.invoice_date.isoformat() if conflicting.invoice_date else None,
+                "total_amount": conflicting.total_amount,
+            }
+
+        return result
 
     async def bulk_process(
         self,

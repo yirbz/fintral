@@ -7,7 +7,7 @@ from sqlalchemy import desc
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from app.config import ADMIN_EMAIL, ADMIN_PASSWORD, IS_PRODUCTION
+from app.config import ADMIN_EMAIL, ADMIN_PASSWORD, IS_PRODUCTION, REMEMBER_ME_EXPIRE_DAYS
 from app.core.auth import create_access_token, verify_password
 from app.core.container import openai_processor
 from app.core.ui import templates
@@ -20,12 +20,21 @@ from app.services.auth_service import sign_in, provision_local_user
 
 router = APIRouter()
 
+# Max-age in seconds for persistent "remember me" cookie
+_REMEMBER_MAX_AGE = REMEMBER_ME_EXPIRE_DAYS * 24 * 3600
+# Max-age in seconds for session-only JWT (still needs a finite exp claim)
+_SESSION_EXPIRE_MINUTES = 480  # 8h — long enough to survive a work day
+
 
 @router.post("/token")
 async def login_for_access_token(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
+    # Read optional `remember` field from the raw form body
+    raw_form = await request.form()
+    remember = str(raw_form.get("remember", "false")).lower() in ("true", "1", "yes")
     user = None
 
     # 1) PROD: try Supabase Auth first
@@ -35,7 +44,7 @@ async def login_for_access_token(
             user = provision_local_user(db, result["user"])
             if user and not user.is_active:
                 raise HTTPException(status_code=400, detail="Usuario inactivo")
-            return _create_token_response(result["access_token"])
+            return _create_token_response(result["access_token"], persist=remember)
         # fall through to local verification if Supabase fails
 
     # 2) Legacy password verification (PROD fallback + DEVELOPMENT primary)
@@ -44,15 +53,19 @@ async def login_for_access_token(
         if user and verify_password(form_data.password, user.hashed_password):
             if not user.is_active:
                 raise HTTPException(status_code=400, detail="Usuario inactivo")
-            token = create_access_token(data={"sub": form_data.username})
-            return _create_token_response(token)
+            from datetime import timedelta
+            expire = timedelta(days=REMEMBER_ME_EXPIRE_DAYS) if remember else timedelta(minutes=_SESSION_EXPIRE_MINUTES)
+            token = create_access_token(data={"sub": form_data.username}, expires_delta=expire)
+            return _create_token_response(token, persist=remember)
     except OperationalError:
         pass
 
     # 3) Hardcoded admin fallback (DB unavailable)
     if ADMIN_EMAIL and form_data.username == ADMIN_EMAIL and ADMIN_PASSWORD == form_data.password:
-        token = create_access_token(data={"sub": form_data.username})
-        return _create_token_response(token)
+        from datetime import timedelta
+        expire = timedelta(days=REMEMBER_ME_EXPIRE_DAYS) if remember else timedelta(minutes=_SESSION_EXPIRE_MINUTES)
+        token = create_access_token(data={"sub": form_data.username}, expires_delta=expire)
+        return _create_token_response(token, persist=remember)
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -61,16 +74,24 @@ async def login_for_access_token(
     )
 
 
-def _create_token_response(token: str):
+def _create_token_response(token: str, *, persist: bool = False):
+    """Build a JSONResponse that sets the access_token cookie.
+
+    persist=True  → 30-day max_age ("remember me")
+    persist=False → session cookie — browser deletes it on close
+    """
     response = JSONResponse({"access_token": token, "token_type": "bearer"})
-    response.set_cookie(
+    cookie_kwargs: dict = dict(
         key="access_token",
         value=token,
         httponly=True,
         samesite="lax",
-        max_age=300 * 60,
         path="/",
     )
+    if persist:
+        cookie_kwargs["max_age"] = _REMEMBER_MAX_AGE
+    # No max_age for session cookies → browser lifetime only
+    response.set_cookie(**cookie_kwargs)
     return response
 
 

@@ -103,6 +103,7 @@ AUTHORIZED_WHATSAPP_NUMBER: str = os.getenv("AUTHORIZED_WHATSAPP_NUMBER", "15555
 # JWT (Supabase RS256 — configurable expiry for custom tokens)
 # ---------------------------------------------------------------------------
 ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "300"))
+REMEMBER_ME_EXPIRE_DAYS: int = int(os.getenv("REMEMBER_ME_EXPIRE_DAYS", "30"))
 
 # ---------------------------------------------------------------------------
 # Heartbeat

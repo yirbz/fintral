@@ -2,6 +2,13 @@
 const nextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  httpAgentOptions: {
+    keepAlive: true,
+  },
+  serverExternalPackages: [],
+  experimental: {
+    proxyTimeout: 120_000,
+  },
   images: {
     remotePatterns: [
       {

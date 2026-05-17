@@ -2,7 +2,8 @@
 
 import { useState, useRef } from "react";
 
-import { processInvoice, updateInvoice, uploadInvoices } from "@/lib/api/invoices";
+import { processInvoice, updateInvoice, uploadInvoices, type DuplicateNcfInfo } from "@/lib/api/invoices";
+import { ApiError } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardAction } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -43,13 +44,15 @@ import {
   FileImage,
 } from "lucide-react";
 
-type Status = "pending" | "uploading" | "processing" | "done" | "error";
+type Status = "pending" | "uploading" | "processing" | "done" | "warning" | "error";
 
 interface ProcessingStatus {
   name: string;
   status: Status;
   invoiceId?: string;
   progress?: number;
+  errorMsg?: string;
+  duplicateNcf?: DuplicateNcfInfo;
 }
 
 interface ProcessingResult {
@@ -69,6 +72,7 @@ const STORAGE_LABELS: Record<string, string> = {
   uploading: "Subiendo",
   processing: "Analizando",
   done: "Completado",
+  warning: "Parcial",
   error: "Error",
 };
 
@@ -139,7 +143,7 @@ export function UploadPage() {
         const upload = await uploadInvoices([file], category === "auto" ? undefined : category || undefined, type);
         const uploaded = upload.results[0];
         if (!uploaded.success || !uploaded.invoice_id) {
-          setStatus((prev) => prev.map((item, i) => (i === index ? { ...item, status: "error", progress: 0 } : item)));
+          setStatus((prev) => prev.map((item, i) => (i === index ? { ...item, status: "error", progress: 0, errorMsg: uploaded.error || "Error al subir archivo" } : item)));
           continue;
         }
 
@@ -152,12 +156,46 @@ export function UploadPage() {
 
         const processed = await processInvoice(invoiceId);
         const extractedData = (processed.extracted_data ?? {}) as ExtractedPayload;
-        setResults((prev) => [...prev, { ...extractedData, id: invoiceId }]);
-        setStatus((prev) =>
-          prev.map((item, i) => (i === index ? { ...item, status: "done", invoiceId, progress: 100 } : item))
-        );
-      } catch {
-        setStatus((prev) => prev.map((item, i) => (i === index ? { ...item, status: "error", progress: 0 } : item)));
+
+        if (processed.duplicate_ncf) {
+          // NCF duplicate detected — treat as warning, not error
+          setResults((prev) => [...prev, { ...extractedData, id: invoiceId }]);
+          setStatus((prev) =>
+            prev.map((item, i) =>
+              i === index
+                ? { ...item, status: "warning", invoiceId, progress: 100, errorMsg: `NCF duplicado: ${processed.duplicate_ncf!.invoice_number}`, duplicateNcf: processed.duplicate_ncf }
+                : item
+            )
+          );
+        } else if (processed.status === "partial") {
+          // Backend extracted some data but with warnings — still show results
+          setResults((prev) => [...prev, { ...extractedData, id: invoiceId }]);
+          setStatus((prev) =>
+            prev.map((item, i) => (i === index ? { ...item, status: "warning", invoiceId, progress: 100, errorMsg: processed.error } : item))
+          );
+        } else {
+          // Full success
+          setResults((prev) => [...prev, { ...extractedData, id: invoiceId }]);
+          setStatus((prev) =>
+            prev.map((item, i) => (i === index ? { ...item, status: "done", invoiceId, progress: 100 } : item))
+          );
+        }
+      } catch (err) {
+        let message: string;
+
+        if (err instanceof ApiError) {
+          // Backend returned a non-2xx response with a detail message
+          message = err.message || "Error del servidor al procesar la factura.";
+        } else if (err instanceof TypeError && err.message === "Failed to fetch") {
+          // Network error / proxy timeout (ECONNRESET)
+          message = "La conexión se perdió mientras se procesaba. El archivo puede estar procesándose aún — revisa en la lista de facturas.";
+        } else if (err instanceof Error && (err.message.includes("socket hang up") || err.message.includes("ECONNRESET"))) {
+          message = "El procesamiento tardó más de lo esperado. Revisa la lista de facturas — es posible que se haya completado.";
+        } else {
+          message = "Ocurrió un error inesperado. Intenta de nuevo.";
+        }
+
+        setStatus((prev) => prev.map((item, i) => (i === index ? { ...item, status: "error", progress: 0, errorMsg: message } : item)));
       }
     }
 
@@ -182,8 +220,10 @@ export function UploadPage() {
     setUploading(false);
   }
 
+  const duplicateNcfFiles = status.filter((s) => s.duplicateNcf);
   const totalFiles = files.length;
-  const successCount = status.filter((s) => s.status === "done").length;
+  const successCount = status.filter((s) => s.status === "done" || s.status === "warning").length;
+  const warningCount = status.filter((s) => s.status === "warning").length;
   const errorCount = status.filter((s) => s.status === "error").length;
   const aggregateProgress = status.length > 0
     ? Math.round(status.reduce((sum, s) => sum + (s.progress ?? 0), 0) / status.length)
@@ -392,14 +432,20 @@ export function UploadPage() {
                     "flex items-center gap-3 rounded-lg border px-3.5 py-2.5 transition-colors",
                     item.status === "error"
                       ? "border-destructive/30 bg-destructive/[0.03]"
-                      : item.status === "done"
-                        ? "border-emerald-500/30 bg-emerald-500/[0.03]"
-                        : "border-border/60 bg-card"
+                      : item.status === "warning"
+                        ? item.duplicateNcf
+                          ? "border-orange-500/30 bg-orange-500/[0.03]"
+                          : "border-amber-500/30 bg-amber-500/[0.03]"
+                        : item.status === "done"
+                          ? "border-emerald-500/30 bg-emerald-500/[0.03]"
+                          : "border-border/60 bg-card"
                   )}
                 >
                   <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted">
                     {item.status === "done" ? (
                       <CheckCircle2 className="size-3.5 text-emerald-500" />
+                    ) : item.status === "warning" ? (
+                      <AlertTriangle className="size-3.5 text-amber-500" />
                     ) : item.status === "error" ? (
                       <XCircle className="size-3.5 text-destructive" />
                     ) : (
@@ -413,6 +459,7 @@ export function UploadPage() {
                         className={cn(
                           "shrink-0 text-[10px] px-1.5 py-0",
                           item.status === "done" && "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
+                          item.status === "warning" && "bg-amber-500/10 text-amber-600 border-amber-500/20",
                           item.status === "error" && "bg-destructive/10 text-destructive border-destructive/20",
                           item.status === "processing" && "bg-amber-500/10 text-amber-600 border-amber-500/20",
                           (item.status === "pending" || item.status === "uploading") && "bg-primary/10 text-primary border-primary/20"
@@ -424,6 +471,24 @@ export function UploadPage() {
                     </div>
                     {item.status !== "error" && (
                       <Progress value={item.progress} className="mt-1.5 h-1" />
+                    )}
+                    {item.errorMsg && (
+                      <p className="mt-1 text-[10px] text-muted-foreground truncate">
+                        {item.errorMsg}
+                        {item.duplicateNcf && (
+                          <>
+                            {" — "}
+                            <a
+                              href={`/dashboard/invoices/${item.duplicateNcf.invoice_id}`}
+                              className="underline decoration-dotted hover:text-orange-600 transition-colors"
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Ver factura #{item.duplicateNcf.invoice_id.slice(0, 8)}
+                            </a>
+                          </>
+                        )}
+                      </p>
                     )}
                   </div>
                 </div>
@@ -437,6 +502,55 @@ export function UploadPage() {
       {step === 3 && (
         <div className="px-4 lg:px-6">
           <div className="flex flex-col gap-4">
+            {/* NCF duplicate banner */}
+            {duplicateNcfFiles.length > 0 && (
+              <div className="rounded-xl border border-orange-500/30 bg-orange-500/[0.04] px-4 py-3">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-orange-500/10">
+                    <AlertTriangle className="size-3.5 text-orange-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-orange-700 dark:text-orange-400">
+                      {duplicateNcfFiles.length === 1
+                        ? "Se detectó 1 comprobante fiscal duplicado"
+                        : `Se detectaron ${duplicateNcfFiles.length} comprobantes fiscales duplicados`}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      Los siguientes NCF ya existen en el sistema. Verifica si son facturas duplicadas antes de guardarlas.
+                    </p>
+                    <ul className="mt-2 space-y-1.5">
+                      {duplicateNcfFiles.map((s) => (
+                        <li key={s.invoiceId} className="text-[11px]">
+                          <span className="font-mono font-semibold text-orange-600 dark:text-orange-400">
+                            {s.duplicateNcf!.invoice_number}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {" "}—{" "}
+                            ya registrado en factura de{" "}
+                            <span className="font-medium text-foreground">
+                              {s.duplicateNcf!.vendor_name ?? "proveedor desconocido"}
+                            </span>
+                            {s.duplicateNcf!.invoice_date && (
+                              <span className="text-muted-foreground"> ({s.duplicateNcf!.invoice_date.slice(0, 10)})</span>
+                            )}
+                            .{" "}
+                            <a
+                              href={`/dashboard/invoices/${s.duplicateNcf!.invoice_id}`}
+                              className="underline decoration-dotted hover:text-orange-600 transition-colors"
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Ver factura conflictiva
+                            </a>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Summary bar */}
             <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/60 bg-muted/30 px-4 py-3">
               <div className="flex items-center gap-2 text-xs">
@@ -444,9 +558,16 @@ export function UploadPage() {
                 <span className="text-muted-foreground">Exitosos:</span>
                 <span className="font-medium text-foreground">{successCount}</span>
               </div>
+              {warningCount > 0 && (
+                <div className="flex items-center gap-2 text-xs">
+                  <AlertTriangle className="size-3.5 text-amber-500" />
+                  <span className="text-muted-foreground">Parciales:</span>
+                  <span className="font-medium text-foreground">{warningCount}</span>
+                </div>
+              )}
               {errorCount > 0 && (
                 <div className="flex items-center gap-2 text-xs">
-                  <AlertTriangle className="size-3.5 text-destructive" />
+                  <XCircle className="size-3.5 text-destructive" />
                   <span className="text-muted-foreground">Con errores:</span>
                   <span className="font-medium text-foreground">{errorCount}</span>
                 </div>

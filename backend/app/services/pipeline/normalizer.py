@@ -59,7 +59,7 @@ class Normalizer:
 
         if not normalized["vendor_name"]:
             normalized["vendor_name"] = "Proveedor no identificado"
-            normalized["audit_warnings"].append("Proveedor no identificado")
+            # No añadir warning — es un fallback informativo, no un error
 
         return normalized
 
@@ -129,7 +129,10 @@ class Normalizer:
             date_str = str(value).strip()
             for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%Y/%m/%d"]:
                 try:
-                    return datetime.strptime(date_str, fmt).strftime("%Y-%m-%d")
+                    parsed = datetime.strptime(date_str, fmt)
+                    if parsed.date() > datetime.now().date():
+                        return None
+                    return parsed.strftime("%Y-%m-%d")
                 except ValueError:
                     continue
             return None

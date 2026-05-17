@@ -177,19 +177,21 @@ class OpenAIInvoiceProcessor:
             # Registrar inicio de request para rate limiting
             start_time = self.cost_control.record_request_start()
             
-            prompt = """
+            prompt = f"""
             Analiza esta imagen de factura y extrae la información clave. ADEMÁS, actúa como auditor contable y detecta anomalías.
             Devuelve la respuesta en formato JSON válido:
 
-            {
+            FECHA ACTUAL: {datetime.now().strftime('%Y-%m-%d')} — La fecha de la factura NO puede ser posterior a esta fecha.
+
+            {{
                 "vendor_name": "nombre del proveedor/empresa (null si no se encuentra)",
                 "vendor_tax_id": "RNC del proveedor (9 dígitos; puede venir con guiones) (null si no se encuentra)",
                 "vendor_fiscal_address": "dirección fiscal completa del proveedor (null si no se encuentra)",
                 "invoice_number": "NCF / número de comprobante fiscal (null si no se encuentra)",
                 "ncf_modified": "NCF o documento modificado si aplica (null si no se encuentra)",
                 "goods_services_type": "tipo de bienes y servicios comprados (DGII 606) como código 01-11 (null si no se encuentra)",
-                "invoice_date": "fecha en formato YYYY-MM-DD (null si no se encuentra)",
-                "payment_date": "fecha de pago en formato YYYY-MM-DD (null si no se encuentra)",
+                "invoice_date": "fecha de emisión en formato YYYY-MM-DD (null si no se encuentra; NUNCA uses una fecha posterior a la fecha actual indicada arriba)",
+                "payment_date": "fecha de pago en formato YYYY-MM-DD (null si no se encuentra; puede ser igual o posterior a invoice_date pero NUNCA futura)",
                 "total_amount": número_total_como_float (null si no se encuentra),
                 "tax_amount": número_impuestos_como_float (null si no se encuentra),
                 "services_amount": monto_servicios_sin_impuestos_como_float (null si no se encuentra),
@@ -210,16 +212,16 @@ class OpenAIInvoiceProcessor:
                 "category": "categoría como oficina, viajes, comida, servicios, ventas, etc. (null si no estás seguro)",
                 "description": "descripción breve de los productos/servicios (null si no se encuentra)",
                 "line_items": [
-                    {
+                    {{
                         "description": "descripción del producto/servicio",
                         "quantity": número_cantidad_como_float,
                         "unit_price": precio_unitario_como_float,
                         "subtotal": subtotal_como_float
-                    }
+                    }}
                 ],
                 "confidence": número_del_0_al_1_indicando_confianza_en_la_extracción,
                 "audit_warnings": ["lista", "de", "alertas", "en", "español"]
-            }
+            }}
 
             ENFOQUE REPÚBLICA DOMINICANA (impuestos y comprobantes):
             - Prioriza detectar RNC (9 dígitos, a veces con guiones) y NCF (comprobante fiscal, p. ej. B01, B02, E31, etc.).
@@ -239,14 +241,25 @@ class OpenAIInvoiceProcessor:
             - Si no hay líneas, retorna array vacío [].
 
             REGLAS DE AUDITORÍA (audit_warnings):
-            - Si la imagen es borrosa o ilegible, añade "Documento poco legible".
-            - Si faltan datos fiscales clave (RNC o dirección fiscal), añade "Faltan datos fiscales del proveedor".
-            - Si falta NCF, añade "Falta NCF del proveedor".
-            - Si el monto de ITBIS parece incorrecto (ej: >25% del total), añade "Posible error en ITBIS".
-            - Si no se pudo identificar el tipo DGII 606, añade "Falta tipo de bienes y servicios (DGII 606)".
-            - Si la fecha es muy antigua (> 3 meses), añade "Factura antigua".
-            - Si detectas propinas o cargos no deducibles (alcohol, entretenimiento), menciónalo.
-            - Si hay retenciones pero no hay fecha de pago, añade "Falta fecha de pago para retenciones".
+            IMPORTANTE: Solo añade warnings que puedas verificar directamente en el documento. NUNCA inventes fechas de vencimiento de NCF, rangos de validez, ni información que no aparezca explícitamente en la factura.
+
+            Warnings CRÍTICOS (solo si aplican):
+            - Si la imagen es muy borrosa o ilegible (no puedes leer la mayoría del texto), añade "Documento poco legible".
+            - Si NO hay NCF visible en absoluto, añade "Falta NCF del proveedor".
+
+            Warnings INFORMATIVOS (solo si aplican):
+            - Si el ITBIS parece incorrecto (ej: >25% del total cuando debería ser 18%), añade "Posible discrepancia en ITBIS".
+            - Si la fecha de emisión es muy antigua (> 6 meses desde la fecha actual), añade "Factura antigua".
+            - Si detectas propinas o cargos no deducibles (alcohol, entretenimiento), menciónalo brevemente.
+
+            NO añadas warnings por:
+            - NO añadas "Faltan datos fiscales del proveedor" — muchos proveedores no ponen dirección fiscal completa.
+            - NO añadas "Falta forma de pago explícita" — la mayoría de facturas no especifican forma de pago.
+            - NO añadas warnings sobre tipo de NCF (B01, B02, E31, etc.) — todos los tipos son válidos según el contexto.
+            - NO añadas warnings sobre vencimiento de NCF — no puedes saber la validez de un rango NCF sin consultar la DGII.
+            - NO añadas "Falta tipo de bienes y servicios (DGII 606)" — esto se infiere después automáticamente.
+            - NO añadas warnings sobre retenciones sin fecha de pago.
+            - NO inventes fechas, rangos de validez, ni información que no esté en el documento.
 
             REGLAS GENERALES:
             - USA null para campos que no puedas identificar.
@@ -530,22 +543,8 @@ class OpenAIInvoiceProcessor:
         if not cleaned["goods_services_type"]:
             cleaned["goods_services_type"] = self._infer_goods_services_type(cleaned)
 
-        if not cleaned["goods_services_type"]:
-            if "Falta tipo de bienes y servicios (DGII 606)" not in cleaned["audit_warnings"]:
-                cleaned["audit_warnings"].append("Falta tipo de bienes y servicios (DGII 606)")
-
-        if (cleaned.get("itbis_retenido") or cleaned.get("isr_retention_type") or cleaned.get("isr_retention_amount")) and not cleaned.get("payment_date"):
-            if "Falta fecha de pago para retenciones" not in cleaned["audit_warnings"]:
-                cleaned["audit_warnings"].append("Falta fecha de pago para retenciones")
-
-        # Validación de NCF
-        if cleaned["invoice_number"] and not self._is_valid_ncf(cleaned["invoice_number"]):
-            if "NCF con formato inusual o incompleto" not in cleaned["audit_warnings"]:
-                cleaned["audit_warnings"].append("NCF con formato inusual o incompleto")
-        if cleaned["invoice_number"] and len(cleaned["invoice_number"]) >= 3:
-            ncf_type = cleaned["invoice_number"][1:3]
-            if ncf_type == "12" and "NCF tipo 12 no es válido para formato 606" not in cleaned["audit_warnings"]:
-                cleaned["audit_warnings"].append("NCF tipo 12 no es válido para formato 606")
+        # Validación de NCF — solo para logging interno, no genera warnings
+        # (todos los tipos de NCF son válidos según contexto)
 
         # Si no se pudo extraer información crítica, usar valores por defecto inteligentes
         if not cleaned["vendor_name"]:
@@ -712,15 +711,16 @@ class OpenAIInvoiceProcessor:
         return None
     
     def _validate_date(self, value):
-        """Valida y formatea fechas"""
+        """Valida y formatea fechas. Rechaza fechas futuras."""
         if value is None or value == "null":
             return None
         try:
-            # Intentar parsear diferentes formatos de fecha
             date_str = str(value).strip()
             for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%Y/%m/%d"]:
                 try:
                     parsed_date = datetime.strptime(date_str, fmt)
+                    if parsed_date.date() > datetime.now().date():
+                        return None
                     return parsed_date.strftime("%Y-%m-%d")
                 except ValueError:
                     continue
@@ -796,6 +796,8 @@ class OpenAIInvoiceProcessor:
             Analiza este texto extraído de una factura PDF y extrae la información clave. ADEMÁS, actúa como auditor contable y detecta anomalías.
             Devuelve la respuesta en formato JSON válido:
 
+            FECHA ACTUAL: {datetime.now().strftime('%Y-%m-%d')} — La fecha de la factura NO puede ser posterior a esta fecha.
+
             TEXTO DE LA FACTURA:
             {text}
 
@@ -807,8 +809,8 @@ class OpenAIInvoiceProcessor:
                 "invoice_number": "NCF / número de comprobante fiscal (null si no se encuentra)",
                 "ncf_modified": "NCF o documento modificado si aplica (null si no se encuentra)",
                 "goods_services_type": "tipo de bienes y servicios comprados (DGII 606) como código 01-11 (null si no se encuentra)",
-                "invoice_date": "fecha en formato YYYY-MM-DD (null si no se encuentra)",
-                "payment_date": "fecha de pago en formato YYYY-MM-DD (null si no se encuentra)",
+                "invoice_date": "fecha de emisión en formato YYYY-MM-DD (null si no se encuentra; NUNCA uses una fecha posterior a la fecha actual indicada arriba)",
+                "payment_date": "fecha de pago en formato YYYY-MM-DD (null si no se encuentra; puede ser igual o posterior a invoice_date pero NUNCA futura)",
                 "total_amount": número_total_como_float (null si no se encuentra),
                 "tax_amount": número_impuestos_como_float (null si no se encuentra),
                 "services_amount": monto_servicios_sin_impuestos_como_float (null si no se encuentra),
@@ -857,13 +859,23 @@ class OpenAIInvoiceProcessor:
             - Si no hay líneas, retorna array vacío [].
 
             REGLAS DE AUDITORÍA (audit_warnings):
-            - Si faltan datos fiscales clave (RNC o dirección fiscal), añade "Faltan datos fiscales del proveedor".
-            - Si falta NCF, añade "Falta NCF del proveedor".
-            - Si el monto de ITBIS parece incorrecto (ej: >25% del total), añade "Posible error en ITBIS".
-            - Si no se pudo identificar el tipo DGII 606, añade "Falta tipo de bienes y servicios (DGII 606)".
-            - Si la fecha es muy antigua (> 3 meses), añade "Factura antigua".
-            - Si detectas propinas o cargos no deducibles, menciónalo.
-            - Si hay retenciones pero no hay fecha de pago, añade "Falta fecha de pago para retenciones".
+            IMPORTANTE: Solo añade warnings que puedas verificar directamente en el documento. NUNCA inventes información que no esté visible.
+
+            Warnings que SÍ debes añadir:
+            - Si la imagen es muy borrosa o ilegible, añade "Documento poco legible".
+            - Si NO hay NCF visible en absoluto, añade "Falta NCF del proveedor".
+            - Si el ITBIS parece incorrecto (ej: >25% del total), añade "Posible error en ITBIS".
+            - Si la fecha de emisión es muy antigua (> 6 meses desde la fecha actual), añade "Factura antigua".
+            - Si detectas propinas o cargos no deducibles (alcohol, entretenimiento), menciónalo.
+
+            NO añadas warnings por:
+            - NO añadas "Faltan datos fiscales del proveedor" — muchos proveedores no ponen dirección fiscal completa.
+            - NO añadas "Falta forma de pago explícita" — la mayoría de facturas no especifican forma de pago.
+            - NO añadas warnings sobre tipo de NCF (B01, B02, E31, etc.) — todos los tipos son válidos según contexto.
+            - NO añadas warnings sobre vencimiento de NCF — no puedes saber la validez de un rango NCF sin consultar la DGII.
+            - NO añadas "Falta tipo de bienes y servicios (DGII 606)" — esto se infiere automáticamente después.
+            - NO añadas warnings sobre retenciones sin fecha de pago.
+            - NUNCA inventes fechas de vencimiento de NCF o rangos de validez.
 
             REGLAS GENERALES:
             - USA null para campos que no puedas identificar.
