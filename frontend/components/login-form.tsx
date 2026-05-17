@@ -20,6 +20,7 @@ export function LoginForm({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -68,20 +69,41 @@ export function LoginForm({
           <div className="flex items-center">
             <FieldLabel htmlFor="password" className="text-zinc-300">Contraseña</FieldLabel>
             <a
-              href="#"
+              href="/forgot-password"
               className="ml-auto text-sm text-zinc-500 underline-offset-4 hover:text-zinc-300 hover:underline"
             >
               ¿Olvidaste tu contraseña?
             </a>
           </div>
-          <Input
-            id="password"
-            type="password"
-            required
-            className="border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:border-sky-500/50"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+          <div className="relative">
+            <Input
+              id="password"
+              type={showPassword ? "text" : "password"}
+              required
+              className="border-white/10 bg-white/5 pr-10 text-white placeholder:text-zinc-500 focus-visible:border-sky-500/50"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+              tabIndex={-1}
+            >
+              {showPassword ? (
+                <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                </svg>
+              ) : (
+                <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              )}
+            </button>
+          </div>
         </Field>
 
         {/* Remember me */}
@@ -162,7 +184,7 @@ export function LoginForm({
       {/* Register link */}
       <p className="text-center text-sm text-zinc-500">
         ¿No tienes una cuenta?{" "}
-        <a href="#" className="font-medium text-white/70 underline-offset-4 hover:text-white hover:underline">
+        <a href="/signup" className="font-medium text-white/70 underline-offset-4 hover:text-white hover:underline">
           Regístrate
         </a>
       </p>

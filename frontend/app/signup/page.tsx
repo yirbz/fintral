@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { getMe } from "@/lib/api/session"
-import { LoginForm } from "@/components/login-form"
+import { SignUpForm } from "@/components/signup-form"
 import { LogoLoader } from "@/components/logo-loader"
 
 function LogoBars() {
@@ -15,7 +15,7 @@ function LogoBars() {
   )
 }
 
-export default function LoginPage() {
+export default function SignUpPage() {
   const [showLoader, setShowLoader] = useState(true)
 
   useEffect(() => {
@@ -28,22 +28,15 @@ export default function LoginPage() {
 
   return (
     <div className="flex h-dvh overflow-hidden bg-zinc-950">
+
       {/* ── Left: Form panel ── */}
       <div className="relative flex w-full flex-col border-r border-white/[0.04] bg-zinc-900 lg:w-1/2">
-        {/* Left glow accent */}
         <div className="pointer-events-none absolute -left-48 top-1/2 size-[400px] -translate-y-1/2 rounded-full bg-sky-500/5 blur-3xl" />
 
-        <div className="relative z-10 flex items-center gap-2.5 px-6 pt-6 md:px-12 md:pt-12">
-          <div className="flex size-7 items-center justify-center rounded-md bg-black ring-1 ring-white/[0.08]">
-            <LogoBars />
-          </div>
-          <span className="text-sm font-medium tracking-tight text-white/80">Fintral</span>
-        </div>
-
-        <div className="relative z-10 flex flex-1 items-center justify-center px-6 pb-6 md:px-12 md:pb-12">
+        <div className="relative z-10 flex flex-1 items-center justify-center px-6 py-6 md:px-12">
           <div className="w-full max-w-md">
             <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 backdrop-blur-sm">
-              <LoginForm />
+              <SignUpForm />
             </div>
           </div>
         </div>
@@ -51,14 +44,11 @@ export default function LoginPage() {
 
       {/* ── Right: Brand panel ── */}
       <div className="relative hidden w-1/2 flex-col items-center justify-center overflow-hidden bg-[#09090b] p-12 lg:flex">
-        {/* Mesh grid — right side only */}
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,#ffffff06_1px,transparent_1px),linear-gradient(to_bottom,#ffffff06_1px,transparent_1px)] bg-[size:32px_32px]" />
 
-        {/* Glow orbs */}
         <div className="pointer-events-none absolute -top-48 -right-48 size-[500px] rounded-full bg-sky-500/10 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-32 -left-32 size-[300px] rounded-full bg-sky-400/5 blur-3xl" />
 
-        {/* Content */}
         <div className="relative z-10 flex w-full max-w-md flex-col items-start">
           <div className="mb-10 flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-lg bg-black ring-1 ring-white/[0.08]">
@@ -68,37 +58,27 @@ export default function LoginPage() {
           </div>
 
           <h2 className="mb-3 text-[2rem] font-medium leading-tight tracking-tight text-white">
-            Infraestructura financiera <span className="text-sky-400">IA</span>.
+            Gestiona tus facturas <span className="text-sky-400">con IA</span>.
           </h2>
 
           <p className="mb-12 max-w-sm text-[15px] leading-relaxed text-zinc-500">
-            Procesamiento de facturas, cumplimiento fiscal DGII y flujos automatizados vía WhatsApp para República Dominicana.
+            Automatiza el procesamiento de facturas, cumple con la DGII y centraliza tu facturación electrónica en un solo lugar.
           </p>
 
           <div className="w-full rounded-2xl border border-white/[0.06] bg-white/[0.02] p-7">
             <div className="mb-5 flex items-center justify-between">
-              <div className="text-sm font-medium text-white/70">Extracción en tiempo real</div>
-              <div className="flex items-center gap-1.5 text-xs text-emerald-400/80">
-                <span className="relative flex size-1.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/70" />
-                  <span className="relative inline-flex size-1.5 rounded-full bg-emerald-400" />
-                </span>
-                99.2% precisión
-              </div>
+              <div className="text-sm font-medium text-white/70">Beneficios</div>
             </div>
-
             <div className="space-y-4">
               {[
-                { label: "Facturas procesadas", value: "12,450", trend: "+18%" },
-                { label: "NCFs validados", value: "8,720", trend: "+12%" },
-                { label: "Tiempo promedio", value: "1.2s", trend: "-0.4s" },
-              ].map((stat, i) => (
+                { label: "Procesamiento automático", value: "IA" },
+                { label: "Cumplimiento DGII", value: "NCF" },
+                { label: "Soporte WhatsApp", value: "24/7" },
+                { label: "Prueba gratuita", value: "14 días" },
+              ].map((item, i) => (
                 <div key={i} className="flex items-center justify-between border-b border-white/[0.03] pb-3 last:border-0 last:pb-0">
-                  <span className="text-sm text-zinc-500">{stat.label}</span>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-medium tabular-nums text-white/90">{stat.value}</span>
-                    <span className="text-xs text-zinc-600">{stat.trend}</span>
-                  </div>
+                  <span className="text-sm text-zinc-500">{item.label}</span>
+                  <span className="text-sm font-medium text-white/90">{item.value}</span>
                 </div>
               ))}
             </div>

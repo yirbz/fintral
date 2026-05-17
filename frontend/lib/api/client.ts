@@ -15,7 +15,7 @@ type RequestInitWithRaw = RequestInit & { raw?: boolean };
 function isOnPublicPage(): boolean {
   if (typeof window === "undefined") return true;
   const path = window.location.pathname;
-  return path.startsWith("/login") || path.startsWith("/logout");
+  return path.startsWith("/login") || path.startsWith("/logout") || path.startsWith("/signup");
 }
 
 export async function apiFetch<T>(

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Check, User, Building2, Brain, MessageCircle, Webhook, Mail, Settings2, Bell, CreditCard, Eye, EyeOff, RefreshCw, Ban, Zap, Globe } from "lucide-react";
+import { Loader2, Check, User, Building2, Brain, MessageCircle, Webhook, Mail, Settings2, Bell, CreditCard, Eye, EyeOff, RefreshCw, Ban, Zap, Globe, KeyRound } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { createEvolutionInstance, getEvolutionQr, getEvolutionStatus } from "@/lib/api/evolution";
@@ -31,7 +31,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 
-type SectionId = "profile" | "organization" | "ai" | "whatsapp" | "webhooks" | "email" | "preferences" | "notifications" | "billing";
+type SectionId = "profile" | "organization" | "ai" | "whatsapp" | "webhooks" | "email" | "preferences" | "notifications" | "billing" | "password";
 
 interface Section {
   id: SectionId;
@@ -49,6 +49,7 @@ const SECTIONS: Section[] = [
   { id: "preferences", label: "Preferencias", icon: <Settings2 className="size-3.5" /> },
   { id: "notifications", label: "Notificaciones", icon: <Bell className="size-3.5" /> },
   { id: "billing", label: "Facturación", icon: <CreditCard className="size-3.5" /> },
+  { id: "password", label: "Contraseña", icon: <KeyRound className="size-3.5" /> },
 ];
 
 const SAVE_CATEGORY_MAP: Record<SectionId, string | null> = {
@@ -61,6 +62,7 @@ const SAVE_CATEGORY_MAP: Record<SectionId, string | null> = {
   preferences: "preferences",
   notifications: "notifications",
   billing: null,
+  password: null,
 };
 
 export function SettingsPage() {
@@ -200,6 +202,10 @@ export function SettingsPage() {
           <div className="flex flex-col gap-4">
             {active === "profile" ? (
               <ProfileSection session={session} />
+            ) : null}
+
+            {active === "password" ? (
+              <PasswordSection />
             ) : null}
 
             {active === "organization" ? (
@@ -606,6 +612,29 @@ function SettingsSection({
         </Button>
       </CardHeader>
       <CardContent>{children}</CardContent>
+    </Card>
+  );
+}
+
+function PasswordSection() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm font-heading">Contraseña</CardTitle>
+        <CardDescription className="text-xs">Cambia tu contraseña de acceso a Fintral.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Para cambiar tu contraseña, serás redirigido a la página de restablecimiento donde podrás ingresar un código de verificación enviado a tu correo electrónico.
+        </p>
+        <a
+          href="/forgot-password"
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-500 px-4 py-2 text-sm font-medium text-white hover:bg-sky-400 transition-colors self-start"
+        >
+          <KeyRound className="size-4" />
+          Cambiar contraseña
+        </a>
+      </CardContent>
     </Card>
   );
 }

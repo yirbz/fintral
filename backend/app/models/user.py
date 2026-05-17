@@ -16,6 +16,8 @@ class User(Base):
     supabase_uid = Column(String, unique=True, nullable=True, index=True)
     hashed_password = Column(String, nullable=True)
     full_name = Column(String)
+    phone = Column(String, nullable=True)
+    verification_code = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
