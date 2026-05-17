@@ -11,6 +11,7 @@ from app.config import SUPABASE_URL
 from app.core.bootstrap import run_startup
 from app.core.ui import ensure_runtime_dirs, templates
 from app.routers import admin, auth_pages, evolution, invoices, notifications, settings, statistics, websocket, webhooks
+from app.services.cleanup_service import start_cleanup_task
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ def create_app() -> FastAPI:
             await run_startup(db)
         finally:
             db.close()
+        await start_cleanup_task()
 
     # Admin
     app.include_router(admin.router)

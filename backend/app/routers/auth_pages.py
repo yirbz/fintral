@@ -14,9 +14,10 @@ from app.core.ui import templates
 from app.database import get_db
 from app.dependencies.tenant import TenantContext, optional_tenant, require_tenant
 from app.dependencies.tenancy import get_company_context
-from app.models import Invoice, User
-from app.schemas import ChatRequest
-from app.services.auth_service import sign_in, provision_local_user
+from app.models import Invoice, Organization, User
+from app.schemas import ChatRequest, ForgotPasswordRequest, RegisterRequest, ResetPasswordRequest, VerifyCodeRequest
+from app.services.auth_service import provision_local_user, sign_in, sign_up_user, verify_and_login, verify_email_code, verify_user
+from app.services.email_service import send_password_changed_email, send_reset_password_email, send_verification_email
 
 router = APIRouter()
 
@@ -43,7 +44,8 @@ async def login_for_access_token(
         if result:
             user = provision_local_user(db, result["user"])
             if user and not user.is_active:
-                raise HTTPException(status_code=400, detail="Usuario inactivo")
+                user.is_active = True
+                db.commit()
             return _create_token_response(result["access_token"], persist=remember)
         # fall through to local verification if Supabase fails
 
@@ -72,6 +74,198 @@ async def login_for_access_token(
         detail="Email o contraseña incorrectos",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+@router.post("/api/auth/register")
+async def register(
+    body: RegisterRequest,
+    db: Session = Depends(get_db),
+):
+    if not body.email or not body.password:
+        raise HTTPException(status_code=400, detail="Email y contraseña son requeridos")
+    if len(body.password) < 6:
+        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 6 caracteres")
+
+    existing = db.query(User).filter(User.email == body.email).first()
+    if existing:
+        if existing.is_active:
+            raise HTTPException(status_code=409, detail="Este email ya está registrado")
+        return _resume_unverified_registration(db, existing, body)
+
+    if body.tax_id:
+        existing_tax = db.query(Organization).filter(Organization.tax_id == body.tax_id).first()
+        if existing_tax:
+            raise HTTPException(status_code=409, detail="Este RNC/Cédula ya está registrado")
+
+    result, code = sign_up_user(body.email, body.password, body.full_name, body.phone, body.company_name, body.tax_id, db)
+    if not result:
+        raise HTTPException(status_code=500, detail="Error al crear la cuenta. Intenta de nuevo.")
+
+    if code:
+        send_verification_email(body.email, body.full_name, code)
+
+    return {
+        "message": "Cuenta creada. Revisa tu email para el código de verificación.",
+        "email": body.email,
+        "requires_verification": True,
+    }
+
+
+def _resume_unverified_registration(db: Session, existing: User, body: RegisterRequest) -> dict:
+    from app.core.auth import get_password_hash
+    from app.services.auth_service import _generate_verification_code
+
+    hashed = get_password_hash(body.password)
+    existing.hashed_password = hashed
+    existing.full_name = body.full_name
+    existing.phone = body.phone or None
+
+    uo = db.query(UserOrganization).filter(UserOrganization.user_id == existing.id).first()
+    if uo:
+        org = db.query(Organization).filter(Organization.id == uo.organization_id).first()
+        if org:
+            org.name = body.company_name
+            if body.tax_id:
+                existing_tax = db.query(Organization).filter(
+                    Organization.tax_id == body.tax_id, Organization.id != org.id
+                ).first()
+                if existing_tax:
+                    raise HTTPException(status_code=409, detail="Este RNC/Cédula ya está registrado")
+                org.tax_id = body.tax_id
+
+    code = _generate_verification_code()
+    code_hash = get_password_hash(code)
+    existing.verification_code = code_hash
+    db.commit()
+
+    send_verification_email(body.email, body.full_name, code)
+
+    return {
+        "message": "Reanudando verificación. Revisa tu email para el nuevo código.",
+        "email": body.email,
+        "requires_verification": True,
+        "resumed": True,
+    }
+
+
+@router.post("/api/auth/verify-code")
+async def verify_code(
+    body: VerifyCodeRequest,
+    db: Session = Depends(get_db),
+):
+    if not body.email or not body.code:
+        raise HTTPException(status_code=400, detail="Email y código son requeridos")
+
+    user = verify_email_code(body.email, body.code, db)
+    if not user:
+        raise HTTPException(status_code=400, detail="Código inválido o expirado")
+
+    return {"message": "Cuenta verificada correctamente.", "verified": True}
+
+
+@router.post("/api/auth/verify-and-login")
+async def verify_code_and_login(
+    body: VerifyCodeRequest,
+    db: Session = Depends(get_db),
+):
+    if not body.email or not body.code:
+        raise HTTPException(status_code=400, detail="Email y código son requeridos")
+
+    token = verify_and_login(body.email, body.code, db)
+    if not token:
+        raise HTTPException(status_code=400, detail="Código inválido o expirado")
+
+    response = _create_token_response(token, persist=True)
+    return response
+
+
+@router.post("/api/auth/resend-code")
+async def resend_code(
+    body: dict,
+    db: Session = Depends(get_db),
+):
+    email = body.get("email", "")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email requerido")
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if user.is_active:
+        raise HTTPException(status_code=400, detail="La cuenta ya está verificada")
+
+    from app.services.auth_service import _generate_verification_code
+    from app.core.auth import get_password_hash
+
+    code = _generate_verification_code()
+    user.verification_code = get_password_hash(code)
+    db.commit()
+
+    send_verification_email(email, user.full_name or "", code)
+    return {"message": "Código reenviado."}
+
+
+@router.post("/api/auth/forgot-password")
+async def forgot_password(
+    body: ForgotPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    if not body.email:
+        raise HTTPException(status_code=400, detail="Email requerido")
+
+    user = db.query(User).filter(User.email == body.email).first()
+    if not user:
+        return {"message": "Si el email existe, recibirás un código de restablecimiento."}
+
+    from app.services.auth_service import _generate_verification_code
+    from app.core.auth import get_password_hash
+
+    code = _generate_verification_code()
+    user.verification_code = get_password_hash(code)
+    db.commit()
+
+    send_reset_password_email(body.email, user.full_name or "", code)
+    return {"message": "Si el email existe, recibirás un código de restablecimiento."}
+
+
+@router.post("/api/auth/reset-password")
+async def reset_password(
+    body: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    if not body.email or not body.code or not body.password:
+        raise HTTPException(status_code=400, detail="Todos los campos son requeridos")
+    if len(body.password) < 6:
+        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 6 caracteres")
+
+    user = db.query(User).filter(User.email == body.email).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="Código inválido o expirado")
+    if not user.verification_code:
+        raise HTTPException(status_code=400, detail="No hay una solicitud de restablecimiento activa")
+
+    from app.core.auth import get_password_hash, verify_password
+
+    if not verify_password(body.code, user.verification_code):
+        raise HTTPException(status_code=400, detail="Código inválido o expirado")
+
+    user.hashed_password = get_password_hash(body.password)
+    user.verification_code = None
+    db.commit()
+
+    send_password_changed_email(body.email, user.full_name or "")
+
+    response = JSONResponse({"message": "Contraseña actualizada correctamente."})
+    response.delete_cookie("access_token")
+    return response
+
+
+@router.get("/api/auth/verify")
+async def verify(token: str, db: Session = Depends(get_db)):
+    user = verify_user(token, db)
+    if not user:
+        raise HTTPException(status_code=400, detail="Enlace inválido o expirado")
+    return {"message": "Cuenta verificada correctamente. Ya puedes iniciar sesión."}
 
 
 def _create_token_response(token: str, *, persist: bool = False):

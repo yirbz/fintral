@@ -100,6 +100,13 @@ EVOLUTION_INSTANCE_TOKEN: str = os.getenv("EVOLUTION_INSTANCE_TOKEN", "")
 AUTHORIZED_WHATSAPP_NUMBER: str = os.getenv("AUTHORIZED_WHATSAPP_NUMBER", "15555550100")
 
 # ---------------------------------------------------------------------------
+# Email (Resend)
+# ---------------------------------------------------------------------------
+RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
+EMAIL_FROM: str = os.getenv("EMAIL_FROM", "Fintral <onboarding@resend.dev>")
+FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+# ---------------------------------------------------------------------------
 # JWT (Supabase RS256 — configurable expiry for custom tokens)
 # ---------------------------------------------------------------------------
 ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "300"))

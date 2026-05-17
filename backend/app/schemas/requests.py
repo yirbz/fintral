@@ -37,6 +37,30 @@ class SettingUpdate(BaseModel):
     type: Optional[str] = "string"
 
 
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    full_name: str = ""
+    company_name: str = ""
+    tax_id: str = ""
+    phone: str = ""
+
+
+class VerifyCodeRequest(BaseModel):
+    email: str
+    code: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    code: str
+    password: str
+
+
 class BulkActionRequest(BaseModel):
     invoice_ids: List[str]  # UUID strings
 
