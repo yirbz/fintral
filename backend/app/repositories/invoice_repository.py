@@ -1,7 +1,8 @@
-from typing import Optional
+from datetime import datetime
+from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import desc, or_, text
+from sqlalchemy import desc, or_
 from sqlalchemy.orm import Session
 
 from app.models import Invoice
@@ -111,6 +112,8 @@ class InvoiceRepository:
                 Invoice.confidence_score.isnot(None),
                 Invoice.confidence_score >= 0.85,
             )
+        elif quality == "cancelled":
+            query = query.filter(Invoice.cancelled_at.isnot(None))
         elif quality == "pending":
             query = query.filter(Invoice.processed.is_(False))
 
@@ -232,3 +235,130 @@ class InvoiceRepository:
     def hard_delete(self, db: Session, invoice: Invoice) -> None:
         db.delete(invoice)
         db.commit()
+
+    def list_for_dgii_export(
+        self,
+        db: Session,
+        tenant_id: UUID,
+        org_id: UUID,
+        transaction_type: Optional[str] = None,   # 'expense' | 'income'
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+        categories: Optional[List[str]] = None,
+        goods_types: Optional[List[str]] = None,   # ['01', '07', ...]
+        vendor_search: Optional[str] = None,
+        source_types: Optional[List[str]] = None,  # ['xml', 'pdf_text', ...]
+        processed_only: bool = True,               # Por defecto solo procesadas
+        include_no_ncf: bool = False,              # Incluir sin NCF
+        invoice_ids: Optional[List[str]] = None,   # Override explícito de IDs
+    ) -> List[Invoice]:
+        """Query flexible para exportaciones DGII. Sin paginación — devuelve todos
+        los registros que cumplan los criterios, ordenados por fecha de factura."""
+        query = db.query(Invoice).filter(
+            Invoice.tenant_id == tenant_id,
+            Invoice.organization_id == org_id,
+            Invoice.deleted_at.is_(None),
+        )
+
+        # Override: IDs explícitos tienen prioridad máxima
+        if invoice_ids:
+            query = query.filter(Invoice.id.in_(invoice_ids))
+            return query.order_by(Invoice.invoice_date.asc()).all()
+
+        if transaction_type:
+            query = query.filter(Invoice.transaction_type == transaction_type)
+
+        if date_from:
+            query = query.filter(Invoice.invoice_date >= date_from)
+
+        if date_to:
+            # Inclusivo hasta el final del día
+            end_of_day = date_to.replace(hour=23, minute=59, second=59)
+            query = query.filter(Invoice.invoice_date <= end_of_day)
+
+        if categories:
+            query = query.filter(Invoice.category.in_(categories))
+
+        if goods_types:
+            query = query.filter(Invoice.goods_services_type.in_(goods_types))
+
+        if vendor_search:
+            pattern = f"%{vendor_search}%"
+            query = query.filter(
+                or_(
+                    Invoice.vendor_name.ilike(pattern),
+                    Invoice.vendor_tax_id.ilike(pattern),
+                )
+            )
+
+        if source_types:
+            query = query.filter(Invoice.source_type.in_(source_types))
+
+        if processed_only:
+            query = query.filter(Invoice.processed.is_(True))
+
+        if not include_no_ncf:
+            # Para reportes DGII excluimos las que no tienen NCF por defecto
+            # (el caller puede sobreescribir esto para el 608)
+            pass  # No filtrar aquí — dejar que el endpoint decida
+
+        return query.order_by(Invoice.invoice_date.asc().nullslast()).all()
+
+    def count_by_period(
+        self,
+        db: Session,
+        tenant_id: UUID,
+        org_id: UUID,
+        transaction_type: Optional[str] = None,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+    ) -> dict:
+        """Devuelve conteos rápidos para el summary del período DGII."""
+        query = db.query(Invoice).filter(
+            Invoice.tenant_id == tenant_id,
+            Invoice.organization_id == org_id,
+            Invoice.deleted_at.is_(None),
+            Invoice.processed.is_(True),
+        )
+        if transaction_type:
+            query = query.filter(Invoice.transaction_type == transaction_type)
+        if date_from:
+            query = query.filter(Invoice.invoice_date >= date_from)
+        if date_to:
+            query = query.filter(Invoice.invoice_date <= date_to)
+
+        all_invoices = query.all()
+        total = len(all_invoices)
+
+        missing_ncf = sum(
+            1 for inv in all_invoices
+            if not (inv.invoice_number or "").strip()
+        )
+        missing_rnc = sum(
+            1 for inv in all_invoices
+            if not (inv.vendor_tax_id or "").strip()
+        )
+        missing_goods_type = sum(
+            1 for inv in all_invoices
+            if not (inv.goods_services_type or "").strip()
+        )
+        complete = sum(
+            1 for inv in all_invoices
+            if (inv.invoice_number or "").strip()
+            and (inv.vendor_tax_id or "").strip()
+            and (inv.goods_services_type or "").strip()
+        )
+
+        total_amount = sum(inv.total_amount or 0 for inv in all_invoices)
+        total_tax = sum(inv.tax_amount or 0 for inv in all_invoices)
+
+        return {
+            "total": total,
+            "complete": complete,
+            "missing_ncf": missing_ncf,
+            "missing_rnc": missing_rnc,
+            "missing_goods_type": missing_goods_type,
+            "issues": total - complete,
+            "total_amount": round(total_amount, 2),
+            "total_tax": round(total_tax, 2),
+        }

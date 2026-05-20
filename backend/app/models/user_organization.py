@@ -1,4 +1,4 @@
-from datetime import datetime
+from app.utils.dates import utc_now
 
 from sqlalchemy import Column, DateTime, ForeignKey, String, UniqueConstraint
 from uuid_utils import uuid7
@@ -18,4 +18,4 @@ class UserOrganization(Base):
     user_id = Column(GUID, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     organization_id = Column(GUID, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     role = Column(String, nullable=False, default="member")  # owner / admin / member / viewer
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utc_now)

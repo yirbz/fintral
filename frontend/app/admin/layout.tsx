@@ -6,6 +6,7 @@ import { useSession } from "@/hooks/use-session";
 import { ArrowLeftIcon } from "lucide-react";
 import Link from "next/link";
 import { LogoMark } from "@/components/ui/logo";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -19,8 +20,24 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="size-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
+      <div className="min-h-screen bg-background">
+        <header className="border-b bg-background">
+          <div className="flex h-12 items-center justify-between px-4 lg:px-6">
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-4 w-36 rounded-md" />
+              <Skeleton className="h-4 w-px rounded-none" />
+              <Skeleton className="h-5 w-24 rounded-md" />
+            </div>
+            <Skeleton className="h-3 w-40 rounded-md" />
+          </div>
+        </header>
+        <main className="mx-auto max-w-7xl px-4 py-6 lg:px-6">
+          <div className="space-y-4">
+            <Skeleton className="h-5 w-40 rounded-md" />
+            <Skeleton className="h-28 w-full rounded-lg" />
+            <Skeleton className="h-52 w-full rounded-lg" />
+          </div>
+        </main>
       </div>
     );
   }

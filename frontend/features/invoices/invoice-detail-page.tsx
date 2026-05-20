@@ -1,12 +1,12 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Download, Expand, FileText, Flame, RotateCcw, Save, Sparkles, Trash2 } from "lucide-react";
+import { ArrowLeft, Ban, Download, Expand, FileText, Flame, RotateCcw, Save, Sparkles, Trash2, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-import { bulkPermanentDelete as permanentDeleteApi, deleteInvoice, getInvoice, getOptimizedImage, processInvoice, restoreInvoice, updateInvoice } from "@/lib/api/invoices";
+import { bulkPermanentDelete as permanentDeleteApi, cancelInvoice, deleteInvoice, getInvoice, getOptimizedImage, processInvoice, restoreInvoice, uncancelInvoice, updateInvoice } from "@/lib/api/invoices";
 import type { Invoice } from "@/lib/types";
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,8 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   });
   const [editable, setEditable] = useState<Partial<Invoice>>({});
   const [showFullImage, setShowFullImage] = useState(false);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [cancelType, setCancelType] = useState("01");
   const [imageLoaded, setImageLoaded] = useState(false);
   const image = useQuery({
     queryKey: ["invoice-image", invoiceId],
@@ -79,6 +81,24 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
       router.push("/dashboard/invoices/trash");
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Error al eliminar"),
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: (cancellationType: string) => cancelInvoice(invoiceId, cancellationType),
+    onSuccess: () => {
+      toast.success("Factura anulada exitosamente");
+      void query.refetch();
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Error al anular"),
+  });
+
+  const uncancelMutation = useMutation({
+    mutationFn: () => uncancelInvoice(invoiceId),
+    onSuccess: () => {
+      toast.success("Anulación revertida");
+      void query.refetch();
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Error al revertir anulación"),
   });
 
   const flags = useMemo(() => {
@@ -189,6 +209,12 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                 <Badge variant={invoice.processed ? "default" : "secondary"}>
                   {invoice.processed ? "Procesado" : "Borrador"}
                 </Badge>
+                {invoice.cancelled_at ? (
+                  <Badge variant="destructive" className="bg-orange-600 hover:bg-orange-600">
+                    <XCircle className="size-3 mr-1" />
+                    Anulada
+                  </Badge>
+                ) : null}
                 <Button size="sm" variant="secondary" onClick={() => processMutation.mutate()} disabled={invoice.processed}>
                   <Sparkles className="size-3.5" data-icon="inline-start" />
                   Analizar
@@ -197,6 +223,17 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                   <Save className="size-3.5" data-icon="inline-start" />
                   Guardar
                 </Button>
+                {invoice.cancelled_at ? (
+                  <Button size="sm" variant="outline" onClick={() => uncancelMutation.mutate()} disabled={uncancelMutation.isPending}>
+                    <Ban className="size-3.5" data-icon="inline-start" />
+                    Desanular
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="outline" className="text-orange-600 border-orange-200 hover:bg-orange-50" onClick={() => setCancelDialogOpen(true)}>
+                    <XCircle className="size-3.5" data-icon="inline-start" />
+                    Anular
+                  </Button>
+                )}
                 <Button size="sm" variant="destructive" onClick={() => deleteMutation.mutate()}>
                   <Trash2 className="size-3.5" data-icon="inline-start" />
                   Eliminar
@@ -222,6 +259,24 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
               Esta factura está en la papelera. No se puede modificar hasta que sea restaurada.
               {invoice.deleted_at ? ` Eliminada el ${new Date(invoice.deleted_at).toLocaleDateString("es-DO", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}.` : null}
             </p>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {invoice.cancelled_at ? (
+        <Card className="border-orange-200 bg-orange-50">
+          <CardContent className="flex items-center gap-3 py-3">
+            <XCircle className="size-4 text-orange-600 shrink-0" />
+            <div className="text-xs text-orange-900">
+              <span className="font-semibold">Factura anulada</span>
+              <span className="text-orange-700">
+                {" — "}Tipo: {invoice.cancellation_type || "01"} ·{" "}
+                {new Date(invoice.cancelled_at).toLocaleDateString("es-DO", {
+                  day: "numeric", month: "long", year: "numeric",
+                  hour: "2-digit", minute: "2-digit",
+                })}
+              </span>
+            </div>
           </CardContent>
         </Card>
       ) : null}
@@ -496,6 +551,51 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
           </Card>
         </div>
       </div>
+
+      {/* ── Cancel Dialog ────────────────────────────────────────────── */}
+      {cancelDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setCancelDialogOpen(false)}>
+          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold mb-3">Anular factura</h3>
+            <p className="text-xs text-muted-foreground mb-3">
+              Esto marcará la factura como anulada ante la DGII. La factura permanecerá visible en tu lista y aparecerá en el formulario 608.
+            </p>
+            <div className="mb-4">
+              <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Tipo de anulación
+              </label>
+              <select
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                value={cancelType}
+                onChange={(e) => setCancelType(e.target.value)}
+              >
+                <option value="01">01 - Deterioro</option>
+                <option value="02">02 - Errores de impresión</option>
+                <option value="03">03 - Impresión defectuosa</option>
+                <option value="04">04 - Corrección información</option>
+                <option value="05">05 - Cambio de productos</option>
+                <option value="06">06 - Devolución de productos</option>
+                <option value="07">07 - Omisión de productos</option>
+                <option value="08">08 - Errores en secuencia NCF</option>
+                <option value="09">09 - Por cese de operaciones</option>
+                <option value="10">10 - Pérdida o hurto</option>
+              </select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setCancelDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button size="sm" className="bg-orange-600 hover:bg-orange-700" onClick={() => {
+                cancelMutation.mutate(cancelType);
+                setCancelDialogOpen(false);
+              }} disabled={cancelMutation.isPending}>
+                <XCircle className="size-3.5 mr-1" />
+                Anular factura
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showFullImage && image.data?.optimized_image ? (
         <div

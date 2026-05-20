@@ -1,4 +1,4 @@
-from datetime import datetime
+from app.utils.dates import utc_now
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import relationship
@@ -17,8 +17,8 @@ class Organization(Base):
     country = Column(String(3))  # ISO 3166-1 alpha-3
     is_active = Column(Boolean, default=True)
     settings_json = Column(Text, default="{}")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     # Relationships
     tenant = relationship("Tenant", back_populates="organizations")

@@ -1,3 +1,4 @@
+import logging
 import openai
 import os
 import base64
@@ -12,6 +13,9 @@ from app.services.cost_control import CostControlService
 from app.config import OPENAI_API_KEY, OLLAMA_HOST, OLLAMA_MODEL, GEMINI_API_URL, GEMINI_MODEL, SUPABASE_URL
 from app.database import SessionLocal
 from app.models import Setting, UserSetting
+from app.utils.dates import utc_now, utc_today
+
+logger = logging.getLogger(__name__)
 
 class OpenAIInvoiceProcessor:
     def __init__(self):
@@ -21,23 +25,23 @@ class OpenAIInvoiceProcessor:
         
         if not self.api_key:
             self.client = None
-            print("⚠️  API key not configured.")
+            logger.warning("API key not configured")
         elif self.api_key.lower() in ("ollama", "local"):
             self.client = None
-            print(f"✅ Ollama local LLM detected — using {self.ollama_model} at {self.ollama_host}")
+            logger.info("Using Ollama local LLM: model=%s host=%s", self.ollama_model, self.ollama_host)
         elif self.api_key.startswith("AIza"):
             self.client = None
-            print("✅ Gemini API key detected — using Google Gemini for processing")
+            logger.info("Using Google Gemini for AI processing")
         elif self.api_key.startswith("demo"):
             self.client = None
-            print("⚠️  Demo API key detected.")
+            logger.warning("Demo API key detected — limited functionality")
         else:
             try:
                 self.client = openai.OpenAI(api_key=self.api_key)
-                print("✅ OpenAI API key configured successfully")
+                logger.info("OpenAI API key configured successfully")
             except Exception as e:
                 self.client = None
-                print(f"❌ Error configuring OpenAI API key: {e}")
+                logger.error("Failed to configure OpenAI API key: %s", e)
         
         self.cost_control = CostControlService()
 
@@ -86,8 +90,8 @@ class OpenAIInvoiceProcessor:
 
             if setting and setting.value and len(setting.value) > 10:
                 api_key = setting.value
-        except Exception as e:
-            print(f"⚠️ Error leyendo settings de BD: {e}")
+        except Exception:
+            logger.debug("Settings table not available yet — using env default for API key")
         finally:
             if db:
                 db.close()
@@ -241,25 +245,23 @@ class OpenAIInvoiceProcessor:
             - Si no hay líneas, retorna array vacío [].
 
             REGLAS DE AUDITORÍA (audit_warnings):
-            IMPORTANTE: Solo añade warnings que puedas verificar directamente en el documento. NUNCA inventes fechas de vencimiento de NCF, rangos de validez, ni información que no aparezca explícitamente en la factura.
+            IMPORTANTE: Solo añade warnings que puedas verificar DIRECTAMENTE en el documento. NUNCA inventes información.
 
-            Warnings CRÍTICOS (solo si aplican):
+            Warnings que SÍ debes añadir (SOLO si están EXPLÍCITAMENTE visibles):
             - Si la imagen es muy borrosa o ilegible (no puedes leer la mayoría del texto), añade "Documento poco legible".
-            - Si NO hay NCF visible en absoluto, añade "Falta NCF del proveedor".
-
-            Warnings INFORMATIVOS (solo si aplican):
-            - Si el ITBIS parece incorrecto (ej: >25% del total cuando debería ser 18%), añade "Posible discrepancia en ITBIS".
+            - Si NO hay NCF visible en absoluto en la factura, añade "Falta NCF".
+            - Si el ITBIS calculado no coincide con el 18% del monto gravable, añade "Posible error en ITBIS".
             - Si la fecha de emisión es muy antigua (> 6 meses desde la fecha actual), añade "Factura antigua".
-            - Si detectas propinas o cargos no deducibles (alcohol, entretenimiento), menciónalo brevemente.
+            - Si ves propinas o cargos no deducibles (alcohol, entretenimiento), menciónalo.
 
-            NO añadas warnings por:
-            - NO añadas "Faltan datos fiscales del proveedor" — muchos proveedores no ponen dirección fiscal completa.
-            - NO añadas "Falta forma de pago explícita" — la mayoría de facturas no especifican forma de pago.
-            - NO añadas warnings sobre tipo de NCF (B01, B02, E31, etc.) — todos los tipos son válidos según el contexto.
-            - NO añadas warnings sobre vencimiento de NCF — no puedes saber la validez de un rango NCF sin consultar la DGII.
-            - NO añadas "Falta tipo de bienes y servicios (DGII 606)" — esto se infiere después automáticamente.
-            - NO añadas warnings sobre retenciones sin fecha de pago.
-            - NO inventes fechas, rangos de validez, ni información que no esté en el documento.
+            PROHIBIDO TERMINANTEMENTE — NUNCA añadas estos warnings:
+            - NUNCA añadas "NCF fuera de fecha de validez", "NCF vencido", "Rango NCF inválido" o similar. NO tienes acceso a los rangos NCF de la DGII.
+            - NUNCA añadas "Faltan datos fiscales del proveedor" — muchos proveedores no ponen dirección fiscal completa.
+            - NUNCA añadas "Falta forma de pago explícita" — la mayoría de facturas no especifican forma de pago.
+            - NUNCA añadas warnings sobre tipo de NCF (B01, B02, E31, etc.) — todos los tipos son válidos según el contexto.
+            - NUNCA añadas "Falta tipo de bienes y servicios (DGII 606)" — esto se determina automáticamente después.
+            - NUNCA añadas warnings sobre retenciones sin fecha de pago.
+            - NUNCA inventes fechas, rangos de validez de NCF, ni información que no esté explícitamente visible en la imagen.
 
             REGLAS GENERALES:
             - USA null para campos que no puedas identificar.
@@ -543,8 +545,20 @@ class OpenAIInvoiceProcessor:
         if not cleaned["goods_services_type"]:
             cleaned["goods_services_type"] = self._infer_goods_services_type(cleaned)
 
-        # Validación de NCF — solo para logging interno, no genera warnings
-        # (todos los tipos de NCF son válidos según contexto)
+        # Post-processing: eliminar warnings alucinados sobre NCF
+        # La AI tiende a inventar "NCF fuera de fecha de validez" o "NCF vencido"
+        # sin tener acceso a los rangos DGII. Esto está PROHIBIDO en el prompt
+        # pero igual filtramos por seguridad.
+        blocked_patterns = [
+            "ncf fuera de fecha", "ncf vencido", "rango ncf", "validez del ncf",
+            "ncf inválido", "ncf no válido", "ncf no valido", "ncf expirado",
+            "ncf caducado", "vencimiento del ncf",
+        ]
+        if cleaned.get("audit_warnings"):
+            cleaned["audit_warnings"] = [
+                w for w in cleaned["audit_warnings"]
+                if not any(p in w.lower() for p in blocked_patterns)
+            ]
 
         # Si no se pudo extraer información crítica, usar valores por defecto inteligentes
         if not cleaned["vendor_name"]:
@@ -711,7 +725,7 @@ class OpenAIInvoiceProcessor:
         return None
     
     def _validate_date(self, value):
-        """Valida y formatea fechas. Rechaza fechas futuras."""
+        """Valida y formatea fechas. Rechaza fechas futuras (UTC)."""
         if value is None or value == "null":
             return None
         try:
@@ -719,7 +733,7 @@ class OpenAIInvoiceProcessor:
             for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%Y/%m/%d"]:
                 try:
                     parsed_date = datetime.strptime(date_str, fmt)
-                    if parsed_date.date() > datetime.now().date():
+                    if parsed_date.date() > utc_today():
                         return None
                     return parsed_date.strftime("%Y-%m-%d")
                 except ValueError:
@@ -796,7 +810,7 @@ class OpenAIInvoiceProcessor:
             Analiza este texto extraído de una factura PDF y extrae la información clave. ADEMÁS, actúa como auditor contable y detecta anomalías.
             Devuelve la respuesta en formato JSON válido:
 
-            FECHA ACTUAL: {datetime.now().strftime('%Y-%m-%d')} — La fecha de la factura NO puede ser posterior a esta fecha.
+            FECHA ACTUAL (UTC): {utc_now().strftime('%Y-%m-%d')} — La fecha de la factura NO puede ser posterior a esta fecha.
 
             TEXTO DE LA FACTURA:
             {text}
@@ -859,23 +873,23 @@ class OpenAIInvoiceProcessor:
             - Si no hay líneas, retorna array vacío [].
 
             REGLAS DE AUDITORÍA (audit_warnings):
-            IMPORTANTE: Solo añade warnings que puedas verificar directamente en el documento. NUNCA inventes información que no esté visible.
+            IMPORTANTE: Solo añade warnings que puedas verificar DIRECTAMENTE en el documento. NUNCA inventes información.
 
-            Warnings que SÍ debes añadir:
+            Warnings que SÍ debes añadir (SOLO si están EXPLÍCITAMENTE visibles):
             - Si la imagen es muy borrosa o ilegible, añade "Documento poco legible".
-            - Si NO hay NCF visible en absoluto, añade "Falta NCF del proveedor".
-            - Si el ITBIS parece incorrecto (ej: >25% del total), añade "Posible error en ITBIS".
+            - Si NO hay NCF visible en absoluto, añade "Falta NCF".
+            - Si el ITBIS calculado no coincide con el 18% del monto gravable, añade "Posible error en ITBIS".
             - Si la fecha de emisión es muy antigua (> 6 meses desde la fecha actual), añade "Factura antigua".
-            - Si detectas propinas o cargos no deducibles (alcohol, entretenimiento), menciónalo.
+            - Si ves propinas o cargos no deducibles (alcohol, entretenimiento), menciónalo.
 
-            NO añadas warnings por:
-            - NO añadas "Faltan datos fiscales del proveedor" — muchos proveedores no ponen dirección fiscal completa.
-            - NO añadas "Falta forma de pago explícita" — la mayoría de facturas no especifican forma de pago.
-            - NO añadas warnings sobre tipo de NCF (B01, B02, E31, etc.) — todos los tipos son válidos según contexto.
-            - NO añadas warnings sobre vencimiento de NCF — no puedes saber la validez de un rango NCF sin consultar la DGII.
-            - NO añadas "Falta tipo de bienes y servicios (DGII 606)" — esto se infiere automáticamente después.
-            - NO añadas warnings sobre retenciones sin fecha de pago.
-            - NUNCA inventes fechas de vencimiento de NCF o rangos de validez.
+            PROHIBIDO TERMINANTEMENTE — NUNCA añadas estos warnings:
+            - NUNCA añadas "NCF fuera de fecha de validez", "NCF vencido", "Rango NCF inválido" o similar.
+            - NUNCA añadas "Faltan datos fiscales del proveedor" — muchos proveedores no ponen dirección fiscal completa.
+            - NUNCA añadas "Falta forma de pago explícita" — la mayoría de facturas no especifican forma de pago.
+            - NUNCA añadas warnings sobre tipo de NCF (B01, B02, E31, etc.) — todos los tipos son válidos según contexto.
+            - NUNCA añadas "Falta tipo de bienes y servicios (DGII 606)" — esto se determina después.
+            - NUNCA añadas warnings sobre retenciones sin fecha de pago.
+            - NUNCA inventes fechas de vencimiento de NCF, rangos de validez, ni info que no esté en el texto.
 
             REGLAS GENERALES:
             - USA null para campos que no puedas identificar.

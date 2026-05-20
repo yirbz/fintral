@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -38,7 +39,8 @@ async def login_for_access_token(
     remember = str(raw_form.get("remember", "false")).lower() in ("true", "1", "yes")
     user = None
 
-    # 1) PROD: try Supabase Auth first
+    # 1) PROD: try Supabase Auth first (verify credentials via Supabase,
+    #    then issue our own long-lived JWT for the session)
     if IS_PRODUCTION:
         result = sign_in(form_data.username, form_data.password)
         if result:
@@ -46,7 +48,9 @@ async def login_for_access_token(
             if user and not user.is_active:
                 user.is_active = True
                 db.commit()
-            return _create_token_response(result["access_token"], persist=remember)
+            expire = timedelta(days=REMEMBER_ME_EXPIRE_DAYS) if remember else timedelta(minutes=_SESSION_EXPIRE_MINUTES)
+            token = create_access_token(data={"sub": form_data.username}, expires_delta=expire)
+            return _create_token_response(token, persist=remember)
         # fall through to local verification if Supabase fails
 
     # 2) Legacy password verification (PROD fallback + DEVELOPMENT primary)
@@ -55,7 +59,6 @@ async def login_for_access_token(
         if user and verify_password(form_data.password, user.hashed_password):
             if not user.is_active:
                 raise HTTPException(status_code=400, detail="Usuario inactivo")
-            from datetime import timedelta
             expire = timedelta(days=REMEMBER_ME_EXPIRE_DAYS) if remember else timedelta(minutes=_SESSION_EXPIRE_MINUTES)
             token = create_access_token(data={"sub": form_data.username}, expires_delta=expire)
             return _create_token_response(token, persist=remember)
@@ -64,7 +67,6 @@ async def login_for_access_token(
 
     # 3) Hardcoded admin fallback (DB unavailable)
     if ADMIN_EMAIL and form_data.username == ADMIN_EMAIL and ADMIN_PASSWORD == form_data.password:
-        from datetime import timedelta
         expire = timedelta(days=REMEMBER_ME_EXPIRE_DAYS) if remember else timedelta(minutes=_SESSION_EXPIRE_MINUTES)
         token = create_access_token(data={"sub": form_data.username}, expires_delta=expire)
         return _create_token_response(token, persist=remember)

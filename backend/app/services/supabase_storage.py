@@ -32,7 +32,7 @@ def _get_storage_client() -> SyncStorageClient | None:
         "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
     }
     _storage_client = SyncStorageClient(f"{SUPABASE_URL}/storage/v1", headers)
-    logger.info("Storage client initialized: bucket=%s, endpoint=%s/storage/v1", SUPABASE_STORAGE_BUCKET, SUPABASE_URL)
+    logger.debug("Storage client initialized: bucket=%s, endpoint=%s/storage/v1", SUPABASE_STORAGE_BUCKET, SUPABASE_URL)
     return _storage_client
 
 
@@ -65,14 +65,10 @@ def _ensure_rls_policies(bucket_name: str) -> bool:
                     AND auth.role() = 'service_role'
                 )
             """))
-        logger.info("RLS policy created for bucket '%s' — service_role can read/write objects", bucket_name)
+        logger.debug("RLS policy created for bucket '%s'", bucket_name)
         return True
-    except Exception as e:
-        logger.warning(
-            "Could not ensure RLS policies for bucket '%s': %s. "
-            "Run scripts/supabase_storage_rls.sql manually in Supabase SQL Editor.",
-            bucket_name, e,
-        )
+    except Exception:
+        logger.debug("Could not ensure RLS policies for bucket '%s' — run scripts/supabase_storage_rls.sql manually if needed", bucket_name)
         return False
 
 
@@ -91,12 +87,12 @@ def ensure_bucket() -> bool:
             )
             logger.info("Storage bucket created: %s (public=false)", SUPABASE_STORAGE_BUCKET)
         else:
-            logger.info("Storage bucket found: %s", SUPABASE_STORAGE_BUCKET)
+            logger.debug("Storage bucket found: %s", SUPABASE_STORAGE_BUCKET)
 
         _ensure_rls_policies(SUPABASE_STORAGE_BUCKET)
         return True
     except Exception as e:
-        logger.warning("Failed to initialize storage bucket '%s': %s", SUPABASE_STORAGE_BUCKET, e)
+        logger.debug("Storage bucket init skipped for '%s': %s", SUPABASE_STORAGE_BUCKET, e)
         return False
 
 

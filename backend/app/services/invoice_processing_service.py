@@ -5,6 +5,8 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
+from app.utils.dates import utc_now
+
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
@@ -132,7 +134,7 @@ class InvoiceProcessingService:
             invoice.raw_extracted_data = json.dumps(extracted_data, ensure_ascii=False)
 
         invoice.processed = processed
-        invoice.updated_at = datetime.utcnow()
+        invoice.updated_at = utc_now()
 
         # Return the conflicting invoice (if any) so callers can surface structured metadata
         conflicting = duplicate_ncf or duplicate_vendor

@@ -1,4 +1,4 @@
-from datetime import datetime
+from app.utils.dates import utc_now
 
 from sqlalchemy import Boolean, Column, DateTime, String, Text
 from sqlalchemy.orm import relationship
@@ -16,8 +16,8 @@ class Tenant(Base):
     plan = Column(String, default="free")
     is_active = Column(Boolean, default=True)
     settings_json = Column(Text, default="{}")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     # Relationships
     organizations = relationship("Organization", back_populates="tenant", lazy="select")

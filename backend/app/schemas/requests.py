@@ -61,6 +61,10 @@ class ResetPasswordRequest(BaseModel):
     password: str
 
 
+class CancelInvoiceRequest(BaseModel):
+    cancellation_type: str = "01"  # Código DGII 01-10
+
+
 class BulkActionRequest(BaseModel):
     invoice_ids: List[str]  # UUID strings
 

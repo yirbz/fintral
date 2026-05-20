@@ -3,20 +3,20 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 import io
 from sqlalchemy import desc
 
-from app.models import Invoice
+from app.models import DgiiSubmission, Invoice, InvoiceDgiiStatus
 
 from app.config import SUPABASE_URL
 from app.core.container import export_service, openai_processor, webhook_sender
 from app.dependencies.tenant import TenantContext, require_tenant
 from app.repositories import InvoiceRepository
-from app.schemas import BulkActionRequest, ExportRequest, ManualInvoiceCreate, WebhookPushRequest
+from app.schemas import BulkActionRequest, CancelInvoiceRequest, ExportRequest, ManualInvoiceCreate, WebhookPushRequest
 from app.services import InvoiceProcessingService
 from app.services.pipeline.image_preprocessor import image_preprocessor
 from app.services.supabase_storage import (
@@ -56,6 +56,205 @@ def get_file_type(filename: str) -> str:
     raise ValueError(f"Tipo de archivo no permitido: {ext}")
 
 
+def _normalize_ncf(value: Optional[str]) -> str:
+    return (value or "").strip().upper()
+
+
+def _expected_dgii_format(invoice: Invoice) -> Optional[str]:
+    if invoice.cancelled_at:
+        return "608"
+    if invoice.transaction_type == "income":
+        return "607"
+    if invoice.transaction_type == "expense":
+        return "606"
+    return None
+
+
+def _snapshot_ncf(snapshot: Any) -> str:
+    payload = snapshot
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (json.JSONDecodeError, TypeError):
+            payload = None
+    if isinstance(payload, dict):
+        return _normalize_ncf(payload.get("ncf"))
+    return ""
+
+
+def _load_confirmed_ncf_sets(ctx: TenantContext) -> dict[str, set[str]]:
+    rows = (
+        ctx.db.query(
+            InvoiceDgiiStatus.format,
+            InvoiceDgiiStatus.report_snapshot,
+            Invoice.invoice_number,
+        )
+        .join(DgiiSubmission, DgiiSubmission.id == InvoiceDgiiStatus.submission_id)
+        .outerjoin(Invoice, Invoice.id == InvoiceDgiiStatus.invoice_id)
+        .filter(
+            DgiiSubmission.tenant_id == ctx.tenant_id,
+            DgiiSubmission.organization_id == ctx.org_id,
+            InvoiceDgiiStatus.status == "reported",
+            DgiiSubmission.status.in_(["confirmed", "partial_error"]),
+        )
+        .all()
+    )
+
+    confirmed_by_format: dict[str, set[str]] = {
+        "606": set(),
+        "607": set(),
+        "608": set(),
+    }
+    for fmt, snapshot, invoice_number in rows:
+        if fmt not in confirmed_by_format:
+            continue
+        ncf = _snapshot_ncf(snapshot) or _normalize_ncf(invoice_number)
+        if ncf:
+            confirmed_by_format[fmt].add(ncf)
+    return confirmed_by_format
+
+
+def _load_latest_invoice_statuses(
+    ctx: TenantContext,
+    invoice_ids: list[Any],
+) -> dict[str, dict[str, dict[str, Optional[str]]]]:
+    if not invoice_ids:
+        return {}
+
+    rows = (
+        ctx.db.query(
+            InvoiceDgiiStatus.invoice_id,
+            InvoiceDgiiStatus.format,
+            InvoiceDgiiStatus.status,
+            DgiiSubmission.status.label("submission_status"),
+            InvoiceDgiiStatus.updated_at,
+            InvoiceDgiiStatus.created_at,
+        )
+        .outerjoin(DgiiSubmission, DgiiSubmission.id == InvoiceDgiiStatus.submission_id)
+        .filter(InvoiceDgiiStatus.invoice_id.in_(invoice_ids))
+        .order_by(InvoiceDgiiStatus.updated_at.desc(), InvoiceDgiiStatus.created_at.desc())
+        .all()
+    )
+
+    by_invoice: dict[str, dict[str, dict[str, Optional[str]]]] = {}
+    for row in rows:
+        invoice_id = str(row.invoice_id)
+        fmt = row.format
+        fmt_map = by_invoice.setdefault(invoice_id, {})
+        if fmt in fmt_map:
+            continue
+        fmt_map[fmt] = {
+            "status": row.status,
+            "submission_status": row.submission_status,
+        }
+    return by_invoice
+
+
+def _build_invoice_dgii_status(
+    invoice: Invoice,
+    latest_statuses: dict[str, dict[str, dict[str, Optional[str]]]],
+    confirmed_ncfs_by_format: dict[str, set[str]],
+) -> dict[str, Any]:
+    fmt = _expected_dgii_format(invoice)
+    if not fmt:
+        return {
+            "format": None,
+            "status": "not_applicable",
+            "label": "Sin formato DGII",
+            "tone": "slate",
+            "locked": False,
+        }
+
+    ncf = _normalize_ncf(invoice.invoice_number)
+    if ncf and ncf in confirmed_ncfs_by_format.get(fmt, set()):
+        return {
+            "format": fmt,
+            "status": "confirmed_ncf",
+            "label": "Confirmada DGII",
+            "tone": "indigo",
+            "locked": True,
+        }
+
+    status_payload = (latest_statuses.get(str(invoice.id)) or {}).get(fmt)
+    if status_payload:
+        sub_status = status_payload.get("submission_status")
+        inv_status = status_payload.get("status")
+        if sub_status == "pending_upload":
+            return {
+                "format": fmt,
+                "status": "pending_upload",
+                "label": "Pendiente envío DGII",
+                "tone": "sky",
+                "locked": False,
+            }
+        if sub_status == "pending_confirm":
+            return {
+                "format": fmt,
+                "status": "pending_confirm",
+                "label": "Pendiente confirmación DGII",
+                "tone": "amber",
+                "locked": False,
+            }
+        if inv_status == "error":
+            return {
+                "format": fmt,
+                "status": "error",
+                "label": "Error DGII",
+                "tone": "red",
+                "locked": False,
+            }
+        if inv_status == "excluded":
+            return {
+                "format": fmt,
+                "status": "excluded",
+                "label": "Excluida DGII",
+                "tone": "slate",
+                "locked": False,
+            }
+        if inv_status == "reported":
+            return {
+                "format": fmt,
+                "status": "reported",
+                "label": "Reportada DGII",
+                "tone": "emerald",
+                "locked": False,
+            }
+
+    if not invoice.processed:
+        return {
+            "format": fmt,
+            "status": "pending_processing",
+            "label": "Pendiente procesamiento",
+            "tone": "slate",
+            "locked": False,
+        }
+
+    return {
+        "format": fmt,
+        "status": "unreported",
+        "label": "Pendiente reporte DGII",
+        "tone": "amber",
+        "locked": False,
+    }
+
+
+def _serialize_invoices_with_dgii_status(ctx: TenantContext, invoices: list[Invoice]) -> list[dict[str, Any]]:
+    invoice_ids = [invoice.id for invoice in invoices]
+    latest_statuses = _load_latest_invoice_statuses(ctx, invoice_ids)
+    confirmed_ncfs_by_format = _load_confirmed_ncf_sets(ctx)
+
+    payload: list[dict[str, Any]] = []
+    for invoice in invoices:
+        data = invoice.to_dict()
+        data["dgii_status"] = _build_invoice_dgii_status(
+            invoice=invoice,
+            latest_statuses=latest_statuses,
+            confirmed_ncfs_by_format=confirmed_ncfs_by_format,
+        )
+        payload.append(data)
+    return payload
+
+
 @router.get("/test-invoice/{invoice_id}")
 async def test_invoice(invoice_id: str):
     return {"test": "working", "invoice_id": invoice_id}
@@ -70,7 +269,8 @@ async def invoice_detail_json(
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
-    return {"invoice": invoice.to_dict(), "status": "success"}
+    payload = _serialize_invoices_with_dgii_status(ctx, [invoice])[0]
+    return {"invoice": payload, "status": "success"}
 
 
 @router.get("/invoice/{invoice_id}/view", response_class=HTMLResponse)
@@ -256,7 +456,7 @@ async def process_invoice(
         }
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error inesperado procesando factura %s", invoice_id)
         raise HTTPException(
             status_code=500,
@@ -293,7 +493,7 @@ async def get_invoices(
     )
 
     return {
-        "invoices": [invoice.to_dict() for invoice in invoices],
+        "invoices": _serialize_invoices_with_dgii_status(ctx, invoices),
         "total": total,
     }
 
@@ -325,7 +525,7 @@ async def get_invoice(
     invoice = invoice_repo.get_including_trashed(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
-    return invoice.to_dict()
+    return _serialize_invoices_with_dgii_status(ctx, [invoice])[0]
 
 
 @router.get("/invoice/{invoice_id}/optimized-image")
@@ -548,6 +748,66 @@ async def permanent_delete_invoice(
     invoice_repo.hard_delete(ctx.db, invoice)
     logger.info("Invoice permanently deleted: id=%s, filename=%s", invoice_id, invoice.filename)
     return {"message": "Factura eliminada permanentemente"}
+
+
+@router.post("/invoices/{invoice_id}/cancel")
+async def cancel_invoice(
+    invoice_id: str,
+    body: CancelInvoiceRequest,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    invoice = invoice_repo.get(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+    if invoice.cancelled_at:
+        raise HTTPException(status_code=400, detail="La factura ya está anulada")
+
+    invoice.cancelled_at = datetime.utcnow()
+    invoice.cancellation_type = body.cancellation_type or "01"
+    ctx.db.commit()
+    ctx.db.refresh(invoice)
+    return {"message": "Factura anulada exitosamente", "invoice": invoice.to_dict()}
+
+
+@router.post("/invoices/{invoice_id}/uncancel")
+async def uncancel_invoice(
+    invoice_id: str,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    invoice = invoice_repo.get(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+    if not invoice.cancelled_at:
+        raise HTTPException(status_code=400, detail="La factura no está anulada")
+
+    invoice.cancelled_at = None
+    invoice.cancellation_type = None
+    ctx.db.commit()
+    ctx.db.refresh(invoice)
+    return {"message": "Anulación revertida exitosamente", "invoice": invoice.to_dict()}
+
+
+@router.post("/api/invoices/bulk-cancel")
+async def bulk_cancel_invoices(
+    action: BulkActionRequest,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    if not action.invoice_ids:
+        return {"message": "No se seleccionaron facturas", "count": 0}
+
+    invoices = invoice_repo.list_by_ids(ctx.db, action.invoice_ids, ctx.tenant_id, ctx.org_id)
+
+    now = datetime.utcnow()
+    count = 0
+    for invoice in invoices:
+        if invoice.cancelled_at:
+            continue
+        invoice.cancelled_at = now
+        invoice.cancellation_type = "01"
+        count += 1
+
+    ctx.db.commit()
+    return {"message": f"{count} factura(s) anuladas exitosamente", "count": count}
 
 
 @router.post("/api/invoices/bulk-restore")
