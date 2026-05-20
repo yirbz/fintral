@@ -108,6 +108,7 @@ htmlcov/
 
 # Opencode
 .opencode/
+.codegraph/
 AGENTS.md
 .codex
 .agents/
@@ -120,6 +121,7 @@ frontend/dist/
 frontend/out/
 frontend/.turbo/
 frontend/.cache/
+frontend/tsconfig.tsbuildinfo
 
 #Docs
 docs/plans/
