@@ -113,6 +113,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 
 REMEMBER_ME_EXPIRE_DAYS: int = int(os.getenv("REMEMBER_ME_EXPIRE_DAYS", "30"))
 
 # ---------------------------------------------------------------------------
+# Timezone
+# ---------------------------------------------------------------------------
+DEFAULT_TIMEZONE: str = os.getenv("DEFAULT_TIMEZONE", "UTC")
+
+# ---------------------------------------------------------------------------
 # Heartbeat
 # ---------------------------------------------------------------------------
 DISABLE_HEARTBEAT_TASK: bool = os.getenv("DISABLE_HEARTBEAT_TASK", "false").lower() == "true"

@@ -5,6 +5,8 @@ Usage:
     from app.models import Invoice, User, Organization, Tenant
 """
 
+from .dgii_submission import DgiiSubmission
+from .invoice_dgii_status import InvoiceDgiiStatus
 from .invoice import Invoice
 from .notification import Notification
 from .organization import Organization
@@ -16,6 +18,8 @@ from .user_organization import UserOrganization
 from .webhook import WebhookEndpoint
 
 __all__ = [
+    "DgiiSubmission",
+    "InvoiceDgiiStatus",
     "Invoice",
     "Notification",
     "Organization",

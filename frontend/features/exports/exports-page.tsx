@@ -28,6 +28,8 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { exportInvoices } from "@/lib/api/invoices";
+import { triggerBlobDownload } from "@/lib/api/dgii";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -209,17 +211,59 @@ export function ExportsPage() {
   async function handleDownload() {
     if (!selectedFormat) return;
     setExporting(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    setExporting(false);
+    try {
+      let format = selectedFormat;
+      // Map exports page format IDs to backend format names
+      const FORMAT_MAP: Record<string, string> = {
+        csv: "csv",
+        dgii_606: "dgii_606",
+        quickbooks: "quickbooks",
+        xero: "xero",
+        odoo: "odoo",
+        contaplus: "contaplus",
+        json: "json",
+        excel: "excel",
+      };
+
+      const backendFormat = FORMAT_MAP[format] || format;
+
+      // For DGII, redirect to DGII page
+      if (format === "dgii_606") {
+        window.location.href = "/dashboard/dgii";
+        return;
+      }
+
+      const blob = await exportInvoices(backendFormat, [], {
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
+        vendor_search: vendor || undefined,
+        category: category !== "all" ? category : undefined,
+      });
+      const ext = backendFormat === "excel" ? ".xlsx" : backendFormat === "json" ? ".json" : ".csv";
+      triggerBlobDownload(blob, `export_${backendFormat}_${new Date().toISOString().slice(0, 10)}${ext}`);
+    } catch (e: any) {
+      console.error("Export error:", e);
+      alert(e.message || "Error al exportar");
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function handleSendEmail() {
     if (!selectedFormat || !email) return;
     setExporting(true);
-    await new Promise((r) => setTimeout(r, 1500));
-    setExporting(false);
-    setSent(true);
-    setTimeout(() => setSent(false), 3000);
+    try {
+      const blob = await exportInvoices(selectedFormat, []);
+      // Could send via email API, for now just download
+      triggerBlobDownload(blob, `export_${selectedFormat}.csv`);
+      setSent(true);
+      setTimeout(() => setSent(false), 3000);
+    } catch (e: any) {
+      console.error("Send error:", e);
+      alert(e.message || "Error al enviar");
+    } finally {
+      setExporting(false);
+    }
   }
 
   const statusBadge = (status: ExportStatus) => (

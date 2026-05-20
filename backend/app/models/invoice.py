@@ -1,7 +1,7 @@
 import json
-from datetime import datetime
 
 from app.config import SUPABASE_URL, SUPABASE_STORAGE_BUCKET
+from app.utils.dates import utc_now
 
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
@@ -31,7 +31,7 @@ class Invoice(Base):
     # Datos extraídos de la factura
     vendor_name = Column(String)
     invoice_number = Column(String)
-    invoice_date = Column(DateTime)
+    invoice_date = Column(DateTime(timezone=True))
     total_amount = Column(Float)
     tax_amount = Column(Float)
     currency = Column(String, default="USD")
@@ -69,13 +69,17 @@ class Invoice(Base):
     batch_id = Column(GUID, nullable=True)  # Groups XLSX bulk imports
 
     # Metadatos
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
     processed = Column(Boolean, default=False)
 
     # Soft delete
-    deleted_at = Column(DateTime, nullable=True, index=True)
+    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
     deleted_by = Column(GUID, nullable=True)
+
+    # DGII cancellation (Formulario 608)
+    cancelled_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    cancellation_type = Column(String(2), nullable=True)  # Código 01-10 DGII
 
     # Relationships
     organization = relationship("Organization", back_populates="invoices")
@@ -124,4 +128,6 @@ class Invoice(Base):
             "ecf_type": self.ecf_type,
             "batch_id": str(self.batch_id) if self.batch_id else None,
             "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
+            "cancelled_at": self.cancelled_at.isoformat() if self.cancelled_at else None,
+            "cancellation_type": self.cancellation_type,
         }

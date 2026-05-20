@@ -26,6 +26,7 @@ import {
   BarChart3Icon,
   FileSpreadsheetIcon,
   Trash2Icon,
+  SendIcon,
 } from "lucide-react"
 
 const data = {
@@ -79,21 +80,16 @@ const data = {
     },
   ],
   documents: [
+    { name: "Exportaciones", url: "/dashboard/exports", icon: <DatabaseIcon /> },
     {
-      name: "Exportaciones",
-      url: "/dashboard/exports",
-      icon: <DatabaseIcon />,
-    },
-    {
-      name: "Reportes DGII",
-      url: "/dashboard/dgii",
+      name: "DGII",
       icon: <BarChart3Icon />,
+      children: [
+        { name: "Crear reportes", url: "/dashboard/dgii", icon: <BarChart3Icon /> },
+        { name: "Envíos", url: "/dashboard/dgii/envios", icon: <SendIcon /> },
+      ],
     },
-    {
-      name: "Historial",
-      url: "/dashboard/history",
-      icon: <FileSpreadsheetIcon />,
-    },
+    { name: "Historial", url: "/dashboard/history", icon: <FileSpreadsheetIcon /> },
   ],
 }
 

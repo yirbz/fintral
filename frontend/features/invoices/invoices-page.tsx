@@ -1,11 +1,32 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Download, FileImage, FileText, Filter, Loader2, Play, Plus, Search, Send, ShieldAlert, Trash2, XCircle, Zap } from "lucide-react";
+import {
+  AlertTriangle,
+  Ban,
+  CheckCircle2,
+  Clock3,
+  Download,
+  FileImage,
+  FileText,
+  Filter,
+  Loader2,
+  Play,
+  Plus,
+  Search,
+  Send,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldX,
+  Trash2,
+  XCircle,
+  Zap,
+} from "lucide-react";
 import React, { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import {
+  bulkCancel,
   bulkDelete,
   bulkProcess,
   exportUrl,
@@ -42,6 +63,7 @@ import type { CreateInvoicePayload } from "@/lib/api/invoices";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { formatDate } from "@/lib/utils/date";
 
 const EXPORT_FORMATS = [
   "csv",
@@ -133,6 +155,22 @@ export function InvoicesPage() {
         loading: `Moviendo ${selectedIds.length} facturas a la papelera...`,
         success: (data) => data.message || `${selectedIds.length} facturas movidas a la papelera`,
         error: (err) => err instanceof Error ? err.message : "Error al eliminar",
+      });
+      return promise;
+    },
+    onSuccess: async () => {
+      setSelectedIds([]);
+      await refresh();
+    }
+  });
+
+  const bulkCancelMutation = useMutation({
+    mutationFn: async () => {
+      const promise = bulkCancel(selectedIds);
+      toast.promise(promise, {
+        loading: `Anulando ${selectedIds.length} facturas...`,
+        success: (data) => data.message || `${selectedIds.length} facturas anuladas`,
+        error: (err) => err instanceof Error ? err.message : "Error al anular",
       });
       return promise;
     },
@@ -257,6 +295,7 @@ export function InvoicesPage() {
               { id: "low_confidence", label: "Baja confianza",     icon: AlertTriangle, cls: "text-amber-600" },
               { id: "with_warnings",  label: "Con advertencias",   icon: ShieldAlert,  cls: "text-orange-600" },
               { id: "has_duplicates", label: "NCF duplicados",     icon: XCircle,      cls: "text-destructive" },
+              { id: "cancelled",      label: "Anuladas",           icon: XCircle,      cls: "text-orange-600" },
               { id: "no_ncf",         label: "Sin NCF",            icon: Zap,          cls: "text-violet-600" },
             ] as { id: string; label: string; icon: React.ElementType | null; cls?: string }[]).map((q) => (
               <button
@@ -294,6 +333,10 @@ export function InvoicesPage() {
             <Button size="sm" variant="secondary" onClick={() => pushMutation.mutate()}>
               <Send className="mr-1.5 h-3.5 w-3.5" />
               Webhook
+            </Button>
+            <Button size="sm" variant="outline" className="text-orange-600 border-orange-200 hover:bg-orange-50" onClick={() => bulkCancelMutation.mutate()}>
+              <XCircle className="mr-1.5 h-3.5 w-3.5" />
+              Anular
             </Button>
             <Button size="sm" variant="destructive" onClick={() => bulkDeleteMutation.mutate()}>
               <Trash2 className="mr-1.5 h-3.5 w-3.5" />
@@ -428,10 +471,23 @@ const HEALTH_ROW: Record<string, string> = {
   ok:             "",
 };
 
+const DGII_ROW: Record<string, string> = {
+  confirmed_ncf: "ring-1 ring-inset ring-indigo-200/80",
+  error: "ring-1 ring-inset ring-red-200/80",
+  pending_confirm: "ring-1 ring-inset ring-amber-200/70",
+  pending_upload: "ring-1 ring-inset ring-sky-200/70",
+};
+
 function HealthBadge({ invoice }: { invoice: Invoice }) {
   const h = invoiceHealth(invoice);
   const conf = invoice.confidence_score;
   const pct = conf != null ? Math.round(conf * 100) : null;
+
+  if (invoice.cancelled_at) return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-orange-300 bg-orange-50 px-2 py-0.5 text-[10px] font-medium text-orange-700">
+      <XCircle className="size-2.5" /> Anulada
+    </span>
+  );
 
   if (h === "pending") return (
     <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -466,6 +522,77 @@ function HealthBadge({ invoice }: { invoice: Invoice }) {
   );
 }
 
+function DgiiStatusBadge({ invoice }: { invoice: Invoice }) {
+  const status = invoice.dgii_status;
+  if (!status || status.status === "not_applicable") return null;
+
+  const cfg: Record<
+    NonNullable<Invoice["dgii_status"]>["status"],
+    { icon: React.ElementType; className: string; label: string }
+  > = {
+    not_applicable: {
+      icon: CheckCircle2,
+      className: "border-border/50 bg-muted text-muted-foreground",
+      label: "Sin formato DGII",
+    },
+    confirmed_ncf: {
+      icon: ShieldCheck,
+      className: "border-indigo-300 bg-indigo-50 text-indigo-700",
+      label: "Confirmada DGII",
+    },
+    pending_upload: {
+      icon: Clock3,
+      className: "border-sky-300 bg-sky-50 text-sky-700",
+      label: "Pendiente envío DGII",
+    },
+    pending_confirm: {
+      icon: Clock3,
+      className: "border-amber-300 bg-amber-50 text-amber-700",
+      label: "Pendiente confirmación DGII",
+    },
+    error: {
+      icon: ShieldX,
+      className: "border-red-300 bg-red-50 text-red-700",
+      label: "Error DGII",
+    },
+    excluded: {
+      icon: Ban,
+      className: "border-slate-300 bg-slate-100 text-slate-700",
+      label: "Excluida DGII",
+    },
+    reported: {
+      icon: CheckCircle2,
+      className: "border-emerald-300 bg-emerald-50 text-emerald-700",
+      label: "Reportada DGII",
+    },
+    pending_processing: {
+      icon: Loader2,
+      className: "border-border/60 bg-muted text-muted-foreground",
+      label: "Pendiente procesamiento",
+    },
+    unreported: {
+      icon: Clock3,
+      className: "border-amber-300 bg-amber-50 text-amber-700",
+      label: "Pendiente reporte DGII",
+    },
+  };
+
+  const item = cfg[status.status];
+  const Icon = item.icon;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium",
+        item.className,
+      )}
+      title={status.label}
+    >
+      <Icon className={cn("size-2.5", status.status === "pending_processing" && "animate-spin")} />
+      {item.label}
+    </span>
+  );
+}
+
 function InvoiceRow({
   invoice,
   selected,
@@ -484,7 +611,7 @@ function InvoiceRow({
   isEven: boolean;
 }) {
   const h = invoiceHealth(invoice);
-  const date = invoice.invoice_date ? new Date(invoice.invoice_date).toLocaleDateString("es-DO") : "-";
+  const date = formatDate(invoice.invoice_date);
   const amount = new Intl.NumberFormat("es-DO", {
     style: "currency",
     currency: invoice.currency || "USD",
@@ -497,6 +624,7 @@ function InvoiceRow({
         "border-b border-border transition-colors duration-150 hover:bg-primary/5",
         selected ? "bg-primary/5" : isEven ? "bg-muted/30" : "",
         HEALTH_ROW[h] ?? "",
+        DGII_ROW[invoice.dgii_status?.status || ""] ?? "",
       )}
     >
       <TableCell className="px-4 py-3">
@@ -522,7 +650,10 @@ function InvoiceRow({
         </span>
       </TableCell>
       <TableCell className="px-3 py-3 text-center">
-        <HealthBadge invoice={invoice} />
+        <div className="flex flex-col items-center gap-1">
+          <HealthBadge invoice={invoice} />
+          <DgiiStatusBadge invoice={invoice} />
+        </div>
       </TableCell>
       <TableCell className="px-3 py-3 text-right">
         {isProcessing ? (

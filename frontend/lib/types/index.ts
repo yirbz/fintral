@@ -54,6 +54,24 @@ export interface Invoice {
   goods_services_type: string | null;
   created_at: string | null;
   deleted_at: string | null;
+  cancelled_at: string | null;
+  cancellation_type: string | null;
+  dgii_status?: {
+    format: "606" | "607" | "608" | null;
+    status:
+      | "not_applicable"
+      | "confirmed_ncf"
+      | "pending_upload"
+      | "pending_confirm"
+      | "error"
+      | "excluded"
+      | "reported"
+      | "pending_processing"
+      | "unreported";
+    label: string;
+    tone: "slate" | "sky" | "amber" | "red" | "emerald" | "indigo";
+    locked: boolean;
+  } | null;
 }
 
 export interface NotificationItem {

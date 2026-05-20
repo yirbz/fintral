@@ -76,6 +76,28 @@ export async function bulkDelete(invoiceIds: string[]) {
   });
 }
 
+export async function cancelInvoice(invoiceId: string, cancellationType = "01") {
+  return apiFetch<{ message: string; invoice: Invoice }>(`/invoices/${invoiceId}/cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cancellation_type: cancellationType })
+  });
+}
+
+export async function uncancelInvoice(invoiceId: string) {
+  return apiFetch<{ message: string; invoice: Invoice }>(`/invoices/${invoiceId}/uncancel`, {
+    method: "POST"
+  });
+}
+
+export async function bulkCancel(invoiceIds: string[]) {
+  return apiFetch<{ message: string; count: number }>("/api/invoices/bulk-cancel", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ invoice_ids: invoiceIds })
+  });
+}
+
 export async function pushWebhook(invoiceIds: string[]) {
   return apiFetch<{ status: string }>("/api/invoices/push-webhook", {
     method: "POST",
@@ -146,6 +168,42 @@ export function exportUrl(format: string, invoiceIds: string[]) {
     invoice_ids: invoiceIds.join(",")
   });
   return `/export/csv?${params.toString()}`;
+}
+
+export async function exportInvoices(
+  format: string,
+  invoiceIds: string[],
+  filters?: { date_from?: string; date_to?: string; vendor_search?: string; category?: string }
+): Promise<Blob> {
+  const token =
+    typeof window !== "undefined"
+      ? sessionStorage.getItem("access_token") ||
+        localStorage.getItem("access_token")
+      : null;
+
+  const body: Record<string, unknown> = { format, invoice_ids: invoiceIds };
+  if (filters) {
+    if (filters.date_from) body.date_from = filters.date_from;
+    if (filters.date_to) body.date_to = filters.date_to;
+    if (filters.vendor_search) body.vendor_search = filters.vendor_search;
+    if (filters.category) body.category = filters.category;
+  }
+
+  const res = await fetch("/api/invoices/export", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Error al exportar");
+  }
+
+  return res.blob();
 }
 
 /* ── Trash / Soft Delete ───────────────────── */

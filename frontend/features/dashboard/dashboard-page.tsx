@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import Link from "next/link";
+import { DgiiDashboardWidget } from "@/features/dgii/dgii-dashboard-widget";
 
 export function DashboardPage() {
   const stats = useQuery({ queryKey: ["statistics", "30d"], queryFn: () => getStatistics("30d") });
@@ -85,8 +86,8 @@ export function DashboardPage() {
         )}
       </div>
 
-      {/* Activity + Live */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      {/* Activity + Live + DGII */}
+      <div className="grid gap-4 lg:grid-cols-4">
         <Card className="lg:col-span-2">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -192,6 +193,8 @@ export function DashboardPage() {
             ))}
           </CardContent>
         </Card>
+
+        <DgiiDashboardWidget />
       </div>
     </div>
   );

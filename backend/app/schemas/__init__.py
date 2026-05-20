@@ -1,5 +1,6 @@
 from .requests import (
     BulkActionRequest,
+    CancelInvoiceRequest,
     ChatRequest,
     EvolutionWebhook,
     ExportRequest,
@@ -14,6 +15,7 @@ from .requests import (
 )
 
 __all__ = [
+    "CancelInvoiceRequest",
     "ChatRequest",
     "SettingUpdate",
     "BulkActionRequest",

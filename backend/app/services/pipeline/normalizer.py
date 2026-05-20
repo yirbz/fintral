@@ -3,6 +3,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+from app.utils.dates import utc_today
 
 CANONICAL_SCHEMA = {
     "vendor_name": str,
@@ -127,6 +128,19 @@ class Normalizer:
             return None
         try:
             date_str = str(value).strip()
+            for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%d", "%Y/%m/%d"]:
+                try:
+                    parsed = datetime.strptime(date_str, fmt)
+                    if parsed.date() > utc_today():
+                        return None
+                    return parsed.strftime("%Y-%m-%d")
+                except ValueError:
+                    continue
+            return None
+        except Exception:
+            return None
+        try:
+            date_str = str(value).strip()
             for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%Y/%m/%d"]:
                 try:
                     parsed = datetime.strptime(date_str, fmt)
@@ -143,7 +157,10 @@ class Normalizer:
         if not value:
             return None
         try:
-            return datetime.strptime(value, "%Y-%m-%d")
+            parsed = datetime.strptime(value, "%Y-%m-%d")
+            if parsed.date() > utc_today():
+                return None
+            return parsed
         except Exception:
             return None
 

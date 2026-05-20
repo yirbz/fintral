@@ -6,6 +6,7 @@ import { getPublicReferenceData, type ReferenceDataItem } from "@/lib/api/refere
 const LOCALSTORAGE_PREFIX = "refdata:";
 
 function loadFromLocalStorage(domain: string): ReferenceDataItem[] | undefined {
+  if (typeof window === "undefined") return undefined;
   try {
     const raw = localStorage.getItem(`${LOCALSTORAGE_PREFIX}${domain}`);
     if (!raw) return undefined;
@@ -18,6 +19,7 @@ function loadFromLocalStorage(domain: string): ReferenceDataItem[] | undefined {
 }
 
 function saveToLocalStorage(domain: string, items: ReferenceDataItem[]) {
+  if (typeof window === "undefined") return;
   try {
     localStorage.setItem(`${LOCALSTORAGE_PREFIX}${domain}`, JSON.stringify(items));
   } catch {
@@ -61,6 +63,7 @@ export function usePrefetchReferenceData() {
 }
 
 export function prefetchReferenceDataSync(domain: string) {
+  if (typeof window === "undefined") return undefined;
   const cached = loadFromLocalStorage(domain);
   if (cached) return cached;
 
