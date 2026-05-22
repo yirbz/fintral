@@ -118,6 +118,14 @@ REMEMBER_ME_EXPIRE_DAYS: int = int(os.getenv("REMEMBER_ME_EXPIRE_DAYS", "30"))
 DEFAULT_TIMEZONE: str = os.getenv("DEFAULT_TIMEZONE", "UTC")
 
 # ---------------------------------------------------------------------------
+# QuickBooks Online OAuth
+# ---------------------------------------------------------------------------
+QUICKBOOKS_CLIENT_ID: str = os.getenv("QUICKBOOKS_CLIENT_ID", "")
+QUICKBOOKS_CLIENT_SECRET: str = os.getenv("QUICKBOOKS_CLIENT_SECRET", "")
+QUICKBOOKS_REDIRECT_URI: str = os.getenv("QUICKBOOKS_REDIRECT_URI", "http://localhost:8003/api/integrations/quickbooks/callback")
+QUICKBOOKS_SANDBOX: bool = os.getenv("QUICKBOOKS_SANDBOX", "true").lower() == "true"
+
+# ---------------------------------------------------------------------------
 # Heartbeat
 # ---------------------------------------------------------------------------
 DISABLE_HEARTBEAT_TASK: bool = os.getenv("DISABLE_HEARTBEAT_TASK", "false").lower() == "true"

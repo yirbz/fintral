@@ -1,4 +1,4 @@
-from . import admin, auth_pages, dgii, evolution, invoices, notifications, settings, statistics, websocket, webhooks
+from . import admin, auth_pages, dgii, evolution, invoices, integrations, notifications, odoo_integration, quickbooks_integration, settings, statistics, websocket, webhooks
 
 __all__ = [
     "admin",
@@ -11,4 +11,7 @@ __all__ = [
     "statistics",
     "websocket",
     "evolution",
+    "integrations",
+    "odoo_integration",
+    "quickbooks_integration",
 ]
