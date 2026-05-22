@@ -6,6 +6,10 @@ export interface InvoiceFilters {
   processed?: string;
   search?: string;
   quality?: string;
+  date_from?: string;
+  date_to?: string;
+  vendor_search?: string;
+  category?: string;
 }
 
 export async function listInvoices(filters: InvoiceFilters = {}) {
@@ -14,6 +18,10 @@ export async function listInvoices(filters: InvoiceFilters = {}) {
   if (filters.processed) params.set("processed", filters.processed);
   if (filters.search) params.set("search", filters.search);
   if (filters.quality) params.set("quality", filters.quality);
+  if (filters.date_from) params.set("date_from", filters.date_from);
+  if (filters.date_to) params.set("date_to", filters.date_to);
+  if (filters.vendor_search) params.set("vendor_search", filters.vendor_search);
+  if (filters.category) params.set("category", filters.category);
   const query = params.toString();
   return apiFetch<{ invoices: Invoice[]; total: number }>(`/invoices${query ? `?${query}` : ""}`);
 }

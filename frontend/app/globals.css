@@ -18,6 +18,7 @@
 
   :root {
     /* ── Product UI (shadcn, dashboard) ── */
+    /* Fintral brand: #38BDF8 sky-500 ≈ HSL(199, 89%, 48%) */
     --background: 210 20% 98%;
     --foreground: 224 71% 4%;
     --card: 0 0% 100%;

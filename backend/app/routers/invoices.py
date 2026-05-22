@@ -934,6 +934,10 @@ async def export_invoices(
             output = export_service.export_dgii_606(invoices, report_rnc=report_rnc)
             media_type = "application/vnd.ms-excel"
             filename += ".xls"
+        elif action.format == "txt":
+            output = export_service.export_txt(invoices)
+            media_type = "text/plain"
+            filename += ".txt"
         elif action.format == "excel":
             output = export_service.export_excel_generic(invoices)
             media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

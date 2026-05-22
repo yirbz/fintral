@@ -17,6 +17,7 @@ import { getStatistics } from "@/lib/api/statistics";
 import { listConnections as listOdooConnections, testConnection as testOdooForm, testSavedConnection as testOdooConnection, createConnection as createOdooConnection, deleteConnection as deleteOdooConnection } from "@/lib/api/odoo";
 import { toast } from "sonner";
 import { listQuickBooksConnections, testQuickBooksConnection, deleteQuickBooksConnection, getQuickBooksAuthUrl } from "@/lib/api/quickbooks";
+import { listXeroConnections, testXeroConnection, deleteXeroConnection, getXeroAuthUrl } from "@/lib/api/xero";
 import type { SettingValue, SettingsPayload, StatisticsPayload, WebhookEndpoint } from "@/lib/types";
 import { useSession } from "@/hooks/use-session";
 import { Button } from "@/components/ui/button";
@@ -1069,13 +1070,14 @@ type IntegrationDef = {
 const AVAILABLE_INTEGRATIONS: IntegrationDef[] = [
   { id: "odoo", name: "Odoo", description: "Vendor Bills vía XML-RPC", icon: <OdooIcon className="size-5" />, bg: "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300", status: "available" },
   { id: "quickbooks", name: "QuickBooks", description: "Bills vía OAuth 2.0", icon: <QuickBooksIcon className="size-5" />, bg: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300", status: "available" },
-  { id: "xero", name: "Xero", description: "CSV compatible con Xero", icon: <XeroIcon className="size-5" />, bg: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300", status: "coming_soon" },
+  { id: "xero", name: "Xero", description: "Vendor Bills vía OAuth 2.0", icon: <XeroIcon className="size-5" />, bg: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300", status: "available" },
   { id: "contaplus", name: "Contaplus", description: "Formato Sage / Diario", icon: <SageIcon className="size-5" />, bg: "bg-slate-100 text-slate-700 dark:bg-slate-900/40 dark:text-slate-300", status: "coming_soon" },
 ];
 
 function IntegracionesSection() {
   const odooQuery = useQuery({ queryKey: ["odoo-connections"], queryFn: listOdooConnections });
   const qbQuery = useQuery({ queryKey: ["quickbooks-connections"], queryFn: listQuickBooksConnections });
+  const xeroQuery = useQuery({ queryKey: ["xero-connections"], queryFn: listXeroConnections });
   const queryClient = useQueryClient();
 
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -1094,14 +1096,16 @@ function IntegracionesSection() {
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const loading = odooQuery.isLoading || qbQuery.isLoading;
+  const loading = odooQuery.isLoading || qbQuery.isLoading || xeroQuery.isLoading;
 
   const odooConns = odooQuery.data ?? [];
   const qbConns = qbQuery.data ?? [];
+  const xeroConns = xeroQuery.data ?? [];
 
   function connsFor(id: string) {
     if (id === "odoo") return odooConns;
     if (id === "quickbooks") return qbConns;
+    if (id === "xero") return xeroConns;
     return [];
   }
 
@@ -1162,6 +1166,7 @@ function IntegracionesSection() {
                       } else {
                         if (integration.id === "odoo") setShowOdooDialog(true);
                         if (integration.id === "quickbooks") handleQbConnect();
+                        if (integration.id === "xero") handleXeroConnect();
                       }
                     }}
                   >
@@ -1268,6 +1273,13 @@ function IntegracionesSection() {
                           {integration.id === "quickbooks" && (
                             <Button variant="outline" size="sm" className="h-6 text-[10px] w-full mt-1"
                               onClick={async (e) => { e.stopPropagation(); handleQbConnect(); }}
+                            >
+                              Reconectar OAuth
+                            </Button>
+                          )}
+                          {integration.id === "xero" && (
+                            <Button variant="outline" size="sm" className="h-6 text-[10px] w-full mt-1"
+                              onClick={async (e) => { e.stopPropagation(); handleXeroConnect(); }}
                             >
                               Reconectar OAuth
                             </Button>
@@ -1395,6 +1407,35 @@ function IntegracionesSection() {
         if (popup.closed && !resolved) {
           done();
           toast.error("Conexión cancelada", { description: "Cerraste la ventana de QuickBooks sin completar la autenticación" });
+        }
+      }, 500);
+    }).catch((e: any) => toast.error("Error al iniciar conexión", { description: e.message }));
+  }
+
+  function handleXeroConnect() {
+    getXeroAuthUrl().then(({ url }) => {
+      const popup = window.open(url, "xero-oauth", "width=600,height=700,scrollbars=yes");
+      if (!popup) { toast.error("Permite ventanas emergentes para conectar Xero"); return; }
+
+      let resolved = false;
+      const done = () => { resolved = true; window.removeEventListener("message", handler); clearInterval(timer); if (popup && !popup.closed) popup.close(); };
+
+      const handler = (e: MessageEvent) => {
+        if (e.data?.type !== "xero-oauth") return;
+        done();
+        if (e.data.status === "connected") {
+          toast.success("Xero conectado exitosamente");
+          queryClient.invalidateQueries({ queryKey: ["xero-connections"] });
+        } else {
+          toast.error("Error al conectar Xero", { description: e.data.detail || "Error desconocido" });
+        }
+      };
+      window.addEventListener("message", handler);
+
+      const timer = setInterval(() => {
+        if (popup.closed && !resolved) {
+          done();
+          toast.error("Conexión cancelada", { description: "Cerraste la ventana de Xero sin completar la autenticación" });
         }
       }, 500);
     }).catch((e: any) => toast.error("Error al iniciar conexión", { description: e.message }));
