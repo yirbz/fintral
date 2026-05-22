@@ -126,6 +126,13 @@ QUICKBOOKS_REDIRECT_URI: str = os.getenv("QUICKBOOKS_REDIRECT_URI", "http://loca
 QUICKBOOKS_SANDBOX: bool = os.getenv("QUICKBOOKS_SANDBOX", "true").lower() == "true"
 
 # ---------------------------------------------------------------------------
+# Xero OAuth 2.0
+# ---------------------------------------------------------------------------
+XERO_CLIENT_ID: str = os.getenv("XERO_CLIENT_ID", "")
+XERO_CLIENT_SECRET: str = os.getenv("XERO_CLIENT_SECRET", "")
+XERO_REDIRECT_URI: str = os.getenv("XERO_REDIRECT_URI", "http://localhost:8003/api/integrations/xero/callback")
+
+# ---------------------------------------------------------------------------
 # Heartbeat
 # ---------------------------------------------------------------------------
 DISABLE_HEARTBEAT_TASK: bool = os.getenv("DISABLE_HEARTBEAT_TASK", "false").lower() == "true"

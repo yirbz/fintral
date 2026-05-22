@@ -1346,6 +1346,32 @@ class ExportService:
         output.seek(0)
         return output.getvalue()
 
+    def export_txt(self, invoices: List[Invoice]) -> str:
+        """Exportación TXT legible para impresión/archivo"""
+        lines: list[str] = []
+        sep = "=" * 50
+        for i, inv in enumerate(invoices, 1):
+            base = (inv.total_amount or 0) - (inv.tax_amount or 0)
+            lines.append(sep)
+            lines.append(f"FACTURA #{i}")
+            lines.append(sep)
+            lines.append(f"Fecha:\t\t{inv.invoice_date.strftime('%d/%m/%Y') if inv.invoice_date else '—'}")
+            lines.append(f"Proveedor:\t{inv.vendor_name or '—'}")
+            lines.append(f"RNC:\t\t{inv.vendor_tax_id or '—'}")
+            lines.append(f"NCF:\t\t{inv.invoice_number or '—'}")
+            lines.append(f"Categoría:\t{inv.category or '—'}")
+            lines.append(f"Descripción:\t{inv.description or '—'}")
+            lines.append(f"Base:\t\t{base:,.2f}")
+            lines.append(f"ITBIS:\t\t{inv.tax_amount or 0:,.2f}")
+            lines.append(f"Total:\t\t{inv.total_amount or 0:,.2f}")
+            lines.append(f"Moneda:\t\t{inv.currency or 'DOP'}")
+            lines.append("")
+        lines.append(sep)
+        lines.append(f"Total facturas: {len(invoices)}")
+        lines.append(f"Suma total:\t{sum(inv.total_amount or 0 for inv in invoices):,.2f}")
+        lines.append(sep)
+        return "\n".join(lines)
+
     def export_json(self, invoices: List[Invoice]) -> str:
         """Exportación JSON completa"""
         data = [inv.to_dict() for inv in invoices]
