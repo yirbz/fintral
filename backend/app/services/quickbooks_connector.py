@@ -238,7 +238,7 @@ class QuickBooksConnector:
 
         accounts = self._query(
             config, "*", "Account",
-            "AccountType = 'Expense' MAX 1",
+            "AccountType = 'Expense'",
         )
         if accounts:
             return accounts[0]["Id"]
