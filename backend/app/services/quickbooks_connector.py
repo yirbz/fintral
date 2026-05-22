@@ -302,7 +302,7 @@ class QuickBooksConnector:
             "TxnDate": date_str,
             "DueDate": due_str,
             "Line": lines,
-            "CurrencyRef": {"name": invoice.currency or "DOP"},
+            "CurrencyRef": {"value": invoice.currency or "DOP"},
         }
 
         # Add private note with invoice reference
