@@ -123,5 +123,8 @@ frontend/.turbo/
 frontend/.cache/
 frontend/tsconfig.tsbuildinfo
 
+# Antigravity CLI
+.antigravitycli/
+
 #Docs
 docs/plans/
