@@ -467,7 +467,7 @@ class TestCancellationVsDeletion:
                 invoice_number="E310000000099",
                 total_amount=5000.0,
                 tax_amount=900.0,
-                transaction_type="expense",
+                transaction_type="income",
                 invoice_date=utc_now(),
                 processed=True,
                 cancelled_at=utc_now(),

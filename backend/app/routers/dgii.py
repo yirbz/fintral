@@ -893,21 +893,24 @@ async def dgii_preview(
     report_rnc = _organization_report_rnc(ctx)
     report_period = _resolve_report_period(body, date_from)
 
-    invoices = invoice_repo.list_for_dgii_export(
-        db=ctx.db,
-        tenant_id=ctx.tenant_id,
-        org_id=ctx.org_id,
-        transaction_type=transaction_type,
-        date_from=date_from,
-        date_to=date_to,
-        categories=body.categories or None,
-        goods_types=body.goods_types or None,
-        vendor_search=body.vendor_search or None,
-        source_types=body.source_types or None,
-        processed_only=body.processed_only,
-        include_no_ncf=body.include_no_ncf,
-        invoice_ids=body.invoice_ids or None,
-    )
+    if body.format == "dgii_608":
+        invoices = _query_voided_invoices(ctx, date_from, date_to, body)
+    else:
+        invoices = invoice_repo.list_for_dgii_export(
+            db=ctx.db,
+            tenant_id=ctx.tenant_id,
+            org_id=ctx.org_id,
+            transaction_type=transaction_type,
+            date_from=date_from,
+            date_to=date_to,
+            categories=body.categories or None,
+            goods_types=body.goods_types or None,
+            vendor_search=body.vendor_search or None,
+            source_types=body.source_types or None,
+            processed_only=body.processed_only,
+            include_no_ncf=body.include_no_ncf,
+            invoice_ids=body.invoice_ids or None,
+        )
 
     # Excluir facturas ya reportadas (a menos que el usuario pida ver todo)
     if body.exclude_reported and body.period:
@@ -1742,12 +1745,14 @@ async def dgii_pending_invoices(
     )
 
     if format == "608":
-        query = query.filter(Invoice.cancelled_at.isnot(None))
+        query = query.filter(
+            Invoice.cancelled_at.isnot(None),
+            Invoice.transaction_type == "income",
+        )
     else:
         query = query.filter(Invoice.deleted_at.is_(None))
-
-    if transaction_type:
-        query = query.filter(Invoice.transaction_type == transaction_type)
+        if transaction_type:
+            query = query.filter(Invoice.transaction_type == transaction_type)
 
     query = query.filter(Invoice.invoice_date >= date_from, Invoice.invoice_date <= date_to)
     invoices = query.order_by(Invoice.invoice_date.asc()).all()
@@ -1823,12 +1828,14 @@ async def dgii_auto_generate(
     )
 
     if format == "608":
-        query = query.filter(Invoice.cancelled_at.isnot(None))
+        query = query.filter(
+            Invoice.cancelled_at.isnot(None),
+            Invoice.transaction_type == "income",
+        )
     else:
         query = query.filter(Invoice.deleted_at.is_(None))
-
-    if transaction_type:
-        query = query.filter(Invoice.transaction_type == transaction_type)
+        if transaction_type:
+            query = query.filter(Invoice.transaction_type == transaction_type)
 
     query = query.filter(Invoice.invoice_date >= date_from, Invoice.invoice_date <= date_to)
     current_invoices = query.order_by(Invoice.invoice_date.asc()).all()
@@ -1842,7 +1849,15 @@ async def dgii_auto_generate(
 
     # ── 2. Facturas de períodos anteriores nunca reportadas ──
     past_due_invoices = []
-    if format != "608":
+    if format == "608":
+        past_query = ctx.db.query(Invoice).filter(
+            Invoice.tenant_id == ctx.tenant_id,
+            Invoice.organization_id == ctx.org_id,
+            Invoice.cancelled_at.isnot(None),
+            Invoice.transaction_type == "income",
+            Invoice.invoice_date < date_from,
+        )
+    else:
         past_query = ctx.db.query(Invoice).filter(
             Invoice.tenant_id == ctx.tenant_id,
             Invoice.organization_id == ctx.org_id,
@@ -1852,13 +1867,13 @@ async def dgii_auto_generate(
         )
         if transaction_type:
             past_query = past_query.filter(Invoice.transaction_type == transaction_type)
-        past_invoices = past_query.order_by(Invoice.invoice_date.asc()).all()
-        past_due_invoices = [
-            inv
-            for inv in past_invoices
-            if str(inv.id) not in all_reported_ids
-            and (_invoice_ncf(inv) not in confirmed_ncfs)
-        ]
+    past_invoices = past_query.order_by(Invoice.invoice_date.asc()).all()
+    past_due_invoices = [
+        inv
+        for inv in past_invoices
+        if str(inv.id) not in all_reported_ids
+        and (_invoice_ncf(inv) not in confirmed_ncfs)
+    ]
 
     # ── 3. Unir y aplicar auto-fixes ──
     all_invoices = pending_current + past_due_invoices
@@ -2041,7 +2056,11 @@ def _compute_pending_summary(ctx: TenantContext) -> dict:
             query = query.filter(Invoice.transaction_type == trans_type)
             query = query.filter(Invoice.deleted_at.is_(None))
         else:
-            query = query.filter(Invoice.cancelled_at.isnot(None))
+            # 608: solo anulaciones de comprobantes emitidos (income)
+            query = query.filter(
+                Invoice.cancelled_at.isnot(None),
+                Invoice.transaction_type == "income",
+            )
 
         all_invoices = query.all()
         pending = [
@@ -2095,12 +2114,16 @@ def _organization_report_rnc(ctx: TenantContext) -> str:
 
 
 def _query_voided_invoices(ctx, date_from, date_to, body: DgiiExportRequest):
-    """Para 608: busca facturas formalmente anuladas dentro del período."""
+    """Para 608: busca facturas formalmente anuladas dentro del período.
+    Solo incluye facturas de ingreso (NCF emitidos al cliente) — las facturas
+    de gasto anuladas NO se reportan en 608 (se corrigen re-enviando el 606).
+    """
     from app.models import Invoice
     query = ctx.db.query(Invoice).filter(
         Invoice.tenant_id == ctx.tenant_id,
         Invoice.organization_id == ctx.org_id,
         Invoice.cancelled_at.isnot(None),
+        Invoice.transaction_type == "income",
     )
     if date_from:
         query = query.filter(Invoice.cancelled_at >= date_from)
