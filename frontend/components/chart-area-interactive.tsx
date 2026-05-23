@@ -33,7 +33,7 @@ import {
 const chartConfig = {
   count: {
     label: "Facturas",
-    color: "var(--primary)",
+    color: "var(--brand-primary)",
   },
 } satisfies ChartConfig
 
@@ -125,8 +125,9 @@ export function ChartAreaInteractive({ volumeHistory = [] }: ChartAreaInteractiv
             <AreaChart data={filteredData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="fillCount" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--color-count)" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="var(--color-count)" stopOpacity={0.02} />
+                  <stop offset="0%" stopColor="var(--color-count)" stopOpacity={0.35} />
+                  <stop offset="40%" stopColor="var(--brand-primary-soft)" stopOpacity={0.18} />
+                  <stop offset="100%" stopColor="var(--brand-magenta)" stopOpacity={0.02} />
                 </linearGradient>
               </defs>
               <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border/50" />
@@ -147,7 +148,7 @@ export function ChartAreaInteractive({ volumeHistory = [] }: ChartAreaInteractiv
                 allowDecimals={false}
               />
               <ChartTooltip
-                cursor={{ stroke: "hsl(var(--primary))", strokeWidth: 1, strokeDasharray: "4 4" }}
+                cursor={{ stroke: "var(--brand-primary)", strokeWidth: 1, strokeDasharray: "4 4" }}
                 content={
                   <ChartTooltipContent
                     labelFormatter={(value) => fmt(value)}

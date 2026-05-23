@@ -1,14 +1,14 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Ban, Download, Expand, FileText, Flame, RotateCcw, Save, Sparkles, Trash2, XCircle } from "lucide-react";
+import { ArrowLeft, Ban, Download, Expand, FileText, Flame, RotateCcw, Save, Sparkles, Trash2, X, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { bulkPermanentDelete as permanentDeleteApi, cancelInvoice, deleteInvoice, getInvoice, getOptimizedImage, processInvoice, restoreInvoice, uncancelInvoice, updateInvoice } from "@/lib/api/invoices";
 import type { Invoice } from "@/lib/types";
-import { useReferenceData } from "@/hooks/use-reference-data";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -35,6 +35,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   const [editable, setEditable] = useState<Partial<Invoice>>({});
   const [showFullImage, setShowFullImage] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [cancelType, setCancelType] = useState("01");
   const [imageLoaded, setImageLoaded] = useState(false);
   const image = useQuery({
@@ -171,6 +172,10 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
 
   const invoice = query.data;
   const isTrashed = !!invoice.deleted_at;
+  const hasUnsavedChanges = useMemo(() => {
+    return JSON.stringify(editable) !== JSON.stringify(invoice);
+  }, [editable, invoice]);
+  const discardChanges = () => setEditable({ ...invoice });
   const amount = new Intl.NumberFormat("es-DO", {
     style: "currency",
     currency: editable.currency || invoice.currency || "USD"
@@ -188,7 +193,6 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
             </Link>
             <div>
               <CardTitle>{editable.vendor_name || invoice.vendor_name || "Documento sin procesar"}</CardTitle>
-              <p className="text-xs text-muted-foreground">#{invoice.id}</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -219,35 +223,35 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                   <Sparkles className="size-3.5" data-icon="inline-start" />
                   Analizar
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => saveMutation.mutate()}>
-                  <Save className="size-3.5" data-icon="inline-start" />
-                  Guardar
-                </Button>
+                {hasUnsavedChanges ? (
+                  <>
+                    <Button size="sm" variant="default" onClick={() => saveMutation.mutate()}>
+                      <Save className="size-3.5" data-icon="inline-start" />
+                      Guardar cambios
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={discardChanges}>
+                      <X className="size-3.5" data-icon="inline-start" />
+                      Descartar
+                    </Button>
+                  </>
+                ) : null}
                 {invoice.cancelled_at ? (
                   <Button size="sm" variant="outline" onClick={() => uncancelMutation.mutate()} disabled={uncancelMutation.isPending}>
                     <Ban className="size-3.5" data-icon="inline-start" />
                     Desanular
                   </Button>
-                ) : (
+                ) : invoice.transaction_type === "income" ? (
                   <Button size="sm" variant="outline" className="text-orange-600 border-orange-200 hover:bg-orange-50" onClick={() => setCancelDialogOpen(true)}>
                     <XCircle className="size-3.5" data-icon="inline-start" />
                     Anular
                   </Button>
-                )}
-                <Button size="sm" variant="destructive" onClick={() => deleteMutation.mutate()}>
+                ) : null}
+                <Button size="sm" variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
                   <Trash2 className="size-3.5" data-icon="inline-start" />
                   Eliminar
                 </Button>
               </>
             )}
-            {invoice.file_url ? (
-              <Button size="sm" variant="outline" asChild>
-                <a href={invoice.file_url} target="_blank" rel="noreferrer">
-                  <Download className="size-3.5" data-icon="inline-start" />
-                  Descargar
-                </a>
-              </Button>
-            ) : null}
           </div>
         </CardHeader>
       </Card>
@@ -558,7 +562,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
           <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-sm font-semibold mb-3">Anular factura</h3>
             <p className="text-xs text-muted-foreground mb-3">
-              Esto marcará la factura como anulada ante la DGII. La factura permanecerá visible en tu lista y aparecerá en el formulario 608.
+              Esto marcará la factura como anulada. Aparecerá en el formulario 608 de la DGII como factura anulada.
             </p>
             <div className="mb-4">
               <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -591,6 +595,30 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
               }} disabled={cancelMutation.isPending}>
                 <XCircle className="size-3.5 mr-1" />
                 Anular factura
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete confirmation ──────────────────────────────────────── */}
+      {deleteDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setDeleteDialogOpen(false)}>
+          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold mb-2">Mover a la papelera</h3>
+            <p className="text-xs text-muted-foreground mb-4">
+              La factura se moverá a la papelera. Podrás restaurarla o eliminarla permanentemente desde allí.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setDeleteDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button size="sm" variant="destructive" onClick={() => {
+                deleteMutation.mutate();
+                setDeleteDialogOpen(false);
+              }}>
+                <Trash2 className="size-3.5 mr-1" />
+                Mover a papelera
               </Button>
             </div>
           </div>

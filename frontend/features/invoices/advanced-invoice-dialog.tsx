@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Plus, Trash2, Calculator, ChevronRight, AlertCircleIcon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Plus, Trash2, Calculator, AlertCircleIcon, Info } from "lucide-react";
 
+import { useFormDraft } from "@/hooks/use-form-draft";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,35 +23,33 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DgiiSelect } from "@/components/dgii-select";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { useReferenceData } from "@/hooks/use-reference-data";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { CreateInvoicePayload } from "@/lib/api/invoices";
 
 const COUNTRIES = [
-  { code: "DO", label: "República Dominicana" },
-  { code: "US", label: "Estados Unidos" },
-  { code: "ES", label: "España" },
-  { code: "MX", label: "México" },
-  { code: "CO", label: "Colombia" },
-  { code: "AR", label: "Argentina" },
-  { code: "CL", label: "Chile" },
-  { code: "PE", label: "Perú" },
-  { code: "BR", label: "Brasil" },
-  { code: "PA", label: "Panamá" },
-  { code: "PR", label: "Puerto Rico" },
-  { code: "VE", label: "Venezuela" },
-  { code: "CR", label: "Costa Rica" },
-  { code: "GT", label: "Guatemala" },
-  { code: "EC", label: "Ecuador" },
-  { code: "CN", label: "China" },
-  { code: "DE", label: "Alemania" },
-  { code: "JP", label: "Japón" },
+  { code: "DOM", label: "República Dominicana" },
+  { code: "USA", label: "Estados Unidos" },
+  { code: "ESP", label: "España" },
+  { code: "MEX", label: "México" },
+  { code: "COL", label: "Colombia" },
+  { code: "ARG", label: "Argentina" },
+  { code: "CHL", label: "Chile" },
+  { code: "PER", label: "Perú" },
+  { code: "BRA", label: "Brasil" },
+  { code: "PAN", label: "Panamá" },
+  { code: "PRI", label: "Puerto Rico" },
+  { code: "VEN", label: "Venezuela" },
+  { code: "CRI", label: "Costa Rica" },
+  { code: "GTM", label: "Guatemala" },
+  { code: "ECU", label: "Ecuador" },
+  { code: "CHN", label: "China" },
+  { code: "DEU", label: "Alemania" },
+  { code: "JPN", label: "Japón" },
 ];
 
 const TRANSACTION_TYPES = [
-  { value: "expense", label: "Gasto / Compra" },
-  { value: "income", label: "Ingreso / Venta" },
+  { value: "expense", label: "Gasto / Compra (F-606)" },
+  { value: "income", label: "Ingreso / Venta (F-607)" },
 ];
 
 interface LineItem {
@@ -74,7 +73,6 @@ export function AdvancedInvoiceDialog({
   onBackToSimple?: () => void;
 }) {
   const [saving, setSaving] = useState(false);
-  const [showFiscal, setShowFiscal] = useState(false);
 
   const [vendorName, setVendorName] = useState("");
   const [vendorTaxId, setVendorTaxId] = useState("");
@@ -83,24 +81,56 @@ export function AdvancedInvoiceDialog({
 
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
-  const [currency, setCurrency] = useState("DOP");
-  const [transactionType, setTransactionType] = useState("expense");
+  const [ncfModified, setNcfModified] = useState("");
   const [category, setCategory] = useState("");
-  const [goodsType, setGoodsType] = useState("none");
 
   const [totalAmount, setTotalAmount] = useState("");
   const [taxAmount, setTaxAmount] = useState("");
-  const [description, setDescription] = useState("");
+  const [currency, setCurrency] = useState("DOP");
+  const [transactionType, setTransactionType] = useState("expense");
+  const [goodsType, setGoodsType] = useState("none");
+  const [paymentMethod, setPaymentMethod] = useState("none");
 
+  const [description, setDescription] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showFiscal, setShowFiscal] = useState(false);
+
+  const { saveDraftDebounced, loadDraft, clearDraft } = useFormDraft<Record<string, unknown>>("manual-invoice-draft");
+  const restored = useRef(false);
+
+  const isExpense = transactionType === "expense";
 
   useEffect(() => {
     if (!open) return;
+    if (restored.current) return;
+    const draft = loadDraft();
+    if (draft) {
+      if (draft.vendorName) setVendorName(draft.vendorName as string);
+      if (draft.vendorTaxId) setVendorTaxId(draft.vendorTaxId as string);
+      if (draft.vendorCountry) setVendorCountry(draft.vendorCountry as string);
+      if (draft.vendorFiscalAddress) setVendorFiscalAddress(draft.vendorFiscalAddress as string);
+      if (draft.invoiceNumber) setInvoiceNumber(draft.invoiceNumber as string);
+      if (draft.invoiceDate) setInvoiceDate(draft.invoiceDate as string);
+      if (draft.ncfModified) setNcfModified(draft.ncfModified as string);
+      if (draft.category) setCategory(draft.category as string);
+      if (draft.totalAmount) setTotalAmount(draft.totalAmount as string);
+      if (draft.taxAmount) setTaxAmount(draft.taxAmount as string);
+      if (draft.currency) setCurrency(draft.currency as string);
+      if (draft.transactionType) setTransactionType(draft.transactionType as string);
+      if (draft.description) setDescription(draft.description as string);
+      if (draft.goodsType) setGoodsType(draft.goodsType as string);
+      if (draft.paymentMethod) setPaymentMethod(draft.paymentMethod as string);
+      if (draft.ncfModified) setNcfModified(draft.ncfModified as string);
+      if (draft.lineItems) setLineItems(draft.lineItems as LineItem[]);
+      return; // draft takes priority over initial
+    }
     if (initial) {
       if (initial.vendor_name) setVendorName(initial.vendor_name);
       if (initial.vendor_tax_id) setVendorTaxId(initial.vendor_tax_id);
+      if (initial.vendor_country) setVendorCountry(initial.vendor_country);
+      if (initial.vendor_fiscal_address) setVendorFiscalAddress(initial.vendor_fiscal_address);
       if (initial.invoice_number) setInvoiceNumber(initial.invoice_number);
       if (initial.invoice_date) setInvoiceDate(initial.invoice_date);
       if (initial.currency) setCurrency(initial.currency);
@@ -111,7 +141,23 @@ export function AdvancedInvoiceDialog({
       if (initial.tax_amount) setTaxAmount(String(initial.tax_amount));
       if (initial.description) setDescription(initial.description);
     }
-  }, [open, initial]);
+    restored.current = true;
+  }, [open, initial, loadDraft]);
+
+  useEffect(() => {
+    if (!open) return;
+    saveDraftDebounced({
+      vendorName, vendorTaxId, vendorCountry, vendorFiscalAddress,
+      invoiceNumber, invoiceDate, ncfModified, category,
+      totalAmount, taxAmount, currency, transactionType, description,
+      goodsType, paymentMethod, lineItems,
+    });
+  }, [
+    open, vendorName, vendorTaxId, vendorCountry, vendorFiscalAddress,
+    invoiceNumber, invoiceDate, ncfModified, category,
+    totalAmount, taxAmount, currency, transactionType, description,
+    goodsType, paymentMethod, lineItems, saveDraftDebounced,
+  ]);
 
   function addLineItem() {
     setLineItems([...lineItems, { description: "", quantity: 1, unit_price: 0, subtotal: 0 }]);
@@ -136,9 +182,12 @@ export function AdvancedInvoiceDialog({
   function validate(): boolean {
     const errs: Record<string, string> = {};
     if (!vendorName.trim()) errs.vendorName = "Requerido";
-    if (!invoiceNumber.trim()) errs.invoiceNumber = "Requerido";
+    if (!vendorTaxId.trim()) errs.vendorTaxId = "Requerido para DGII (RNC/Cédula del proveedor)";
+    if (!invoiceNumber.trim()) errs.invoiceNumber = "Requerido (NCF)";
     if (!invoiceDate) errs.invoiceDate = "Requerido";
     if (!totalAmount || Number(totalAmount) <= 0) errs.totalAmount = "Debe ser mayor a 0";
+    if (isExpense && (goodsType === "none" || !goodsType)) errs.goodsType = "Requerido para DGII 606 (Tipo B/S)";
+    if (paymentMethod === "none" || !paymentMethod) errs.paymentMethod = "Requerido para DGII (Forma de pago)";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -149,25 +198,30 @@ export function AdvancedInvoiceDialog({
     try {
       const payload: CreateInvoicePayload = {
         vendor_name: vendorName.trim(),
-        vendor_tax_id: vendorTaxId.trim() || undefined,
+        vendor_tax_id: vendorTaxId.trim(),
         vendor_country: vendorCountry || undefined,
+        vendor_fiscal_address: vendorFiscalAddress.trim() || undefined,
         invoice_number: invoiceNumber.trim(),
         invoice_date: invoiceDate,
         currency,
         transaction_type: transactionType,
         category: category || undefined,
+        payment_method: paymentMethod === "none" ? undefined : paymentMethod,
+        ncf_modified: ncfModified.trim() || undefined,
         goods_services_type: goodsType === "none" ? undefined : goodsType,
         total_amount: Number(totalAmount),
         tax_amount: taxAmount ? Number(taxAmount) : undefined,
         description: description.trim() || undefined,
         line_items: lineItems.length > 0
           ? lineItems.map((li) => ({
-            ...li,
-            description: li.description || "Item",
-          }))
+              ...li,
+              description: li.description || "Item",
+            }))
           : [],
       };
       await onSave(payload);
+      clearDraft();
+      restored.current = false;
       onOpenChange(false);
     } catch {
       // error toast handled by parent
@@ -177,6 +231,7 @@ export function AdvancedInvoiceDialog({
   }
 
   const lineTotal = lineItems.reduce((sum, li) => sum + li.subtotal, 0);
+  const dgiiFormat = isExpense ? "606" : "607";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -186,7 +241,7 @@ export function AdvancedInvoiceDialog({
             <div>
               <DialogTitle className="text-sm font-heading">Factura manual — avanzado</DialogTitle>
               <DialogDescription className="text-xs">
-                Todos los campos disponibles para registrar una factura manual con clasificación DGII completa.
+                Todos los campos fiscales DGII. Los marcados con <span className="text-destructive font-semibold">*</span> son requeridos.
               </DialogDescription>
             </div>
             {onBackToSimple && (
@@ -195,21 +250,25 @@ export function AdvancedInvoiceDialog({
                 onClick={onBackToSimple}
                 className="shrink-0 rounded-md border border-border/60 px-2.5 py-1 text-[11px] text-muted-foreground/60 hover:border-muted-foreground/30 hover:text-foreground/80 transition-all"
               >
-                ← Volver al simple
+                ← Simple
               </button>
             )}
           </div>
         </DialogHeader>
 
         <div className="flex flex-col gap-5">
-          {/* Vendor section */}
+          {/* ── Proveedor ── */}
           <section>
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
+            <h3 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
               Proveedor
+              <Tooltip>
+                <TooltipTrigger><Info className="size-3 text-muted-foreground/40" /></TooltipTrigger>
+                <TooltipContent side="right" className="text-[11px] max-w-56">RNC obligatorio para DGII 606/607.</TooltipContent>
+              </Tooltip>
             </h3>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="sm:col-span-2">
-                <FieldLabel required>Nombre del proveedor</FieldLabel>
+                <Label required>Nombre del proveedor</Label>
                 <Input
                   value={vendorName}
                   onChange={(e) => setVendorName(e.target.value)}
@@ -219,11 +278,17 @@ export function AdvancedInvoiceDialog({
                 {errors.vendorName && <FieldError>{errors.vendorName}</FieldError>}
               </div>
               <div>
-                <FieldLabel>RNC / Tax ID</FieldLabel>
-                <Input value={vendorTaxId} onChange={(e) => setVendorTaxId(e.target.value)} placeholder="101-000-00-0" />
+                <Label required>RNC / Cédula</Label>
+                <Input
+                  value={vendorTaxId}
+                  onChange={(e) => setVendorTaxId(e.target.value)}
+                  placeholder="101-000-00-0"
+                  className={`font-mono ${errors.vendorTaxId ? "border-destructive" : ""}`}
+                />
+                {errors.vendorTaxId && <FieldError>{errors.vendorTaxId}</FieldError>}
               </div>
               <div>
-                <FieldLabel>País</FieldLabel>
+                <Label>País</Label>
                 <Select value={vendorCountry} onValueChange={setVendorCountry}>
                   <SelectTrigger><SelectValue placeholder="Seleccionar país" /></SelectTrigger>
                   <SelectContent>
@@ -236,7 +301,7 @@ export function AdvancedInvoiceDialog({
             </div>
             {showFiscal && (
               <div className="mt-3">
-                <FieldLabel>Dirección fiscal</FieldLabel>
+                <Label>Dirección fiscal</Label>
                 <Textarea
                   value={vendorFiscalAddress}
                   onChange={(e) => setVendorFiscalAddress(e.target.value)}
@@ -250,29 +315,33 @@ export function AdvancedInvoiceDialog({
               onClick={() => setShowFiscal(!showFiscal)}
               className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground/60 hover:text-foreground/80 transition-colors"
             >
-              <ChevronRight className={`size-3 transition-transform ${showFiscal ? "rotate-90" : ""}`} />
+              <AlertCircleIcon className={`size-3 transition-transform ${showFiscal ? "rotate-90" : ""}`} />
               {showFiscal ? "Ocultar" : "Mostrar"} dirección fiscal
             </button>
           </section>
 
-          {/* Invoice section */}
+          {/* ── Comprobante ── */}
           <section>
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
-              Factura
+            <h3 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
+              Comprobante fiscal
+              <Tooltip>
+                <TooltipTrigger><Info className="size-3 text-muted-foreground/40" /></TooltipTrigger>
+                <TooltipContent side="right" className="text-[11px] max-w-56">NCF del documento. Para notas de crédito, incluye el NCF original en &quot;Modificado&quot;.</TooltipContent>
+              </Tooltip>
             </h3>
             <div className="grid gap-3 sm:grid-cols-3">
               <div>
-                <FieldLabel required>NCF / Número</FieldLabel>
+                <Label required>NCF</Label>
                 <Input
                   value={invoiceNumber}
                   onChange={(e) => setInvoiceNumber(e.target.value)}
-                  placeholder="B0100000001"
-                  className={errors.invoiceNumber ? "border-destructive" : ""}
+                  placeholder="E310000000001"
+                  className={`font-mono ${errors.invoiceNumber ? "border-destructive" : ""}`}
                 />
                 {errors.invoiceNumber && <FieldError>{errors.invoiceNumber}</FieldError>}
               </div>
               <div>
-                <FieldLabel required>Fecha</FieldLabel>
+                <Label required>Fecha</Label>
                 <Input
                   type="date"
                   value={invoiceDate}
@@ -282,7 +351,7 @@ export function AdvancedInvoiceDialog({
                 {errors.invoiceDate && <FieldError>{errors.invoiceDate}</FieldError>}
               </div>
               <div>
-                <FieldLabel>Categoría</FieldLabel>
+                <Label>Categoría</Label>
                 <DgiiSelect
                   domain="categories"
                   value={category}
@@ -291,17 +360,33 @@ export function AdvancedInvoiceDialog({
                   noneLabel="Sin categoría"
                 />
               </div>
+              <div className="sm:col-span-3">
+                <Label>NCF modificado</Label>
+                <Input
+                  value={ncfModified}
+                  onChange={(e) => setNcfModified(e.target.value)}
+                  placeholder="Solo para notas de crédito / NCF rectificativo"
+                  className="font-mono"
+                />
+                <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+                  Obligatorio si este comprobante rectifica o anula otro NCF.
+                </p>
+              </div>
             </div>
           </section>
 
-          {/* Amounts section */}
+          {/* ── Montos ── */}
           <section>
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
+            <h3 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
               Montos
+              <Tooltip>
+                <TooltipTrigger><Info className="size-3 text-muted-foreground/40" /></TooltipTrigger>
+                <TooltipContent side="right" className="text-[11px] max-w-56">Corresponde al Formulario {dgiiFormat}. El total es la suma de bienes + servicios + ITBIS.</TooltipContent>
+              </Tooltip>
             </h3>
             <div className="grid gap-3 sm:grid-cols-4">
               <div>
-                <FieldLabel required>Total</FieldLabel>
+                <Label required>Total</Label>
                 <Input
                   type="number"
                   step="0.01"
@@ -313,7 +398,7 @@ export function AdvancedInvoiceDialog({
                 {errors.totalAmount && <FieldError>{errors.totalAmount}</FieldError>}
               </div>
               <div>
-                <FieldLabel>ITBIS</FieldLabel>
+                <Label>ITBIS</Label>
                 <Input
                   type="number"
                   step="0.01"
@@ -324,7 +409,7 @@ export function AdvancedInvoiceDialog({
                 />
               </div>
               <div>
-                <FieldLabel>Moneda</FieldLabel>
+                <Label>Moneda</Label>
                 <DgiiSelect
                   domain="currencies"
                   value={currency}
@@ -333,8 +418,8 @@ export function AdvancedInvoiceDialog({
                   noneLabel="Sin moneda"
                 />
               </div>
-              <div className="pl-1 md:pl-5">
-                <FieldLabel>Tipo</FieldLabel>
+              <div>
+                <Label>Tipo</Label>
                 <Select value={transactionType} onValueChange={setTransactionType}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -347,29 +432,43 @@ export function AdvancedInvoiceDialog({
             </div>
           </section>
 
-          {/* DGII section */}
-          <section>
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
-              Clasificación DGII
+          {/* ── Clasificación DGII ── */}
+          <section className="rounded-lg border border-border/60 bg-amber-500/[0.03] p-4">
+            <h3 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-700">
+              <AlertCircleIcon className="size-3.5" />
+              Clasificación DGII — Formulario {dgiiFormat}
             </h3>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <FieldLabel>Tipo bienes/servicios (606)</FieldLabel>
+                <Label required={isExpense}>Tipo B/S (606)</Label>
                 <DgiiSelect
                   domain="goods_services_types"
                   value={goodsType}
                   onChange={setGoodsType}
                   noneLabel="No especificado"
                 />
+                {errors.goodsType && <FieldError>{errors.goodsType}</FieldError>}
+                {!isExpense && (
+                  <p className="mt-0.5 text-[10px] text-muted-foreground/60">Opcional para ingresos (F-607).</p>
+                )}
+              </div>
+              <div>
+                <Label required>Forma de pago</Label>
+                <DgiiSelect
+                  domain="payment_methods"
+                  value={paymentMethod}
+                  onChange={setPaymentMethod}
+                  placeholder="Seleccionar..."
+                  includeNone={false}
+                />
+                {errors.paymentMethod && <FieldError>{errors.paymentMethod}</FieldError>}
               </div>
             </div>
           </section>
 
-          {/* Description */}
+          {/* ── Notas ── */}
           <section>
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
-              Notas
-            </h3>
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">Notas</h3>
             <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -378,12 +477,10 @@ export function AdvancedInvoiceDialog({
             />
           </section>
 
-          {/* Line items */}
+          {/* ── Partidas ── */}
           <section>
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
-                Partidas
-              </h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">Partidas</h3>
               <Button variant="outline" size="sm" onClick={addLineItem}>
                 <Plus className="size-3" />
                 Añadir partida
@@ -457,7 +554,7 @@ export function AdvancedInvoiceDialog({
   );
 }
 
-function FieldLabel({ required, children }: { required?: boolean; children: React.ReactNode }) {
+function Label({ required, children }: { required?: boolean; children: React.ReactNode }) {
   return (
     <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
       {children}

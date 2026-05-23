@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Activity,
   ChartPie,
+  Clock,
   FileText,
   Loader2,
   LogOut,
@@ -41,6 +42,7 @@ const NAV_ITEMS = [
   { href: "/dashboard/invoices", label: "Facturas", icon: FileText },
   { href: "/dashboard/upload", label: "Pipeline", icon: Upload },
   { href: "/dashboard/reports", label: "Analítica", icon: ChartPie },
+  { href: "/dashboard/history", label: "Historial", icon: Clock },
   { href: "/dashboard/settings", label: "Ajustes", icon: Settings }
 ];
 
