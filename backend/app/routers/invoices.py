@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 from typing import Any, Optional
 
+from app.services.audit_logger import record
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 import io
@@ -61,7 +62,7 @@ def _normalize_ncf(value: Optional[str]) -> str:
 
 
 def _expected_dgii_format(invoice: Invoice) -> Optional[str]:
-    if invoice.cancelled_at:
+    if invoice.cancelled_at and invoice.transaction_type == "income":
         return "608"
     if invoice.transaction_type == "income":
         return "607"
@@ -112,6 +113,36 @@ def _load_confirmed_ncf_sets(ctx: TenantContext) -> dict[str, set[str]]:
         if ncf:
             confirmed_by_format[fmt].add(ncf)
     return confirmed_by_format
+
+
+def _invoice_snapshot(invoice: Invoice) -> dict[str, Any]:
+    return {
+        "id": str(invoice.id),
+        "tenant_id": str(invoice.tenant_id),
+        "organization_id": str(invoice.organization_id),
+        "filename": invoice.filename,
+        "file_type": invoice.file_type,
+        "vendor_name": invoice.vendor_name,
+        "invoice_number": invoice.invoice_number,
+        "invoice_date": invoice.invoice_date.isoformat() if invoice.invoice_date else None,
+        "total_amount": invoice.total_amount,
+        "tax_amount": invoice.tax_amount,
+        "currency": invoice.currency,
+        "transaction_type": invoice.transaction_type,
+        "category": invoice.category,
+        "description": invoice.description,
+        "vendor_country": invoice.vendor_country,
+        "vendor_tax_id": invoice.vendor_tax_id,
+        "vendor_fiscal_address": invoice.vendor_fiscal_address,
+        "goods_services_type": invoice.goods_services_type,
+        "source_type": invoice.source_type,
+        "processed": invoice.processed,
+        "confidence_score": invoice.confidence_score,
+        "deleted_at": invoice.deleted_at.isoformat() if invoice.deleted_at else None,
+        "deleted_by": str(invoice.deleted_by) if invoice.deleted_by else None,
+        "cancelled_at": invoice.cancelled_at.isoformat() if invoice.cancelled_at else None,
+        "cancellation_type": invoice.cancellation_type,
+    }
 
 
 def _load_latest_invoice_statuses(
@@ -410,6 +441,21 @@ async def upload_files(
                 org_id=str(ctx.org_id), tenant_id=str(ctx.tenant_id),
             )
 
+            record(
+                db=ctx.db,
+                tenant_id=ctx.tenant_id,
+                organization_id=ctx.org_id,
+                organization_name=ctx.organization.name,
+                actor_id=str(ctx.user.id),
+                actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+                actor_email=ctx.user.email,
+                action="invoice.uploaded",
+                resource_type="invoice",
+                resource_id=str(invoice.id),
+                summary=f"Factura '{file.filename}' subida",
+                metadata={"files": len(files)},
+            )
+
         except Exception as exc:  # noqa: BLE001
             logger.error("Upload error: %s", exc)
             results.append({"filename": file.filename, "success": False, "error": str(exc)})
@@ -448,9 +494,23 @@ async def process_invoice(
                 "extracted_data": result.get("extracted_data", {}),
             }
 
+        invoice_obj = result["invoice"]
+        record(
+            db=ctx.db,
+            tenant_id=ctx.tenant_id,
+            organization_id=ctx.org_id,
+            organization_name=ctx.organization.name,
+            actor_id=str(ctx.user.id),
+            actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+            actor_email=ctx.user.email,
+            action="invoice.processed",
+            resource_type="invoice",
+            resource_id=str(invoice_id),
+            summary=f"Factura '{invoice_obj.invoice_number or invoice_id}' procesada",
+        )
         return {
             "message": "Factura procesada exitosamente",
-            "invoice": result["invoice"].to_dict(),
+            "invoice": invoice_obj.to_dict(),
             "extracted_data": result["extracted_data"],
             "duplicate_ncf": result.get("duplicate_ncf"),
         }
@@ -562,6 +622,8 @@ async def update_invoice(
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
+    before = _invoice_snapshot(invoice)
+
     updateable_fields = [
         "vendor_name",
         "invoice_number",
@@ -589,6 +651,27 @@ async def update_invoice(
     invoice.updated_at = datetime.utcnow()
     ctx.db.commit()
     ctx.db.refresh(invoice)
+
+    after = _invoice_snapshot(invoice)
+    changed_fields = [k for k in before if before.get(k) != after.get(k)]
+
+    record(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_email=ctx.user.email,
+        action="invoice.updated",
+        resource_type="invoice",
+        resource_id=str(invoice_id),
+        summary=f"Factura '{invoice.invoice_number}' actualizada",
+        details=f"Campos modificados: {', '.join(changed_fields)}" if changed_fields else "Sin cambios",
+        snapshot_before=before,
+        snapshot_after=after,
+    )
+
     return invoice.to_dict()
 
 
@@ -610,6 +693,13 @@ async def create_manual_invoice(
             [item.model_dump() for item in payload.line_items]
         )
 
+    raw_data: dict[str, object] = {}
+    if payload.payment_method:
+        raw_data["payment_method"] = payload.payment_method
+    if payload.ncf_modified:
+        raw_data["ncf_modified"] = payload.ncf_modified
+    raw_extracted = json.dumps(raw_data) if raw_data else None
+
     invoice = Invoice(
         tenant_id=ctx.tenant_id,
         organization_id=ctx.org_id,
@@ -626,13 +716,31 @@ async def create_manual_invoice(
         description=payload.description,
         vendor_tax_id=payload.vendor_tax_id,
         vendor_country=payload.vendor_country,
+        vendor_fiscal_address=payload.vendor_fiscal_address,
         goods_services_type=payload.goods_services_type,
+        raw_extracted_data=raw_extracted,
         line_items_data=line_items_data,
         source_type="manual",
         processed=True,
         confidence_score=1.0,
     )
     invoice_repo.create(ctx.db, invoice)
+
+    record(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_email=ctx.user.email,
+        action="invoice.created",
+        resource_type="invoice",
+        resource_id=str(invoice.id),
+        summary=f"Factura '{payload.invoice_number}' creada manualmente",
+        details=f"Proveedor: {payload.vendor_name}, Total: {payload.total_amount} {payload.currency}",
+    )
+
     return invoice.to_dict()
 
 
@@ -648,6 +756,21 @@ async def delete_invoice(
     invoice.deleted_at = datetime.utcnow()
     invoice.deleted_by = ctx.user.id
     ctx.db.commit()
+
+    record(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_email=ctx.user.email,
+        action="invoice.deleted",
+        resource_type="invoice",
+        resource_id=str(invoice_id),
+        summary=f"Factura '{invoice.invoice_number}' eliminada",
+    )
+
     logger.info("Invoice moved to trash: id=%s, filename=%s, user=%s", invoice_id, invoice.filename, ctx.user.id)
     return {"message": "Factura movida a la papelera"}
 
@@ -670,6 +793,20 @@ async def bulk_delete_invoices(
         count += 1
 
     ctx.db.commit()
+
+    record(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_email=ctx.user.email,
+        action="invoice.deleted",
+        resource_type="invoice",
+        summary=f"{count} factura(s) movidas a la papelera",
+    )
+
     return {"message": "Facturas movidas a la papelera", "count": count}
 
 
@@ -708,6 +845,21 @@ async def restore_invoice(
     invoice.deleted_by = None
     ctx.db.commit()
     ctx.db.refresh(invoice)
+
+    record(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_email=ctx.user.email,
+        action="invoice.restored",
+        resource_type="invoice",
+        resource_id=str(invoice_id),
+        summary=f"Factura '{invoice.invoice_number}' restaurada de la papelera",
+    )
+
     return {"message": "Factura restaurada exitosamente", "invoice": invoice.to_dict()}
 
 
@@ -718,6 +870,20 @@ async def permanent_delete_invoice(
 ):
     invoice = invoice_repo.get_including_trashed(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
     if not invoice:
+        record(
+            db=ctx.db,
+            tenant_id=ctx.tenant_id,
+            organization_id=ctx.org_id,
+            organization_name=ctx.organization.name,
+            actor_id=str(ctx.user.id),
+            actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+            actor_email=ctx.user.email,
+            action="invoice.permanent_deleted",
+            resource_type="invoice",
+            resource_id=str(invoice_id),
+            summary="Intento de eliminación permanente — factura no encontrada en BD",
+            details="El registro ya había sido eliminado o el ID es inválido",
+        )
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
     logger.info("Permanent delete requested: id=%s, filename=%s, file_path=%s, processed_path=%s",
@@ -745,6 +911,22 @@ async def permanent_delete_invoice(
         logger.error("Aborting permanent delete for invoice %s — storage cleanup failed", invoice_id)
         raise HTTPException(status_code=500, detail="Error al eliminar archivos del storage")
 
+    snapshot = _invoice_snapshot(invoice)
+    record(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_email=ctx.user.email,
+        action="invoice.permanent_deleted",
+        resource_type="invoice",
+        resource_id=str(invoice_id),
+        summary=f"Factura '{invoice.invoice_number}' eliminada permanentemente",
+        details=f"Proveedor: {invoice.vendor_name}, Total: {invoice.total_amount} {invoice.currency or ''}",
+        snapshot_before=snapshot,
+    )
     invoice_repo.hard_delete(ctx.db, invoice)
     logger.info("Invoice permanently deleted: id=%s, filename=%s", invoice_id, invoice.filename)
     return {"message": "Factura eliminada permanentemente"}
@@ -762,11 +944,37 @@ async def cancel_invoice(
     if invoice.cancelled_at:
         raise HTTPException(status_code=400, detail="La factura ya está anulada")
 
+    before = _invoice_snapshot(invoice)
     invoice.cancelled_at = datetime.utcnow()
     invoice.cancellation_type = body.cancellation_type or "01"
     ctx.db.commit()
     ctx.db.refresh(invoice)
-    return {"message": "Factura anulada exitosamente", "invoice": invoice.to_dict()}
+
+    record(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_email=ctx.user.email,
+        action="invoice.cancelled",
+        resource_type="invoice",
+        resource_id=str(invoice_id),
+        summary=f"Factura '{invoice.invoice_number}' anulada",
+        details=f"Tipo anulación: {body.cancellation_type or '01'}",
+        snapshot_before=before,
+    )
+
+    message = "Factura anulada exitosamente"
+    if invoice.transaction_type == "expense":
+        message += (
+            ". Esta factura de gasto NO se reporta en el Formulario 608. "
+            "Si el período ya cerró, corrige el 606 (elimina esta factura) y presenta una rectificativa IT-1. "
+            "Si el período no ha cerrado, re-envía el 606 sin incluir esta factura."
+        )
+
+    return {"message": message, "invoice": invoice.to_dict()}
 
 
 @router.post("/invoices/{invoice_id}/uncancel")
@@ -780,10 +988,27 @@ async def uncancel_invoice(
     if not invoice.cancelled_at:
         raise HTTPException(status_code=400, detail="La factura no está anulada")
 
+    before = _invoice_snapshot(invoice)
     invoice.cancelled_at = None
     invoice.cancellation_type = None
     ctx.db.commit()
     ctx.db.refresh(invoice)
+
+    record(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_email=ctx.user.email,
+        action="invoice.uncancelled",
+        resource_type="invoice",
+        resource_id=str(invoice_id),
+        summary=f"Anulación revertida para factura '{invoice.invoice_number}'",
+        snapshot_before=before,
+    )
+
     return {"message": "Anulación revertida exitosamente", "invoice": invoice.to_dict()}
 
 
@@ -807,6 +1032,20 @@ async def bulk_cancel_invoices(
         count += 1
 
     ctx.db.commit()
+
+    record(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_email=ctx.user.email,
+        action="invoice.bulk_cancelled",
+        resource_type="invoice",
+        summary=f"{count} facturas anuladas",
+    )
+
     return {"message": f"{count} factura(s) anuladas exitosamente", "count": count}
 
 
@@ -836,6 +1075,20 @@ async def bulk_restore_invoices(
         count += 1
 
     ctx.db.commit()
+
+    record(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_email=ctx.user.email,
+        action="invoice.bulk_restored",
+        resource_type="invoice",
+        summary=f"{count} factura(s) restauradas de la papelera",
+    )
+
     return {"message": "Facturas restauradas exitosamente", "count": count}
 
 
@@ -858,6 +1111,8 @@ async def bulk_permanent_delete_invoices(
         .all()
     )
 
+    snapshots = {str(inv.id): _invoice_snapshot(inv) for inv in invoices}
+
     errors: list[str] = []
     for invoice in invoices:
         storage_ok = True
@@ -879,6 +1134,23 @@ async def bulk_permanent_delete_invoices(
             errors.append(str(invoice.id))
 
     ctx.db.commit()
+
+    deleted_ids = [str(inv.id) for inv in invoices if str(inv.id) not in errors]
+    pending = len(action.invoice_ids) - len(invoices) if len(action.invoice_ids) > 0 else 0
+    record(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_email=ctx.user.email,
+        action="invoice.bulk_permanent_deleted",
+        resource_type="invoice",
+        summary=f"{len(deleted_ids)} factura(s) eliminada(s) permanentemente"
+        + (f", {pending} no encontrada(s) en BD" if pending else ""),
+        snapshot_before=[snapshots[i] for i in deleted_ids if i in snapshots],
+    )
 
     deleted_count = len(invoices) - len(errors)
     if errors:
@@ -945,6 +1217,21 @@ async def export_invoices(
         else:
             output = export_service.export_csv_generic(invoices)
             filename += ".csv"
+
+        record(
+            db=ctx.db,
+            tenant_id=ctx.tenant_id,
+            organization_id=ctx.org_id,
+            organization_name=ctx.organization.name,
+            actor_id=str(ctx.user.id),
+            actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+            actor_email=ctx.user.email,
+            action="invoice.exported",
+            resource_type="invoice",
+            resource_id=str(invoices[0].id),
+            summary=f"{len(invoices)} factura(s) exportada(s) a {action.format.upper()}",
+            details=f"Formato: {action.format}",
+        )
 
         if media_type in [
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1013,6 +1300,20 @@ async def export_invoices_csv(
 
     invoices = query.order_by(desc(Invoice.created_at)).all()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    record(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_email=ctx.user.email,
+        action="export.downloaded",
+        resource_type="invoice",
+        summary=f"{len(invoices)} facturas descargadas",
+        details=f"Formatos: {format or 'csv'}",
+    )
 
     if format == "dgii_606":
         report_rnc = ctx.organization.tax_id or None
