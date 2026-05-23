@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.dependencies.tenant import TenantContext, require_tenant
-from app.models import AccountMapping, Invoice
+from app.models import AccountMapping, ExportProfile, Invoice
 from app.repositories import InvoiceRepository
 from app.services.integrations import IntegrationExportService
+from app.services.audit_logger import record as audit_record
 from app.services.export import ExportService
 
 logger = logging.getLogger(__name__)
@@ -141,6 +142,19 @@ async def save_mappings(
 ):
     entries = [e.model_dump() for e in body.entries]
     integration_service.save_mappings(ctx.db, ctx.tenant_id, ctx.org_id, body.provider, entries)
+    first = entries[0] if entries else {}
+    audit_record(
+        ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None) or ctx.user.email,
+        actor_email=ctx.user.email,
+        action="settings.updated",
+        resource_type="account_mapping",
+        summary=f"Mapeo contable '{first.get('account_code', '')}' creado",
+    )
     return {"status": "ok"}
 
 
@@ -152,6 +166,18 @@ async def delete_mapping(
     ok = integration_service.delete_mapping(ctx.db, UUID(mapping_id), ctx.tenant_id, ctx.org_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Mapping not found")
+    audit_record(
+        ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None) or ctx.user.email,
+        actor_email=ctx.user.email,
+        action="settings.updated",
+        resource_type="account_mapping",
+        summary="Mapeo contable eliminado",
+    )
     return {"status": "deleted"}
 
 
@@ -182,6 +208,18 @@ async def create_profile(
         body.provider,
         body.config,
     )
+    audit_record(
+        ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None) or ctx.user.email,
+        actor_email=ctx.user.email,
+        action="settings.updated",
+        resource_type="export_profile",
+        summary=f"Perfil de exportación '{profile.name}' creado",
+    )
     return profile.to_dict()
 
 
@@ -200,6 +238,18 @@ async def update_profile(
         body.config,
         profile_id=UUID(profile_id),
     )
+    audit_record(
+        ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None) or ctx.user.email,
+        actor_email=ctx.user.email,
+        action="settings.updated",
+        resource_type="export_profile",
+        summary=f"Perfil de exportación '{profile.name}' actualizado",
+    )
     return profile.to_dict()
 
 
@@ -208,9 +258,27 @@ async def delete_profile(
     profile_id: str,
     ctx: TenantContext = Depends(require_tenant),
 ):
+    profile = ctx.db.query(ExportProfile).filter(
+        ExportProfile.id == UUID(profile_id),
+        ExportProfile.tenant_id == ctx.tenant_id,
+        ExportProfile.organization_id == ctx.org_id,
+    ).first()
+    profile_name = profile.name if profile else "Unknown"
     ok = integration_service.delete_profile(ctx.db, UUID(profile_id), ctx.tenant_id, ctx.org_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Profile not found")
+    audit_record(
+        ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None) or ctx.user.email,
+        actor_email=ctx.user.email,
+        action="settings.updated",
+        resource_type="export_profile",
+        summary=f"Perfil de exportación '{profile_name}' eliminado",
+    )
     return {"status": "deleted"}
 
 

@@ -6,6 +6,7 @@ from app.services.pipeline.base import ProcessingResult
 from app.services.pipeline.classifier import classifier
 from app.services.pipeline.image_preprocessor import image_preprocessor
 from app.services.pipeline.normalizer import normalizer
+from app.services.pipeline.validator import post_extraction_validator
 from app.services.pipeline.xml_processor import xml_processor
 from app.services.pipeline.pdf_text_parser import pdf_text_parser
 from app.services.pipeline.xlsx_processor import xlsx_processor
@@ -67,7 +68,8 @@ class PipelineOrchestrator:
                     source_type=source_type,
                     confidence=result.confidence,
                 )
-                return True, normalized, source_type
+                validated = post_extraction_validator.validate(normalized)
+                return True, validated, source_type
 
             if source_type in AI_FALLBACK_STRATEGIES and result.confidence < CONFIDENCE_THRESHOLD:
                 logger.info("Low confidence (%.2f), escalating to AI fallback", result.confidence)
@@ -80,6 +82,8 @@ class PipelineOrchestrator:
                 )
                 if success:
                     ai_data["quality_warnings"] = result.warnings
+                    validated = post_extraction_validator.validate(ai_data)
+                    return True, validated, ai_source
                 return success, ai_data, ai_source
 
             normalized = self.normalizer.normalize(
@@ -87,7 +91,8 @@ class PipelineOrchestrator:
                 source_type=source_type,
                 confidence=result.confidence,
             )
-            return result.success, normalized, source_type
+            validated = post_extraction_validator.validate(normalized)
+            return result.success, validated, source_type
 
         except Exception as e:
             logger.exception("Pipeline error processing %s: %s", file_path, e)

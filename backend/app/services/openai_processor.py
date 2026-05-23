@@ -545,6 +545,17 @@ class OpenAIInvoiceProcessor:
         if not cleaned["goods_services_type"]:
             cleaned["goods_services_type"] = self._infer_goods_services_type(cleaned)
 
+        # Country detection inteligente (si no viene explícito)
+        country_code, detection_method, country_conf = self._smart_country_detection(cleaned)
+        if country_code:
+            cleaned["vendor_country"] = country_code
+            cleaned["country_detection_method"] = detection_method
+            cleaned["country_confidence"] = country_conf
+        else:
+            cleaned["vendor_country"] = None
+            cleaned["country_detection_method"] = detection_method
+            cleaned["country_confidence"] = country_conf
+
         # Post-processing: eliminar warnings alucinados sobre NCF
         # La AI tiende a inventar "NCF fuera de fecha de validez" o "NCF vencido"
         # sin tener acceso a los rangos DGII. Esto está PROHIBIDO en el prompt
