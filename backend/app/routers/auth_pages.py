@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import desc
 from sqlalchemy.exc import OperationalError
@@ -11,11 +11,11 @@ from sqlalchemy.orm import Session
 from app.config import ADMIN_EMAIL, ADMIN_PASSWORD, IS_PRODUCTION, REMEMBER_ME_EXPIRE_DAYS
 from app.core.auth import create_access_token, verify_password
 from app.core.container import openai_processor
-from app.core.ui import templates
 from app.database import get_db
 from app.dependencies.tenant import TenantContext, optional_tenant, require_tenant
+from app.services.audit_logger import record as audit_record
 from app.dependencies.tenancy import get_company_context
-from app.models import Invoice, Organization, User
+from app.models import Invoice, Organization, User, UserOrganization
 from app.schemas import ChatRequest, ForgotPasswordRequest, RegisterRequest, ResetPasswordRequest, VerifyCodeRequest
 from app.services.auth_service import provision_local_user, sign_in, sign_up_user, verify_and_login, verify_email_code, verify_user
 from app.services.email_service import send_password_changed_email, send_reset_password_email, send_verification_email
@@ -50,6 +50,11 @@ async def login_for_access_token(
                 db.commit()
             expire = timedelta(days=REMEMBER_ME_EXPIRE_DAYS) if remember else timedelta(minutes=_SESSION_EXPIRE_MINUTES)
             token = create_access_token(data={"sub": form_data.username}, expires_delta=expire)
+            audit_record(
+                db, tenant_id=user.tenant_id, organization_id=user.tenant_id,
+                actor_id=str(user.id), actor_name=user.full_name, actor_email=user.email,
+                action="user.login", summary=f"Inicio de sesión: {user.email}",
+            )
             return _create_token_response(token, persist=remember)
         # fall through to local verification if Supabase fails
 
@@ -61,6 +66,11 @@ async def login_for_access_token(
                 raise HTTPException(status_code=400, detail="Usuario inactivo")
             expire = timedelta(days=REMEMBER_ME_EXPIRE_DAYS) if remember else timedelta(minutes=_SESSION_EXPIRE_MINUTES)
             token = create_access_token(data={"sub": form_data.username}, expires_delta=expire)
+            audit_record(
+                db, tenant_id=user.tenant_id, organization_id=user.tenant_id,
+                actor_id=str(user.id), actor_name=user.full_name, actor_email=user.email,
+                action="user.login", summary=f"Inicio de sesión: {user.email}",
+            )
             return _create_token_response(token, persist=remember)
     except OperationalError:
         pass
@@ -69,6 +79,16 @@ async def login_for_access_token(
     if ADMIN_EMAIL and form_data.username == ADMIN_EMAIL and ADMIN_PASSWORD == form_data.password:
         expire = timedelta(days=REMEMBER_ME_EXPIRE_DAYS) if remember else timedelta(minutes=_SESSION_EXPIRE_MINUTES)
         token = create_access_token(data={"sub": form_data.username}, expires_delta=expire)
+        try:
+            admin_user = db.query(User).filter(User.email == ADMIN_EMAIL).first()
+            if admin_user:
+                audit_record(
+                    db, tenant_id=admin_user.tenant_id, organization_id=admin_user.tenant_id,
+                    actor_id=str(admin_user.id), actor_name=admin_user.full_name, actor_email=admin_user.email,
+                    action="user.login", summary=f"Inicio de sesión (admin): {ADMIN_EMAIL}",
+                )
+        except Exception:
+            pass
         return _create_token_response(token, persist=remember)
 
     raise HTTPException(
@@ -105,6 +125,14 @@ async def register(
 
     if code:
         send_verification_email(body.email, body.full_name, code)
+
+    if result.get("user"):
+        user_obj = result["user"]
+        audit_record(
+            db, tenant_id=user_obj.tenant_id, organization_id=user_obj.tenant_id,
+            actor_id=str(user_obj.id), actor_name=user_obj.full_name, actor_email=user_obj.email,
+            action="user.created", summary=f"Cuenta creada: {user_obj.email}",
+        )
 
     return {
         "message": "Cuenta creada. Revisa tu email para el código de verificación.",
@@ -291,26 +319,30 @@ def _create_token_response(token: str, *, persist: bool = False):
     return response
 
 
-@router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
-
-
 @router.get("/logout")
-async def logout():
+async def logout(
+    ctx: Optional[TenantContext] = Depends(optional_tenant),
+    db: Session = Depends(get_db),
+):
+    if ctx:
+        audit_record(
+            db, tenant_id=ctx.tenant_id, organization_id=ctx.org_id,
+            actor_id=str(ctx.user.id), actor_name=ctx.user.full_name, actor_email=ctx.user.email,
+            action="user.logout", summary=f"Cierre de sesión: {ctx.user.email}",
+            organization_name=ctx.organization.name if ctx.organization else None,
+        )
     response = RedirectResponse(url="/login")
     response.delete_cookie("access_token")
     return response
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/")
 async def read_root(
-    request: Request,
     ctx: Optional[TenantContext] = Depends(optional_tenant),
 ):
     if not ctx:
-        return templates.TemplateResponse("landing.html", {"request": request})
-    return RedirectResponse(url="/app", status_code=307)
+        return RedirectResponse(url="/login", status_code=302)
+    return RedirectResponse(url="/dashboard", status_code=302)
 
 
 @router.get("/api/me")

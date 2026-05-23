@@ -9,8 +9,8 @@ from app.database import get_db
 
 from app.config import SUPABASE_URL
 from app.core.bootstrap import run_startup
-from app.core.ui import ensure_runtime_dirs, templates
-from app.routers import admin, auth_pages, dgii, evolution, integrations, invoices, notifications, odoo_integration, quickbooks_integration, settings, statistics, websocket, webhooks, xero_integration
+from app.core.ui import ensure_runtime_dirs
+from app.routers import admin, auth_pages, dgii, evolution, history, integrations, invoices, notifications, odoo_integration, quickbooks_integration, settings, statistics, websocket, webhooks, xero_integration
 from app.services.cleanup_service import start_cleanup_task
 
 logger = logging.getLogger(__name__)
@@ -30,15 +30,11 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(404)
     async def not_found_exception_handler(request: Request, exc: StarletteHTTPException):
-        if request.url.path.startswith("/api/"):
-            return JSONResponse({"detail": "Not Found"}, status_code=404)
-        return templates.TemplateResponse("404.html", {"request": request}, status_code=404)
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
 
     @app.exception_handler(500)
     async def internal_server_error_handler(request: Request, exc: Exception):
-        if request.url.path.startswith("/api/"):
-            return JSONResponse({"detail": "Internal Server Error"}, status_code=500)
-        return templates.TemplateResponse("500.html", {"request": request}, status_code=500)
+        return JSONResponse({"detail": "Internal Server Error"}, status_code=500)
 
     @app.on_event("startup")
     async def startup_event():
@@ -58,6 +54,7 @@ def create_app() -> FastAPI:
     app.include_router(settings.router)
     app.include_router(invoices.router)
     app.include_router(webhooks.router)
+    app.include_router(history.router)
     app.include_router(integrations.router)
     app.include_router(odoo_integration.router)
     app.include_router(quickbooks_integration.router)
