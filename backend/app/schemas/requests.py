@@ -21,8 +21,11 @@ class ManualInvoiceCreate(BaseModel):
     category: str | None = None
     description: str | None = None
     vendor_tax_id: str | None = None
-    vendor_country: str | None = None
+    vendor_country: str | None = None  # ISO 3166-1 alpha-3
+    vendor_fiscal_address: str | None = None
     goods_services_type: str | None = None
+    payment_method: str | None = None  # Código DGII 01-10
+    ncf_modified: str | None = None
     line_items: list[LineItem] = []
 
 
