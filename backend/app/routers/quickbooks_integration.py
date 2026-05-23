@@ -13,6 +13,7 @@ from app.config import FRONTEND_URL
 from app.dependencies.tenant import TenantContext, require_tenant
 from app.models import IntegrationConnection, Invoice
 from app.services.quickbooks_connector import QuickBooksConnector
+from app.services.audit_logger import record as audit_record
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/integrations/quickbooks", tags=["integrations", "quickbooks"])
@@ -275,6 +276,22 @@ async def push_to_quickbooks(
     errors = [r for r in results if not r["success"]]
     conn.last_error = (errors[0]["error"] or "")[:2000] if errors else None
     ctx.db.commit()
+
+    first = invoices[0]
+    audit_record(
+        ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None) or ctx.user.email,
+        actor_email=ctx.user.email,
+        action="integration.pushed",
+        resource_type="invoice",
+        resource_id=str(first.id),
+        summary=f"Factura {first.invoice_number} enviada a QuickBooks",
+        metadata={"integration": "quickbooks"},
+    )
 
     return {
         "total": len(results),

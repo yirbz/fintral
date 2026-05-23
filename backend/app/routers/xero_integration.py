@@ -13,6 +13,7 @@ from app.config import FRONTEND_URL
 from app.dependencies.tenant import TenantContext, require_tenant
 from app.models import IntegrationConnection, Invoice
 from app.services.xero_connector import XeroConnector
+from app.services.audit_logger import record as audit_record
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/integrations/xero", tags=["integrations", "xero"])
@@ -241,5 +242,22 @@ async def push_to_xero(
     if failed > 0:
         conn.last_error = results[failed - 1].get("error", "") if failed <= len(results) else ""
     ctx.db.commit()
+
+    first = invoices[0]
+    audit_record(
+        ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None) or ctx.user.email,
+        actor_email=ctx.user.email,
+        action="integration.pushed",
+        resource_type="invoice",
+        resource_id=str(first.id),
+        summary=f"Factura {first.invoice_number} enviada a Xero",
+        details=f"Xero: {conn.name}",
+        metadata={"integration": "xero", "connection_name": conn.name},
+    )
 
     return {"total": total, "success": success, "failed": failed, "results": results}
