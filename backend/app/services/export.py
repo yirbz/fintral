@@ -7,7 +7,45 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Dict
 from lxml import etree
 from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 from app.models import Invoice
+
+
+FISCAL_HEADERS = [
+    "RNC",
+    "Proveedor",
+    "NCF",
+    "Fecha",
+    "Tipo",
+    "Categoría",
+    "Tipo Bien/Serv",
+    "Descripción",
+    "Base Imponible",
+    "ITBIS",
+    "Total",
+    "Moneda",
+    "Estado",
+]
+
+
+def _fiscal_row(inv: Invoice) -> list:
+    base = (inv.total_amount or 0) - (inv.tax_amount or 0)
+    return [
+        inv.vendor_tax_id or "",
+        inv.vendor_name or "",
+        inv.invoice_number or "",
+        inv.invoice_date.strftime("%Y-%m-%d") if inv.invoice_date else "",
+        {"income": "Ingreso", "expense": "Gasto"}.get(inv.transaction_type or "", inv.transaction_type or ""),
+        inv.category or "",
+        inv.goods_services_type or "",
+        inv.description or "",
+        f"{base:.2f}",
+        f"{inv.tax_amount or 0:.2f}",
+        f"{inv.total_amount or 0:.2f}",
+        inv.currency or "DOP",
+        "Procesado" if inv.processed else "Pendiente",
+    ]
 
 TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "plantilla_excel")
 _NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
@@ -1080,34 +1118,12 @@ class ExportService:
             issues.append("Total inválido")
         return "; ".join(issues) if issues else "OK"
     def export_csv_generic(self, invoices: List[Invoice]) -> str:
-        """Exportación CSV estándar detallada"""
+        """CSV con datos fiscales relevantes para DGII / contabilidad."""
         output = io.StringIO()
         writer = csv.writer(output)
-        
-        headers = [
-            'ID', 'Fecha', 'Proveedor', 'Número Factura', 
-            'Categoría', 'Descripción', 'Base Imponible', 
-            'Impuestos', 'Total', 'Moneda', 'Estado', 'Alertas'
-        ]
-        writer.writerow(headers)
-        
+        writer.writerow(FISCAL_HEADERS)
         for inv in invoices:
-            base = (inv.total_amount or 0) - (inv.tax_amount or 0)
-            writer.writerow([
-                inv.id,
-                inv.invoice_date.strftime('%Y-%m-%d') if inv.invoice_date else '',
-                inv.vendor_name,
-                inv.invoice_number,
-                inv.category,
-                inv.description,
-                f"{base:.2f}",
-                f"{inv.tax_amount or 0:.2f}",
-                f"{inv.total_amount or 0:.2f}",
-                inv.currency,
-                "Procesado" if inv.processed else "Pendiente",
-                inv.audit_flags or ""
-            ])
-            
+            writer.writerow(_fiscal_row(inv))
         return output.getvalue()
 
     def export_quickbooks(self, invoices: List[Invoice]) -> str:
@@ -1310,36 +1326,59 @@ class ExportService:
         return output.getvalue()
 
     def export_excel_generic(self, invoices: List[Invoice]) -> bytes:
-        """Exportación Excel (.xlsx) con columnas estándar."""
+        """Excel formateado con encabezados estilizados, columnas ajustadas y datos fiscales."""
         wb = Workbook()
         ws = wb.active
         ws.title = "Facturas"
 
-        headers = [
-            'ID', 'Fecha', 'Proveedor', 'NCF', 'Categoría', 'Descripción',
-            'Base Imponible', 'ITBIS', 'Total', 'Moneda', 'Estado', 'Alertas',
-            'RNC', 'Tipo DGII 606'
-        ]
-        ws.append(headers)
+        header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+        header_font = Font(name="Calibri", bold=True, color="FFFFFF", size=11)
+        header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        thin_border = Border(
+            left=Side(style="thin", color="B0B0B0"),
+            right=Side(style="thin", color="B0B0B0"),
+            top=Side(style="thin", color="B0B0B0"),
+            bottom=Side(style="thin", color="B0B0B0"),
+        )
+        data_font = Font(name="Calibri", size=10)
+        data_align = Alignment(vertical="center")
+        number_align = Alignment(horizontal="right", vertical="center")
+        alt_fill = PatternFill(start_color="F2F7FB", end_color="F2F7FB", fill_type="solid")
 
-        for inv in invoices:
-            base = (inv.total_amount or 0) - (inv.tax_amount or 0)
-            ws.append([
-                inv.id,
-                inv.invoice_date.strftime('%Y-%m-%d') if inv.invoice_date else '',
-                inv.vendor_name,
-                inv.invoice_number,
-                inv.category,
-                inv.description,
-                round(base, 2),
-                round(inv.tax_amount or 0, 2),
-                round(inv.total_amount or 0, 2),
-                inv.currency,
-                "Procesado" if inv.processed else "Pendiente",
-                inv.audit_flags or "",
-                inv.vendor_tax_id or "",
-                inv.goods_services_type or ""
-            ])
+        headers = FISCAL_HEADERS
+        col_widths = [14, 28, 20, 13, 10, 16, 14, 30, 16, 12, 16, 10, 14]
+
+        for col_idx, (header, width) in enumerate(zip(headers, col_widths), 1):
+            cell = ws.cell(row=1, column=col_idx, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_align
+            cell.border = thin_border
+            ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+        ws.row_dimensions[1].height = 30
+
+        for row_idx, inv in enumerate(invoices, 2):
+            row_data = _fiscal_row(inv)
+            is_alt = (row_idx % 2 == 0)
+            for col_idx, value in enumerate(row_data, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                cell.font = data_font
+                cell.border = thin_border
+                if is_alt:
+                    cell.fill = alt_fill
+                if col_idx in (9, 10, 11):
+                    cell.alignment = number_align
+                else:
+                    cell.alignment = data_align
+
+        ws.auto_filter.ref = ws.dimensions
+
+        ws.sheet_properties.pageSetUpPr = None
+        ws.page_setup.orientation = "landscape"
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        ws.sheet_properties.tabColor = "1F4E79"
 
         output = io.BytesIO()
         wb.save(output)
@@ -1347,19 +1386,22 @@ class ExportService:
         return output.getvalue()
 
     def export_txt(self, invoices: List[Invoice]) -> str:
-        """Exportación TXT legible para impresión/archivo"""
+        """TXT legible con datos fiscales relevantes."""
         lines: list[str] = []
-        sep = "=" * 50
+        sep = "=" * 55
         for i, inv in enumerate(invoices, 1):
             base = (inv.total_amount or 0) - (inv.tax_amount or 0)
             lines.append(sep)
             lines.append(f"FACTURA #{i}")
             lines.append(sep)
-            lines.append(f"Fecha:\t\t{inv.invoice_date.strftime('%d/%m/%Y') if inv.invoice_date else '—'}")
-            lines.append(f"Proveedor:\t{inv.vendor_name or '—'}")
             lines.append(f"RNC:\t\t{inv.vendor_tax_id or '—'}")
+            lines.append(f"Proveedor:\t{inv.vendor_name or '—'}")
             lines.append(f"NCF:\t\t{inv.invoice_number or '—'}")
+            lines.append(f"Fecha:\t\t{inv.invoice_date.strftime('%d/%m/%Y') if inv.invoice_date else '—'}")
+            tipo = {"income": "Ingreso", "expense": "Gasto"}.get(inv.transaction_type or "", "")
+            lines.append(f"Tipo:\t\t{tipo}" if tipo else "")
             lines.append(f"Categoría:\t{inv.category or '—'}")
+            lines.append(f"Tipo B/S:\t{inv.goods_services_type or '—'}")
             lines.append(f"Descripción:\t{inv.description or '—'}")
             lines.append(f"Base:\t\t{base:,.2f}")
             lines.append(f"ITBIS:\t\t{inv.tax_amount or 0:,.2f}")
@@ -1368,11 +1410,29 @@ class ExportService:
             lines.append("")
         lines.append(sep)
         lines.append(f"Total facturas: {len(invoices)}")
-        lines.append(f"Suma total:\t{sum(inv.total_amount or 0 for inv in invoices):,.2f}")
+        total = sum(inv.total_amount or 0 for inv in invoices)
+        lines.append(f"Suma total:\t{total:,.2f}")
         lines.append(sep)
         return "\n".join(lines)
 
     def export_json(self, invoices: List[Invoice]) -> str:
-        """Exportación JSON completa"""
-        data = [inv.to_dict() for inv in invoices]
+        """JSON con datos fiscales relevantes — sin fugas del esquema interno."""
+        data = []
+        for inv in invoices:
+            base = (inv.total_amount or 0) - (inv.tax_amount or 0)
+            data.append({
+                "rnc": inv.vendor_tax_id or "",
+                "proveedor": inv.vendor_name or "",
+                "ncf": inv.invoice_number or "",
+                "fecha": inv.invoice_date.strftime("%Y-%m-%d") if inv.invoice_date else "",
+                "tipo": {"income": "Ingreso", "expense": "Gasto"}.get(inv.transaction_type or "", inv.transaction_type or ""),
+                "categoria": inv.category or "",
+                "tipo_bien_serv": inv.goods_services_type or "",
+                "descripcion": inv.description or "",
+                "base_imponible": round(base, 2),
+                "itbis": round(inv.tax_amount or 0, 2),
+                "total": round(inv.total_amount or 0, 2),
+                "moneda": inv.currency or "DOP",
+                "estado": "Procesado" if inv.processed else "Pendiente",
+            })
         return json.dumps(data, indent=2, ensure_ascii=False)
