@@ -1,0 +1,6 @@
+exclude = [
+    "alembic/versions/",
+    "alembic/",
+    ".ruff_cache/",
+    "__pycache__/",
+]
