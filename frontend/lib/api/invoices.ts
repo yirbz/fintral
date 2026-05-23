@@ -125,8 +125,11 @@ export interface CreateInvoicePayload {
   category?: string;
   description?: string;
   vendor_tax_id?: string;
-  vendor_country?: string;
+  vendor_country?: string;  // ISO 3166-1 alpha-3
+  vendor_fiscal_address?: string;
   goods_services_type?: string;
+  payment_method?: string;  // Código DGII 01-10
+  ncf_modified?: string;
   line_items: Array<{
     description: string;
     quantity: number;
