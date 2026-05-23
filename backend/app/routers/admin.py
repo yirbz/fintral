@@ -1,14 +1,16 @@
 import json
 import logging
 from typing import Optional
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.redis import cache_delete, cache_get, cache_set
 from app.database import get_db
 from app.dependencies.tenant import require_admin, TenantContext
 from app.models import ReferenceData
+from app.services.audit_logger import query_admin as query_audit_logs
 
 logger = logging.getLogger(__name__)
 
@@ -140,3 +142,37 @@ async def get_domain_data(
     serialized = [item.to_dict() for item in items]
     cache_set(_cache_key(domain), serialized, REFDATA_CACHE_TTL)
     return {"domain": domain, "items": serialized}
+
+
+@router.get("/audit-logs")
+async def list_admin_audit_logs(
+    tenant_id: Optional[str] = Query(None, description="Filter by tenant UUID"),
+    organization_id: Optional[str] = Query(None, description="Filter by organization UUID"),
+    action: Optional[str] = Query(None),
+    actor_id: Optional[str] = Query(None),
+    resource_type: Optional[str] = Query(None),
+    visibility: Optional[str] = Query(None, description="client, internal, or empty for all"),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    ctx: TenantContext = Depends(require_admin),
+):
+    tid = UUID(tenant_id) if tenant_id else None
+    oid = UUID(organization_id) if organization_id else None
+
+    rows, total = query_audit_logs(
+        ctx.db,
+        tenant_id=tid,
+        organization_id=oid,
+        action=action,
+        actor_id=actor_id,
+        resource_type=resource_type,
+        visibility=visibility,
+        limit=limit,
+        offset=offset,
+    )
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "events": [r.to_admin_dict() for r in rows],
+    }

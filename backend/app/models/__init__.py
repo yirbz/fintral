@@ -15,12 +15,14 @@ from .setting import Setting, UserSetting
 from .tenant import Tenant
 from .user import User
 from .user_organization import UserOrganization
+from .audit_log import AuditLog
 from .export_profile import AccountMapping, ExportProfile
 from .integration_connection import IntegrationConnection
 from .webhook import WebhookEndpoint
 
 __all__ = [
     "AccountMapping",
+    "AuditLog",
     "DgiiSubmission",
     "ExportProfile",
     "InvoiceDgiiStatus",

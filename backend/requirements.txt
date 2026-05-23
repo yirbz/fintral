@@ -26,3 +26,4 @@ pytesseract>=0.3.13
 opencv-python-headless<4.10
 numpy>=1.18.0,<2
 resend>=2.0.0
+alembic>=1.13.0

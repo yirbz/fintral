@@ -20,17 +20,64 @@ logger = setup_logging()
 
 
 def init_database() -> None:
+    import time
+
+    from alembic import command
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+    from sqlalchemy import inspect, text
+
     from app.database import Base, engine
 
     if engine is None:
         logger.warning("init_database — engine not available, skipping")
         return
+
+    t0 = time.time()
+    alembic_cfg = Config("alembic.ini")
+    inspector = inspect(engine)
+    tables = inspector.get_table_names()
+    has_alembic_version = "alembic_version" in tables
+    has_data_tables = "invoices" in tables
+    logger.info("init_database — has_alembic_version=%s has_data_tables=%s tables=%d (%.2fs)",
+                has_alembic_version, has_data_tables, len(tables), time.time() - t0)
+
+    if has_alembic_version:
+        with engine.connect() as conn:
+            row = conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
+        script = ScriptDirectory.from_config(alembic_cfg)
+        head_rev = script.get_current_head()
+        logger.info("alembic_version=%s head=%s match=%s", row, head_rev, row == head_rev)
+        if row == head_rev:
+            logger.info("Already at head revision — skipping alembic upgrade")
+            return
+
+        t1 = time.time()
+        logger.info("Running pending migrations from %s to %s ...", row, head_rev)
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Alembic migrations applied (%.2fs)", time.time() - t1)
+        return
+
+    if has_data_tables:
+        t1 = time.time()
+        logger.info("Existing DB without alembic_version — stamping head")
+        command.stamp(alembic_cfg, "head")
+        logger.info("Alembic stamp successful (%.2fs)", time.time() - t1)
+        return
+
+    logger.info("Fresh database — creating all tables via Alembic")
+    t1 = time.time()
     try:
-        logger.info("Creating database tables...")
-        Base.metadata.create_all(bind=engine)
-        logger.info("Database tables created successfully")
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Database tables created (%.2fs)", time.time() - t1)
     except Exception as e:
-        logger.warning("init_database — failed: %s", e)
+        logger.warning("Alembic upgrade failed (%s) — falling back to create_all (%.2fs): %s",
+                       type(e).__name__, time.time() - t1, e)
+        try:
+            Base.metadata.create_all(bind=engine)
+            logger.info("create_all fallback done")
+        except Exception as ca_err:
+            logger.warning("create_all also failed: %s", ca_err)
 
 
 def ensure_default_admin(db: Session) -> None:

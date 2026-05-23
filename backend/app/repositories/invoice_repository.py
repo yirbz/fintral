@@ -258,6 +258,7 @@ class InvoiceRepository:
             Invoice.tenant_id == tenant_id,
             Invoice.organization_id == org_id,
             Invoice.deleted_at.is_(None),
+            Invoice.cancelled_at.is_(None),
         )
 
         # Override: IDs explícitos tienen prioridad máxima
