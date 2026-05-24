@@ -28,7 +28,40 @@ CANONICAL_SCHEMA = {
     "payment_method": Optional[str],
     "confidence": float,
     "source_type": str,
+    "ecf_type": Optional[str],
     "audit_warnings": list,
+
+    "eNCF": Optional[str],
+    "tipo_pago": Optional[str],
+    "fecha_limite_pago": Optional[str],
+    "termino_pago": Optional[str],
+    "fecha_vencimiento_secuencia": Optional[str],
+    "tipo_ingresos": Optional[str],
+    "monto_periodo": Optional[float],
+    "saldo_anterior": Optional[float],
+    "monto_avance_pago": Optional[float],
+    "valor_pagar": Optional[float],
+    "monto_gravado_total": Optional[float],
+    "monto_exento": Optional[float],
+    "monto_gravado_i1": Optional[float],
+    "monto_gravado_i2": Optional[float],
+    "monto_gravado_i3": Optional[float],
+    "itbis1": Optional[int],
+    "itbis2": Optional[int],
+    "itbis3": Optional[int],
+    "total_itbis1": Optional[float],
+    "total_itbis2": Optional[float],
+    "total_itbis3": Optional[float],
+    "total_itbis_retenido": Optional[float],
+    "total_isr_retencion": Optional[float],
+    "total_itbis_percepcion": Optional[float],
+    "total_isr_percepcion": Optional[float],
+    "monto_impuesto_adicional": Optional[float],
+    "impuestos_adicionales": list,
+    "descuentos_recargos": list,
+    "subtotales": list,
+    "formas_pago": list,
+    "original_xml_data": Optional[str],
 }
 
 
@@ -65,18 +98,50 @@ class Normalizer:
             "payment_method": self._validate_payment_method(data.get("payment_method")),
             "confidence": float(confidence) if confidence else self._clean_confidence(data.get("confidence", 0.5)),
             "source_type": source_type,
+            "ecf_type": self._clean_string(data.get("ecf_type")),
             "audit_warnings": data.get("audit_warnings", []) if isinstance(data.get("audit_warnings"), list) else [],
+
+            "eNCF": self._clean_string(data.get("eNCF")),
+            "tipo_pago": self._clean_string(data.get("tipo_pago")),
+            "fecha_limite_pago": self._validate_date(data.get("fecha_limite_pago")),
+            "termino_pago": self._clean_string(data.get("termino_pago")),
+            "fecha_vencimiento_secuencia": self._validate_date(data.get("fecha_vencimiento_secuencia")),
+            "tipo_ingresos": self._clean_string(data.get("tipo_ingresos")),
+            "monto_periodo": self._clean_number(data.get("monto_periodo")),
+            "saldo_anterior": self._clean_number(data.get("saldo_anterior")),
+            "monto_avance_pago": self._clean_number(data.get("monto_avance_pago")),
+            "valor_pagar": self._clean_number(data.get("valor_pagar")),
+            "monto_gravado_total": self._clean_number(data.get("monto_gravado_total")),
+            "monto_exento": self._clean_number(data.get("monto_exento")),
+            "monto_gravado_i1": self._clean_number(data.get("monto_gravado_i1")),
+            "monto_gravado_i2": self._clean_number(data.get("monto_gravado_i2")),
+            "monto_gravado_i3": self._clean_number(data.get("monto_gravado_i3")),
+            "itbis1": self._clean_int(data.get("itbis1")),
+            "itbis2": self._clean_int(data.get("itbis2")),
+            "itbis3": self._clean_int(data.get("itbis3")),
+            "total_itbis1": self._clean_number(data.get("total_itbis1")),
+            "total_itbis2": self._clean_number(data.get("total_itbis2")),
+            "total_itbis3": self._clean_number(data.get("total_itbis3")),
+            "total_itbis_retenido": self._clean_number(data.get("total_itbis_retenido")),
+            "total_isr_retencion": self._clean_number(data.get("total_isr_retencion")),
+            "total_itbis_percepcion": self._clean_number(data.get("total_itbis_percepcion")),
+            "total_isr_percepcion": self._clean_number(data.get("total_isr_percepcion")),
+            "monto_impuesto_adicional": self._clean_number(data.get("monto_impuesto_adicional")),
+            "impuestos_adicionales": data.get("impuestos_adicionales", []),
+            "descuentos_recargos": data.get("descuentos_recargos", []),
+            "subtotales": data.get("subtotales", []),
+            "formas_pago": data.get("formas_pago", []),
+            "original_xml_data": data.get("original_xml_data"),
         }
 
         if not normalized["vendor_name"]:
             normalized["vendor_name"] = "Proveedor no identificado"
-            # No añadir warning — es un fallback informativo, no un error
 
         return normalized
 
     def to_db_dict(self, normalized: Dict[str, Any]) -> Dict[str, Any]:
         """Convert canonical schema to database-compatible dict."""
-        return {
+        result = {
             "vendor_name": normalized.get("vendor_name"),
             "vendor_tax_id": normalized.get("vendor_tax_id"),
             "vendor_fiscal_address": normalized.get("vendor_fiscal_address"),
@@ -94,8 +159,12 @@ class Normalizer:
             "payment_method": normalized.get("payment_method"),
             "confidence_score": normalized.get("confidence"),
             "source_type": normalized.get("source_type"),
+            "ecf_type": normalized.get("ecf_type"),
             "audit_flags": json.dumps(normalized.get("audit_warnings", [])),
         }
+        if normalized.get("ecf_type"):
+            result["original_xml_data"] = normalized.get("original_xml_data")
+        return result
 
     def _clean_string(self, value: Any) -> Optional[str]:
         if value is None or value == "null" or (isinstance(value, str) and not value.strip()):
@@ -110,6 +179,17 @@ class Normalizer:
                 cleaned = value.replace("$", "").replace("€", "").replace("£", "").replace(",", "").strip()
                 return float(cleaned) if cleaned else None
             return float(value)
+        except (ValueError, TypeError):
+            return None
+
+    def _clean_int(self, value: Any) -> Optional[int]:
+        if value is None or value == "null":
+            return None
+        try:
+            if isinstance(value, str):
+                cleaned = re.sub(r"[^0-9\-]", "", value.strip())
+                return int(cleaned) if cleaned else None
+            return int(value)
         except (ValueError, TypeError):
             return None
 

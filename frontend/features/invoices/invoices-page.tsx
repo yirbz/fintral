@@ -601,6 +601,32 @@ const TYPE_STYLES: Record<string, { label: string; cls: string }> = {
   expense: { label: "Compra", cls: "text-blue-600 bg-blue-500/10 border-blue-500/25" },
 };
 
+const CATEGORY_LABELS: Record<string, string> = {
+  expense_01: "Gastos de Personal (01)",
+  expense_02: "Gastos por Trabajos, Suministros y Servicios (02)",
+  expense_03: "Arrendamientos (03)",
+  expense_04: "Gastos de Activos Fijos (04)",
+  expense_05: "Gastos de Representación (05)",
+  expense_06: "Gastos Financieros (06)",
+  expense_07: "Gastos de Seguros (07)",
+  expense_08: "Gastos por Pérdidas Extraordinarias (08)",
+  expense_09: "Compras que Forman Parte del Costo de Venta (09)",
+  expense_10: "Adquisiciones de Activos Fijos (10)",
+  expense_11: "Gastos de Seguros auxiliar (11)",
+  income_01: "Ingresos por Operaciones (01)",
+  income_02: "Ingresos Financieros (02)",
+  income_03: "Ingresos Extraordinarios (03)",
+  income_04: "Ingresos por Arrendamientos (04)",
+  income_05: "Ingresos por Venta de Activo Depreciable (05)",
+  income_06: "Otros Ingresos (06)",
+};
+
+function categoryLabel(category: string | null, transactionType: string | null): string {
+  if (!category) return "PENDIENTE";
+  const key = `${transactionType || "expense"}_${category}`;
+  return CATEGORY_LABELS[key] || category;
+}
+
 function HealthBadge({ invoice }: { invoice: Invoice }) {
   const h = invoiceHealth(invoice);
   const conf = invoice.confidence_score;
@@ -661,7 +687,7 @@ function DgiiStatusBadge({ invoice }: { invoice: Invoice }) {
     confirmed_ncf: {
       icon: ShieldCheck,
       className: "border-indigo-300 bg-indigo-50 text-indigo-700",
-      label: "Confirmada DGII",
+      label: "Reportado a DGII",
     },
     pending_upload: {
       icon: Clock3,
@@ -767,7 +793,7 @@ function InvoiceRow({
         {invoice.vendor_name || <span className="italic text-muted-foreground/60">Procesando...</span>}
       </TableCell>
       <TableCell className="px-3 py-3">
-        <Badge variant={invoice.category ? "default" : "secondary"} className={cn(isCancelled && "opacity-50")}>{invoice.category || "PENDIENTE"}</Badge>
+        <Badge variant={invoice.category ? "default" : "secondary"} className={cn(isCancelled && "opacity-50")}>{categoryLabel(invoice.category, invoice.transaction_type)}</Badge>
       </TableCell>
       <TableCell className={cn("px-3 py-3 text-right font-mono tabular-nums font-semibold", isCancelled ? "text-red-500/60 line-through" : "text-foreground")}>{amount}</TableCell>
       <TableCell className="px-3 py-3 text-center">

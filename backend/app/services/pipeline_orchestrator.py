@@ -2,7 +2,10 @@ import logging
 import re
 from typing import Any, Dict, Optional, Tuple
 
+from sqlalchemy.orm import Session
+
 from app.services.pipeline.base import ProcessingResult
+from app.services.pipeline.categorizer import categorizer
 from app.services.pipeline.classifier import classifier
 from app.services.pipeline.image_preprocessor import image_preprocessor
 from app.services.pipeline.normalizer import normalizer
@@ -10,6 +13,7 @@ from app.services.pipeline.validator import post_extraction_validator
 from app.services.pipeline.xml_processor import xml_processor
 from app.services.pipeline.pdf_text_parser import pdf_text_parser
 from app.services.pipeline.xlsx_processor import xlsx_processor
+from app.services.pipeline.ecf_parser import ecf_parser
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +52,7 @@ class PipelineOrchestrator:
         invoice=None,
         db=None,
         user_id: Optional[int] = None,
+        org_rnc: Optional[str] = None,
     ) -> Tuple[bool, Dict[str, Any], Optional[str]]:
         try:
             source_type, strategy = self.classifier.classify(file_path)
@@ -68,6 +73,8 @@ class PipelineOrchestrator:
                     source_type=source_type,
                     confidence=result.confidence,
                 )
+                self._resolve_direction(normalized, org_rnc)
+                self._categorize_data(normalized, invoice, db)
                 validated = post_extraction_validator.validate(normalized)
                 return True, validated, source_type
 
@@ -82,6 +89,7 @@ class PipelineOrchestrator:
                 )
                 if success:
                     ai_data["quality_warnings"] = result.warnings
+                    self._categorize_data(ai_data, invoice, db)
                     validated = post_extraction_validator.validate(ai_data)
                     return True, validated, ai_source
                 return success, ai_data, ai_source
@@ -91,12 +99,72 @@ class PipelineOrchestrator:
                 source_type=source_type,
                 confidence=result.confidence,
             )
+            self._resolve_direction(normalized, org_rnc)
+            self._categorize_data(normalized, invoice, db)
             validated = post_extraction_validator.validate(normalized)
             return result.success, validated, source_type
 
         except Exception as e:
             logger.exception("Pipeline error processing %s: %s", file_path, e)
             return False, {"error": "Ocurrió un error interno al procesar el documento. Intenta de nuevo o sube un archivo con mejor calidad."}, None
+
+    def _categorize_data(self, data: Dict[str, Any], invoice, db: Optional[Session]) -> None:
+        """Apply 3-tier categorization cascade to the normalized data."""
+        tenant_id = str(invoice.tenant_id) if invoice and hasattr(invoice, "tenant_id") else None
+        if not tenant_id:
+            return
+
+        cat_result = categorizer.categorize(
+            vendor_tax_id=data.get("vendor_tax_id"),
+            vendor_name=data.get("vendor_name"),
+            line_items=data.get("line_items", []),
+            tenant_id=tenant_id,
+            transaction_type=data.get("transaction_type"),
+            db=db,
+        )
+
+        if cat_result.get("dgii_category_code"):
+            data["category"] = cat_result["dgii_category_code"]
+            data["category_source"] = cat_result.get("source", "none")
+
+    def _resolve_direction(self, data: Dict[str, Any], org_rnc: Optional[str]) -> None:
+        """Resolve transaction_type for e-CF invoices by comparing RNCs.
+
+        The e-CF parser stays agnostic about direction. This method
+        determines it here — after extraction, before validation — by
+        comparing the issuer/ buyer RNC against the organization's RNC.
+
+        Special cases:
+        - Types 41 (Compras) and 43 (Gastos Menores) are always expense,
+          even though the tenant is the issuer.
+        """
+        ecf_type = data.get("ecf_type")
+        if not ecf_type or not org_rnc:
+            return
+
+        clean_org = re.sub(r"[^0-9]", "", org_rnc)
+        if not clean_org:
+            return
+
+        # Types 41 and 43 are always expense (tenant-issued purchases)
+        if ecf_type in ("41", "43"):
+            data["transaction_type"] = "expense"
+            return
+
+        emisor_rnc = str(data.get("vendor_tax_id") or "")
+        comprador_rnc = str(data.get("rnc_comprador") or "")
+
+        clean_emisor = re.sub(r"[^0-9]", "", emisor_rnc)
+        clean_comprador = re.sub(r"[^0-9]", "", comprador_rnc)
+
+        if clean_emisor == clean_org:
+            data["transaction_type"] = "income"
+        elif clean_comprador == clean_org:
+            data["transaction_type"] = "expense"
+        elif ecf_type in ("31", "32", "33", "34"):
+            data["transaction_type"] = "income"
+        else:
+            data["transaction_type"] = "expense"
 
     def _process_by_strategy(
         self,
@@ -109,6 +177,8 @@ class PipelineOrchestrator:
     ) -> ProcessingResult:
         if strategy == "xml_processor":
             return xml_processor.process(file_path)
+        elif strategy == "ecf_parser":
+            return ecf_parser.process(file_path)
         elif strategy == "pdf_text_parser":
             return pdf_text_parser.process(file_path)
         elif strategy == "xlsx_processor":
@@ -118,7 +188,7 @@ class PipelineOrchestrator:
         else:
             return ProcessingResult(
                 success=False,
-                error=f"Formato de archivo no soportado ({strategy}). Usa JPG, PNG, PDF o XML.",
+                error=f"Formato de archivo no soportado ({strategy}). Usa JPG, PNG, PDF, XML o XLSX.",
                 source_type=source_type,
                 confidence=0.0,
             )

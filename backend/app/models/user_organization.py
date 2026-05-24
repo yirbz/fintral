@@ -1,9 +1,8 @@
-from app.utils.dates import utc_now
-
-from sqlalchemy import Column, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, ForeignKey, String, Text, UniqueConstraint
 from uuid_utils import uuid7
 
 from app.database import Base, GUID
+from app.utils.dates import utc_now
 
 
 class UserOrganization(Base):
@@ -18,4 +17,5 @@ class UserOrganization(Base):
     user_id = Column(GUID, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     organization_id = Column(GUID, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     role = Column(String, nullable=False, default="member")  # owner / admin / member / viewer
+    permissions = Column(Text, nullable=True)  # JSON array of explicit permissions; null = use role defaults
     created_at = Column(DateTime(timezone=True), default=utc_now)

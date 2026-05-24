@@ -28,7 +28,7 @@ export interface SessionPayload {
 export interface Invoice {
   id: string;
   filename: string;
-  file_type: "image" | "pdf";
+  file_type: "image" | "pdf" | "xml";
   file_url: string | null;
   vendor_name: string | null;
   invoice_number: string | null;
@@ -52,6 +52,19 @@ export interface Invoice {
     subtotal: number;
   }>;
   goods_services_type: string | null;
+  source_type: string | null;
+  original_xml_data: string | null;
+  ecf_type: string | null;
+  rnc_comprador: string | null;
+  is_electronic: boolean;
+  ingestion_source: string | null;
+  status: string; // draft | verified | voided
+  parent_invoice_id: string | null;
+  accounting_account_id: string | null;
+  cost_center_id: string | null;
+  tags: string[];
+  internal_notes: string | null;
+  payment_status: string | null;
   created_at: string | null;
   deleted_at: string | null;
   cancelled_at: string | null;

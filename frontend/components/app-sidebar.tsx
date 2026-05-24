@@ -94,11 +94,27 @@ const data = {
 }
 
 import { useEffect, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { useSession } from "@/hooks/use-session"
+import { getPendingUploadCount } from "@/lib/api/invoices"
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const session = useSession()
   const [user, setUser] = useState(data.user)
+
+  const pendingQuery = useQuery({
+    queryKey: ["pending-upload-count"],
+    queryFn: getPendingUploadCount,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  })
+
+  const navMain = data.navMain.map((item) =>
+    item.url === "/dashboard/upload"
+      ? { ...item, badge: pendingQuery.data?.count ?? undefined }
+      : item
+  )
 
   useEffect(() => {
     if (session.data?.user) {
@@ -128,7 +144,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={data.navMain} />
+        <NavMain items={navMain} />
         <NavDocuments items={data.documents} />
         <NavSecondary items={data.navSecondary} className="mt-auto" />
       </SidebarContent>

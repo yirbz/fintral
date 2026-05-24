@@ -39,7 +39,8 @@ const nextConfig = {
       { source: "/categories", destination: `${backend}/categories` },
       { source: "/export/:path*", destination: `${backend}/export/:path*` },
       { source: "/evolution/:path*", destination: `${backend}/evolution/:path*` },
-      { source: "/websocket/:path*", destination: `${backend}/websocket/:path*` }
+      { source: "/websocket/:path*", destination: `${backend}/websocket/:path*` },
+      { source: "/pending-uploads/:path*", destination: `${backend}/pending-uploads/:path*` }
     ];
   }
 };

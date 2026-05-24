@@ -256,3 +256,63 @@ export async function bulkPermanentDelete(invoiceIds: string[]) {
     body: JSON.stringify({ invoice_ids: invoiceIds })
   });
 }
+
+export async function getPendingInvoiceCount() {
+  return apiFetch<{ count: number }>("/invoices/pending-count");
+}
+
+/* ── Pending Uploads ─────────────────────────── */
+
+export interface PendingUpload {
+  id: string;
+  tenant_id: string;
+  organization_id: string;
+  user_id: string;
+  filename: string;
+  file_path: string;
+  file_type: string;
+  file_size: number;
+  processed: boolean;
+  created_at: string;
+  expires_at: string;
+}
+
+export async function createPendingUpload(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<{ pending_upload: PendingUpload }>("/pending-uploads", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function listPendingUploads(skip = 0, limit = 50) {
+  return apiFetch<{ pending_uploads: PendingUpload[]; total: number }>(
+    `/pending-uploads?skip=${skip}&limit=${limit}`
+  );
+}
+
+export async function getPendingUploadCount() {
+  return apiFetch<{ count: number }>("/pending-uploads/count");
+}
+
+export async function processPendingUpload(pendingId: string) {
+  return apiFetch<{
+    message: string;
+    invoice: import("@/lib/types").Invoice;
+    extracted_data?: Record<string, unknown>;
+  }>(`/pending-uploads/${pendingId}/process`, { method: "POST" });
+}
+
+export async function bulkProcessPendingUploads() {
+  return apiFetch<{ message: string; success_count: number; errors: string[] }>(
+    "/pending-uploads/bulk-process",
+    { method: "POST" }
+  );
+}
+
+export async function deletePendingUpload(pendingId: string) {
+  return apiFetch<{ message: string }>(`/pending-uploads/${pendingId}`, {
+    method: "DELETE",
+  });
+}

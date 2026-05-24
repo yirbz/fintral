@@ -29,6 +29,7 @@ class TenantContext:
     org_id: UUID
     organization: Organization
     role: str  # owner / admin / member / viewer
+    permissions: list[str] | None = None  # explicit permission overrides; None = use role defaults
 
 
 @dataclass
@@ -76,6 +77,8 @@ async def require_tenant(
             role="owner",
         )
 
+    import json
+
     # Determine which org the user wants to work with
     org_id_str = (
         request.headers.get("X-Organization-Id")
@@ -102,7 +105,6 @@ async def require_tenant(
 
         if not user_org:
             raise HTTPException(status_code=403, detail="Sin acceso a esta organización")
-        role = user_org.role
     else:
         # Fallback: first org the user has access to
         try:
@@ -117,14 +119,13 @@ async def require_tenant(
         if not user_org:
             raise HTTPException(status_code=403, detail="Sin acceso a ninguna organización")
         org_id = user_org.organization_id
-        role = user_org.role
 
     # Critical: validate org belongs to same tenant as user
     try:
         org = (
             db.query(Organization)
             .filter(
-                Organization.id == org_id,
+                Organization.id == user_org.organization_id,
                 Organization.tenant_id == user.tenant_id,
                 Organization.is_active.is_(True),
             )
@@ -136,6 +137,9 @@ async def require_tenant(
     if not org:
         raise HTTPException(status_code=403, detail="Organización no encontrada o inactiva")
 
+    raw = user_org.permissions
+    permissions = json.loads(raw) if raw else None
+
     return TenantContext(
         db=db,
         user=user,
@@ -143,7 +147,8 @@ async def require_tenant(
         tenant_id=user.tenant_id,
         org_id=org.id,
         organization=org,
-        role=role,
+        role=user_org.role,
+        permissions=permissions,
     )
 
 
@@ -173,6 +178,8 @@ async def optional_tenant(
             role="owner",
         )
 
+    import json
+
     try:
         user_org = (
             db.query(UserOrganization)
@@ -201,6 +208,9 @@ async def optional_tenant(
     if not org:
         return None
 
+    raw = user_org.permissions
+    permissions = json.loads(raw) if raw else None
+
     return TenantContext(
         db=db,
         user=user,
@@ -209,6 +219,7 @@ async def optional_tenant(
         org_id=org.id,
         organization=org,
         role=user_org.role,
+        permissions=permissions,
     )
 
 

@@ -18,7 +18,7 @@ export function SectionCards({ stats }: { stats: StatisticsPayload | undefined }
   const confidence = stats?.performance?.avg_confidence ?? 0
   const cost = stats?.costs?.avg_cost_per_doc ?? 0
   const successRate = stats?.performance?.success_rate ?? 0
-  const successPct = Math.round(successRate * 100)
+  const successPct = Math.round(successRate)
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

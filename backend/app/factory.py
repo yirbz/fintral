@@ -7,10 +7,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.database import get_db
 
-from app.config import SUPABASE_URL
+from app.config import IS_PRODUCTION, SUPABASE_URL
 from app.core.bootstrap import run_startup
 from app.core.ui import ensure_runtime_dirs
-from app.routers import admin, auth_pages, dgii, evolution, history, integrations, invoices, notifications, odoo_integration, quickbooks_integration, settings, statistics, websocket, webhooks, xero_integration
+from app.routers import admin, auth_pages, dgii, evolution, history, integrations, invoices, notifications, odoo_integration, organizations, pending_uploads, quickbooks_integration, settings, statistics, websocket, webhooks, xero_integration
 from app.services.cleanup_service import start_cleanup_task
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,10 @@ def create_app() -> FastAPI:
             await run_startup(db)
         finally:
             db.close()
-        await start_cleanup_task()
+        if IS_PRODUCTION:
+            await start_cleanup_task()
+        else:
+            logger.info("Skipping cleanup task in DEVELOPMENT mode")
 
     # Admin
     app.include_router(admin.router)
@@ -51,6 +54,7 @@ def create_app() -> FastAPI:
     # Router registration (path parity)
     app.include_router(auth_pages.router)
     app.include_router(notifications.router)
+    app.include_router(pending_uploads.router)
     app.include_router(settings.router)
     app.include_router(invoices.router)
     app.include_router(webhooks.router)
@@ -61,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(xero_integration.router)
     app.include_router(statistics.router)
     app.include_router(evolution.router)
+    app.include_router(organizations.router)
     app.include_router(websocket.router)
     app.include_router(dgii.router)
 

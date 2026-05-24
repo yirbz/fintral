@@ -68,6 +68,20 @@ class Invoice(Base):
     ecf_type = Column(String(2))  # e-CF type code (31-47)
     batch_id = Column(GUID, nullable=True)  # Groups XLSX bulk imports
 
+    # Hybrid ingestion layer (e-CF vs physical NCF)
+    rnc_comprador = Column(String, nullable=True)  # Buyer RNC (DGII comprador)
+    is_electronic = Column(Boolean, default=False, nullable=False)  # True for e-CF, False for physical NCF
+    ingestion_source = Column(String(20), nullable=True)  # xml_upload, whatsapp_ocr, manual_entry, email_api
+    status = Column(String(20), default="draft", nullable=False, index=True)  # draft, verified, voided
+    parent_invoice_id = Column(GUID, ForeignKey("invoices.id"), nullable=True, index=True)
+
+    # Operational metadata
+    accounting_account_id = Column(String, nullable=True)
+    cost_center_id = Column(String, nullable=True)
+    tags = Column(Text, nullable=True)  # JSON array of tags
+    internal_notes = Column(Text, nullable=True)
+    payment_status = Column(String(20), nullable=True)  # pending, paid, overdue
+
     # Metadatos
     created_at = Column(DateTime(timezone=True), default=utc_now)
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
@@ -83,6 +97,7 @@ class Invoice(Base):
 
     # Relationships
     organization = relationship("Organization", back_populates="invoices")
+    parent_invoice = relationship("Invoice", remote_side="Invoice.id", backref="child_invoices")
 
     def to_dict(self):
         file_url = None
@@ -126,6 +141,16 @@ class Invoice(Base):
             "source_type": self.source_type,
             "original_xml_data": self.original_xml_data,
             "ecf_type": self.ecf_type,
+            "rnc_comprador": self.rnc_comprador,
+            "is_electronic": self.is_electronic,
+            "ingestion_source": self.ingestion_source,
+            "status": self.status,
+            "parent_invoice_id": str(self.parent_invoice_id) if self.parent_invoice_id else None,
+            "accounting_account_id": self.accounting_account_id,
+            "cost_center_id": self.cost_center_id,
+            "tags": json.loads(self.tags) if self.tags else [],
+            "internal_notes": self.internal_notes,
+            "payment_status": self.payment_status,
             "batch_id": str(self.batch_id) if self.batch_id else None,
             "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
             "cancelled_at": self.cancelled_at.isoformat() if self.cancelled_at else None,
