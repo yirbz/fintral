@@ -19,6 +19,7 @@ export function NavMain({
     title: string
     url: string
     icon?: React.ReactNode
+    badge?: string | number
   }[]
 }) {
   return (
@@ -56,6 +57,11 @@ export function NavMain({
                 <Link href={item.url}>
                   {item.icon}
                   <span>{item.title}</span>
+                  {item.badge != null && item.badge !== 0 ? (
+                    <span className="ml-auto flex size-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground animate-in fade-in zoom-in-0 duration-200">
+                      {item.badge}
+                    </span>
+                  ) : null}
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>

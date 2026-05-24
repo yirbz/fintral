@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" ?>
+﻿<?xml version="1.0" encoding="utf-8" ?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
   <xs:element name="ECF">
     <xs:complexType>
@@ -13,32 +13,7 @@
                     <xs:element name="TipoeCF" type="TipoeCFType" minOccurs="1" maxOccurs="1"/>
                     <xs:element name="eNCF" type="eNCFValidationType" minOccurs="1" maxOccurs="1"/>
                     <xs:element name="FechaVencimientoSecuencia" type="FechaValidationType" minOccurs="1" maxOccurs="1"/>
-                    <xs:element name="IndicadorEnvioDiferido" type="IndicadorEnvioDiferidoType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="IndicadorMontoGravado" type="IndicadorMontoGravadoType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="IndicadorServicioTodoIncluido" type="IndicadorServicioTodoIncluidoType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TipoIngresos" type="TipoIngresosValidationType" minOccurs="1" maxOccurs="1"/>
-                    <xs:element name="TipoPago" type="TipoPagoType" minOccurs="1" maxOccurs="1"/>
-                    <xs:element name="FechaLimitePago" type="FechaValidationType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TerminoPago" type="TerminoPagoValidationType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TablaFormasPago" minOccurs="0" maxOccurs="1">
-                      <xs:complexType>
-                        <xs:sequence>
-                          <xs:element name="FormaDePago" minOccurs="1" maxOccurs="7">
-                            <xs:complexType>
-                              <xs:sequence>
-                                <xs:element name="FormaPago" type="FormaPagoType" minOccurs="1"  maxOccurs="1"/>
-                                <xs:element name="MontoPago" type="Decimal18D1or2ValidationTypeMayorIgualCero"  minOccurs="1" maxOccurs="1"/>
-                              </xs:sequence>
-                            </xs:complexType>
-                          </xs:element>
-                        </xs:sequence>
-                      </xs:complexType>
-                    </xs:element>
-                    <xs:element name="TipoCuentaPago" type="TipoCuentaPagoType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="NumeroCuentaPago" type="NumeroCuentaPagoType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="BancoPago" type="BancoPagoType" minOccurs="0"  maxOccurs="1"/>
-                    <xs:element name="FechaDesde" type="FechaValidationType" minOccurs="0"  maxOccurs="1"/>
-                    <xs:element name="FechaHasta" type="FechaValidationType" minOccurs="0" maxOccurs="1"/>
+				          	<xs:element name="TipoPago" type="TipoPagoType" minOccurs="0" maxOccurs="1" />
                     <xs:element name="TotalPaginas" type="Integer4ValidationTypeMayorUno" minOccurs="0" maxOccurs="1"/>
                   </xs:sequence>
                 </xs:complexType>
@@ -46,8 +21,8 @@
               <xs:element name="Emisor" minOccurs="1" maxOccurs="1">
                 <xs:complexType>
                   <xs:sequence>
-                    <xs:element name="RNCEmisor" type="RNCValidationType" minOccurs="1" maxOccurs="1"/>
-                    <xs:element name="RazonSocialEmisor" type="AlfNum150Type" minOccurs="1" maxOccurs="1"/>
+                    <xs:element name="RNCEmisor" type="RNCValidationType" minOccurs="1" maxOccurs="1" />
+                    <xs:element name="RazonSocialEmisor" type="AlfNum150Type" minOccurs="1" maxOccurs="1" />
                     <xs:element name="NombreComercial" type="AlfNum150Type" minOccurs="0" maxOccurs="1"/>
                     <xs:element name="Sucursal" type="AlfNum20Type" minOccurs="0" maxOccurs="1"/>
                     <xs:element name="DireccionEmisor" type="AlfNum100Type" minOccurs="1" maxOccurs="1"/>
@@ -63,112 +38,22 @@
                     <xs:element name="CorreoEmisor" type="CorreoValidationType" minOccurs="0" maxOccurs="1"/>
                     <xs:element name="WebSite" type="AlfNum50Type" minOccurs="0" maxOccurs="1"/>
                     <xs:element name="ActividadEconomica" type="AlfNum100Type" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="CodigoVendedor" type="AlfNum60Type" minOccurs="0" maxOccurs="1"/>
                     <xs:element name="NumeroFacturaInterna" type="AlfNum20Type" minOccurs="0" maxOccurs="1"/>
                     <xs:element name="NumeroPedidoInterno" type="Integer20ValidationType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="ZonaVenta" type="AlfNum20Type" minOccurs="0"  maxOccurs="1"/>
-                    <xs:element name="RutaVenta" type="AlfNum20Type" minOccurs="0"  maxOccurs="1"/>
                     <xs:element name="InformacionAdicionalEmisor" type="AlfNum250Type" minOccurs="0" maxOccurs="1"/>
                     <xs:element name="FechaEmision" type="FechaValidationType" minOccurs="1" maxOccurs="1"/>
                   </xs:sequence>
                 </xs:complexType>
               </xs:element>
-              <xs:element name="Comprador" minOccurs="1" maxOccurs="1">
-                <xs:complexType>
-                  <xs:sequence>
-                    <xs:element name="RNCComprador" type="RNCValidationType" minOccurs="1" maxOccurs="1"/>
-                    <xs:element name="RazonSocialComprador" type="AlfNum150Type" minOccurs="1" maxOccurs="1"/>
-                    <xs:element name="ContactoComprador" type="AlfNum80Type" minOccurs="0"  maxOccurs="1"/>
-                    <xs:element name="CorreoComprador" type="CorreoValidationType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="DireccionComprador" type="AlfNum100Type" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="MunicipioComprador" type="ProvinciaMunicipioType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="ProvinciaComprador" type="ProvinciaMunicipioType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="FechaEntrega" type="FechaValidationType" minOccurs="0" maxOccurs="1"/>
-				            <xs:element name="ContactoEntrega" type="AlfNum100Type" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="DireccionEntrega" type="AlfNum100Type" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TelefonoAdicional" type="TelefonoValidationType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="FechaOrdenCompra" type="FechaValidationType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="NumeroOrdenCompra" type="AlfNum20Type" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="CodigoInternoComprador" type="AlfNum20Type" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="ResponsablePago" type="Alfa20Type" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="InformacionAdicionalComprador" type="AlfNum150Type" minOccurs="0" maxOccurs="1"/>
-                  </xs:sequence>
-                </xs:complexType>
-              </xs:element>
-              <xs:element name="InformacionesAdicionales" minOccurs="0"  maxOccurs="1">
-                <xs:complexType>
-                  <xs:sequence>
-                    <xs:element name="FechaEmbarque" type="FechaValidationType" minOccurs="0"  maxOccurs="1"/>
-                    <xs:element name="NumeroEmbarque" type="AlfNum25Type" minOccurs="0"  maxOccurs="1"/>
-                    <xs:element name="NumeroContenedor" type="AlfNum100Type" minOccurs="0"  maxOccurs="1"/>
-                    <xs:element name="NumeroReferencia" type="Integer20ValidationType" minOccurs="0"  maxOccurs="1"/>
-                    <xs:element name="PesoBruto" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0"  maxOccurs="1"/>
-                    <xs:element name="PesoNeto" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0"  maxOccurs="1"/>
-                    <xs:element name="UnidadPesoBruto" type="UnidadMedidaType" minOccurs="0"  maxOccurs="1"/>
-                    <xs:element name="UnidadPesoNeto" type="UnidadMedidaType" minOccurs="0"  maxOccurs="1"/>
-                    <xs:element name="CantidadBulto" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0"  maxOccurs="1"/>
-                    <xs:element name="UnidadBulto" type="UnidadMedidaType" minOccurs="0"  maxOccurs="1"/>
-                    <xs:element name="VolumenBulto" type="Decimal18D1or2ValidationTypeMayorCero" minOccurs="0"  maxOccurs="1"/>
-                    <xs:element name="UnidadVolumen" type="UnidadMedidaType" minOccurs="0"  maxOccurs="1"/>
-                  </xs:sequence>
-                </xs:complexType>
-              </xs:element>
-              <xs:element name="Transporte" minOccurs="0" maxOccurs="1">
-                <xs:complexType>
-                  <xs:sequence>
-                    <xs:element name="Conductor" type="AlfNum20Type" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="DocumentoTransporte" type="Integer20ValidationType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="Ficha" type="AlfNum10Type" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="Placa" type="AlfNum7Type" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="RutaTransporte" type="AlfNum20Type" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="ZonaTransporte" type="AlfNum20Type" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="NumeroAlbaran" type="AlfNum20Type" minOccurs="0" maxOccurs="1"/>
-                  </xs:sequence>
-                </xs:complexType>
-              </xs:element>
               <xs:element name="Totales" minOccurs="1" maxOccurs="1">
                 <xs:complexType>
-                  <xs:sequence>
-                    <xs:element name="MontoGravadoTotal" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="MontoGravadoI1" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="MontoGravadoI2" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="MontoGravadoI3" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="MontoExento" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="ITBIS1" type="Integer2ValidationType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="ITBIS2" type="Integer2ValidationType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="ITBIS3" type="Integer2ValidationType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TotalITBIS" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TotalITBIS1" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TotalITBIS2" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TotalITBIS3" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="MontoImpuestoAdicional" type="Decimal18D1or2ValidationTypeMayorCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="ImpuestosAdicionales" minOccurs="0" maxOccurs="1">
-                      <xs:complexType>
-                        <xs:sequence>
-                          <xs:element name="ImpuestoAdicional" minOccurs="1" maxOccurs="20">
-                            <xs:complexType>
-                              <xs:sequence>
-                                <xs:element name="TipoImpuesto" type="CodificacionTipoImpuestosType" minOccurs="1" maxOccurs="1"/>
-                                <xs:element name="TasaImpuestoAdicional" type="Decimal5D1or2ValidationTypeMayorCero" minOccurs="1" maxOccurs="1"/>
-                                <xs:element name="MontoImpuestoSelectivoConsumoEspecifico" type="Decimal18D1or2ValidationTypeMayorCero" minOccurs="0" maxOccurs="1"/>
-                                <xs:element name="MontoImpuestoSelectivoConsumoAdvalorem" type="Decimal18D1or2ValidationTypeMayorCero" minOccurs="0" maxOccurs="1"/>
-                                <xs:element name="OtrosImpuestosAdicionales" type="Decimal18D1or2ValidationTypeMayorCero" minOccurs="0" maxOccurs="1"/>
-                              </xs:sequence>
-                            </xs:complexType>
-                          </xs:element>
-                        </xs:sequence>
-                      </xs:complexType>
-                    </xs:element>
-                    <xs:element name="MontoTotal" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="1" maxOccurs="1"/>
-                    <xs:element name="MontoNoFacturable" type="Decimal18D1or2ValidationTypeNegativoPositivo" minOccurs="0" maxOccurs="1"/>
+                  <xs:sequence>              
+                    <xs:element name="MontoExento" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>                               
+                    <xs:element name="MontoTotal" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="1" maxOccurs="1"/>       
                     <xs:element name="MontoPeriodo" type="Decimal18D1or2ValidationTypeNegativoPositivo" minOccurs="0" maxOccurs="1"/>
                     <xs:element name="SaldoAnterior" type="Decimal18D1or2ValidationTypeNegativoPositivo" minOccurs="0" maxOccurs="1"/>
                     <xs:element name="MontoAvancePago" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
                     <xs:element name="ValorPagar" type="Decimal18D1or2ValidationTypeNegativoPositivo" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TotalITBISRetenido" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TotalISRRetencion" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TotalITBISPercepcion" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TotalISRPercepcion" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
                   </xs:sequence>
                 </xs:complexType>
               </xs:element>
@@ -176,34 +61,8 @@
                 <xs:complexType>
                   <xs:sequence>
                     <xs:element name="TipoMoneda" type="TipoMonedaType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TipoCambio" type="Decimal7D1or4ValidationTypeMayorCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="MontoGravadoTotalOtraMoneda" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="MontoGravado1OtraMoneda" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="MontoGravado2OtraMoneda" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="MontoGravado3OtraMoneda" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="MontoExentoOtraMoneda" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TotalITBISOtraMoneda" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TotalITBIS1OtraMoneda" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TotalITBIS2OtraMoneda" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TotalITBIS3OtraMoneda" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="MontoImpuestoAdicionalOtraMoneda" type="Decimal18D1or2ValidationTypeMayorCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="ImpuestosAdicionalesOtraMoneda" minOccurs="0" maxOccurs="1">
-                      <xs:complexType>
-                        <xs:sequence>
-                          <xs:element name="ImpuestoAdicionalOtraMoneda" minOccurs="1" maxOccurs="20">
-                            <xs:complexType>
-                              <xs:sequence>
-                                <xs:element name="TipoImpuestoOtraMoneda" type="CodificacionTipoImpuestosType" minOccurs="1" maxOccurs="1"/>
-                                <xs:element name="TasaImpuestoAdicionalOtraMoneda" type="Decimal5D1or2ValidationTypeMayorCero" minOccurs="1" maxOccurs="1"/>
-                                <xs:element name="MontoImpuestoSelectivoConsumoEspecificoOtraMoneda" type="Decimal18D1or2ValidationTypeMayorCero" minOccurs="0" maxOccurs="1"/>
-                                <xs:element name="MontoImpuestoSelectivoConsumoAdvaloremOtraMoneda" type="Decimal18D1or2ValidationTypeMayorCero" minOccurs="0" maxOccurs="1"/>
-                                <xs:element name="OtrosImpuestosAdicionalesOtraMoneda" type="Decimal18D1or2ValidationTypeMayorCero" minOccurs="0" maxOccurs="1"/>
-                              </xs:sequence>
-                            </xs:complexType>
-                          </xs:element>
-                        </xs:sequence>
-                      </xs:complexType>
-                    </xs:element>
+                    <xs:element name="TipoCambio" type="Decimal7D1or4ValidationTypeMayorCero" minOccurs="0" maxOccurs="1"/>                                 
+                    <xs:element name="MontoExentoOtraMoneda" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>                                   
                     <xs:element name="MontoTotalOtraMoneda" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
                   </xs:sequence>
                 </xs:complexType>
@@ -233,86 +92,12 @@
                       </xs:complexType>
                     </xs:element>
                     <xs:element name="IndicadorFacturacion" type="IndicadorFacturacionType" minOccurs="1" maxOccurs="1"/>
-                    <xs:element name="Retencion" minOccurs="0"  maxOccurs="1">
-                      <xs:complexType>
-                        <xs:sequence>
-                          <xs:element name="IndicadorAgenteRetencionoPercepcion" type="IndicadorAgenteRetencionoPercepcionType" minOccurs="0" maxOccurs="1"/>
-                          <xs:element name="MontoITBISRetenido" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                          <xs:element name="MontoISRRetenido" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0"  maxOccurs="1"/>
-                        </xs:sequence>
-                      </xs:complexType>
-                    </xs:element>
                     <xs:element name="NombreItem" type="AlfNum80Type" minOccurs="1" maxOccurs="1"/>
                     <xs:element name="IndicadorBienoServicio" type="IndicadorBienoServicioType"  minOccurs="1" maxOccurs="1"/>
                     <xs:element name="DescripcionItem" type="AlfNum1000Type" minOccurs="0" maxOccurs="1"/>
                     <xs:element name="CantidadItem" type="Decimal18D1or2ValidationTypeMayorCero" minOccurs="1" maxOccurs="1"/>
-                    <xs:element name="UnidadMedida" type="UnidadMedidaType" minOccurs="0"  maxOccurs="1"/>
-                    <xs:element name="CantidadReferencia" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0"  maxOccurs="1"/>
-                    <xs:element name="UnidadReferencia" type="UnidadMedidaType" minOccurs="0"  maxOccurs="1"/>
-                    <xs:element name="TablaSubcantidad" minOccurs="0" maxOccurs="1">
-                      <xs:complexType>
-                        <xs:sequence>
-                          <xs:element name="SubcantidadItem" minOccurs="1" maxOccurs="5">
-                            <xs:complexType>
-                              <xs:sequence>
-                                <xs:element name="Subcantidad" type="Decimal19D1or3ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                                <xs:element name="CodigoSubcantidad" type="UnidadMedidaType" minOccurs="0" maxOccurs="1"/>
-                              </xs:sequence>
-                            </xs:complexType>
-                          </xs:element>
-                        </xs:sequence>
-                      </xs:complexType>
-                    </xs:element>
-                    <xs:element name="GradosAlcohol" type="Decimal5D1or2ValidationTypeMayorCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="PrecioUnitarioReferencia" type="Decimal18D1or2ValidationTypeMayorCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="FechaElaboracion" type="FechaValidationType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="FechaVencimientoItem" type="FechaValidationType" minOccurs="0" maxOccurs="1"/>
+                    <xs:element name="UnidadMedida" type="UnidadMedidaType" minOccurs="0"  maxOccurs="1"/>                                                           
                     <xs:element name="PrecioUnitarioItem" type="Decimal20D1or4ValidationTypeMayorIgualCero" minOccurs="1" maxOccurs="1"/>
-                    <xs:element name="DescuentoMonto" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TablaSubDescuento" minOccurs="0" maxOccurs="1">
-                      <xs:complexType>
-                        <xs:sequence>
-                          <xs:element name="SubDescuento" minOccurs="1" maxOccurs="12">
-                            <xs:complexType>
-                              <xs:sequence>
-                                <xs:element name="TipoSubDescuento" type="TipoDescuentoRecargoType" minOccurs="1" maxOccurs="1"/>
-                                <xs:element name="SubDescuentoPorcentaje" type="Decimal5D1or2ValidationTypeMayorCero" minOccurs="0" maxOccurs="1"/>
-                                <xs:element name="MontoSubDescuento" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                              </xs:sequence>
-                            </xs:complexType>
-                          </xs:element>
-                        </xs:sequence>
-                      </xs:complexType>
-                    </xs:element>
-                    <xs:element name="RecargoMonto" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TablaSubRecargo" minOccurs="0" maxOccurs="1">
-                      <xs:complexType>
-                        <xs:sequence>
-                          <xs:element name="SubRecargo" minOccurs="1" maxOccurs="12">
-                            <xs:complexType>
-                              <xs:sequence>
-                                <xs:element name="TipoSubRecargo" type="TipoDescuentoRecargoType" minOccurs="1" maxOccurs="1"/>
-                                <xs:element name="SubRecargoPorcentaje" type="Decimal5D1or2ValidationTypeMayorCero" minOccurs="0" maxOccurs="1"/>
-                                <xs:element name="MontoSubRecargo" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                              </xs:sequence>
-                            </xs:complexType>
-                          </xs:element>
-                        </xs:sequence>
-                      </xs:complexType>
-                    </xs:element>
-                    <xs:element name="TablaImpuestoAdicional" minOccurs="0" maxOccurs="1">
-                      <xs:complexType>
-                        <xs:sequence>
-                          <xs:element name="ImpuestoAdicional" minOccurs="1" maxOccurs="2">
-                            <xs:complexType>
-                              <xs:sequence>
-                                <xs:element name="TipoImpuesto" type="CodificacionTipoImpuestosType" minOccurs="1" maxOccurs="1"/>
-                              </xs:sequence>
-                            </xs:complexType>
-                          </xs:element>
-                        </xs:sequence>
-                      </xs:complexType>
-                    </xs:element>
                     <xs:element name="OtraMonedaDetalle" minOccurs="0" maxOccurs="1">
                       <xs:complexType>
                         <xs:sequence>
@@ -338,40 +123,10 @@
                   <xs:sequence>
                     <xs:element name="NumeroSubTotal" type="Integer2ValidationType" minOccurs="0" maxOccurs="1"/>
                     <xs:element name="DescripcionSubtotal" type="AlfNum40Type" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="Orden" type="Integer2ValidationType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubTotalMontoGravadoTotal" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubTotalMontoGravadoI1" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubTotalMontoGravadoI2" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubTotalMontoGravadoI3" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubTotaITBIS" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubTotaITBIS1" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubTotaITBIS2" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubTotaITBIS3" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubTotalImpuestoAdicional" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
+                    <xs:element name="Orden" type="Integer2ValidationType" minOccurs="0" maxOccurs="1"/>                                                                      
                     <xs:element name="SubTotalExento" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
                     <xs:element name="MontoSubTotal" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
                     <xs:element name="Lineas" type="Integer2ValidationType" minOccurs="0" maxOccurs="1"/>
-                  </xs:sequence>
-                </xs:complexType>
-              </xs:element>
-            </xs:sequence>
-          </xs:complexType>
-        </xs:element>
-        <xs:element name="DescuentosORecargos" minOccurs="0" maxOccurs="1">
-          <xs:complexType>
-            <xs:sequence>
-              <xs:element name="DescuentoORecargo" minOccurs="1" maxOccurs="20">
-                <xs:complexType>
-                  <xs:sequence>
-                    <xs:element name="NumeroLinea" type="Integer2ValidationType" minOccurs="1" maxOccurs="1"/>
-                    <xs:element name="TipoAjuste" type="TipoAjusteType" minOccurs="1" maxOccurs="1"/>
-                    <xs:element name="IndicadorNorma1007" type="IndicadorNorma1007Type" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="DescripcionDescuentooRecargo" type="AlfNum45Type" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="TipoValor" type="TipoDescuentoRecargoType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="ValorDescuentooRecargo" type="Decimal5D1or2ValidationTypeMayorCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="MontoDescuentooRecargo" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="MontoDescuentooRecargoOtraMoneda" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="IndicadorFacturacionDescuentooRecargo" type="IndicadorFacturacionDRType"  minOccurs="0" maxOccurs="1"/>
                   </xs:sequence>
                 </xs:complexType>
               </xs:element>
@@ -386,27 +141,9 @@
                   <xs:sequence>
                     <xs:element name="PaginaNo" type="Integer4V1To1000ValidationType" minOccurs="0" maxOccurs="1"/>
                     <xs:element name="NoLineaDesde" type="Integer4V1To1000ValidationType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="NoLineaHasta" type="Integer4V1To1000ValidationType" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubtotalMontoGravadoPagina" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubtotalMontoGravado1Pagina" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubtotalMontoGravado2Pagina" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubtotalMontoGravado3Pagina" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubtotalExentoPagina" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubtotalItbisPagina" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubtotalItbis1Pagina" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubtotalItbis2Pagina" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubtotalItbis3Pagina" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubtotalImpuestoAdicionalPagina" type="Decimal18D1or2ValidationTypeMayorCero"  minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubtotalImpuestoAdicional" minOccurs="0" maxOccurs="1">
-                      <xs:complexType>
-                        <xs:sequence>
-                          <xs:element name="SubtotalImpuestoSelectivoConsumoEspecificoPagina" type="Decimal18D1or2ValidationTypeMayorCero" minOccurs="0" maxOccurs="1"/>
-                          <xs:element name="SubtotalOtrosImpuesto" type="Decimal18D1or2ValidationTypeMayorCero" minOccurs="0" maxOccurs="1"/>
-                        </xs:sequence>
-                      </xs:complexType>
-                    </xs:element>
-                    <xs:element name="MontoSubtotalPagina" type="Decimal18D1or2ValidationTypeMayorIgualCero"  minOccurs="0" maxOccurs="1"/>
-                    <xs:element name="SubtotalMontoNoFacturablePagina" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>
+                    <xs:element name="NoLineaHasta" type="Integer4V1To1000ValidationType" minOccurs="0" maxOccurs="1"/>                 
+                    <xs:element name="SubtotalExentoPagina" type="Decimal18D1or2ValidationTypeMayorIgualCero" minOccurs="0" maxOccurs="1"/>                     
+                    <xs:element name="MontoSubtotalPagina" type="Decimal18D1or2ValidationTypeMayorIgualCero"  minOccurs="0" maxOccurs="1"/>                
                   </xs:sequence>
                 </xs:complexType>
               </xs:element>
@@ -424,7 +161,7 @@
           </xs:complexType>
         </xs:element>
         <xs:element name="FechaHoraFirma" type="DateTimeValidationType" minOccurs="1" maxOccurs="1"/>
-        <xs:any processContents="skip" minOccurs="1" maxOccurs="1"  />
+        <xs:any processContents="skip" minOccurs="1" maxOccurs="1"/>
       </xs:sequence>
     </xs:complexType>
   </xs:element>
@@ -460,36 +197,6 @@
     </xs:restriction>
   </xs:simpleType>
 
-  <xs:simpleType name="IndicadorEnvioDiferidoType">
-    <xs:restriction base="xs:integer">
-      <xs:enumeration value="1"/> <!-- Envío diferido autorizado -->
-    </xs:restriction>
-  </xs:simpleType>
-
-  <xs:simpleType name="IndicadorMontoGravadoType">
-    <xs:restriction base="xs:integer">
-      <xs:enumeration value="0"/> <!--Valor 0 si los montos en las líneas sección B “Detalle de Bienes o Servicios” no tienen ITBIS incluido.-->
-      <xs:enumeration value="1"/> <!--Valor 1 si los montos en las líneas sección B “Detalle de Bienes o Servicios” se encuentran con ITBIS incluido. -->
-    </xs:restriction>
-  </xs:simpleType>
-
-  <xs:simpleType name="IndicadorServicioTodoIncluidoType">
-    <xs:restriction base="xs:integer">
-      <xs:enumeration value="1"/> <!--Indicador Servicio Todo Incluido-->
-    </xs:restriction>
-  </xs:simpleType>
-
-    <xs:simpleType name="TipoIngresosValidationType">
-    <xs:restriction base="xs:string" >
-      <xs:enumeration value="01"/> <!-- Ingresos por operaciones (No financieros) -->
-      <xs:enumeration value="02"/> <!-- Ingresos Financieros -->
-      <xs:enumeration value="03"/> <!-- Ingresos Extraordinarios -->
-      <xs:enumeration value="04"/> <!-- Ingresos por Arrendamientos -->
-      <xs:enumeration value="05"/> <!-- Ingresos por Venta de Activo Depreciable -->
-      <xs:enumeration value="06"/> <!-- Otros Ingresos -->
-    </xs:restriction>
-  </xs:simpleType>
-
   <xs:simpleType name="TipoPagoType">
     <xs:restriction base="xs:integer">
       <xs:enumeration value="1"/>
@@ -498,47 +205,6 @@
       <!--Crédito-->
       <xs:enumeration value="3"/>
       <!--Gratuito -->
-    </xs:restriction>
-  </xs:simpleType>
-
-   <xs:simpleType name="TerminoPagoValidationType">
-    <xs:restriction base="xs:string">
-      <xs:pattern value="[\s\d\w]{1,15}" />
-    </xs:restriction>
-  </xs:simpleType>
-
-  <xs:simpleType name="FormaPagoType">
-    <xs:restriction base="xs:integer">
-      <xs:enumeration value="1"/> <!--Efectivo-->
-      <xs:enumeration value="2"/> <!--Cheque/Transferencia/Depósito-->
-      <xs:enumeration value="3"/> <!--Tarjeta de Débito/Crédito-->
-      <xs:enumeration value="4"/> <!--Venta a Crédito-->
-      <xs:enumeration value="5"/> <!--Bonos o Certificados de regalo-->
-      <xs:enumeration value="6"/> <!--Permuta-->
-      <xs:enumeration value="7"/> <!--Nota de crédito-->
-      <xs:enumeration value="8"/> <!--Otras Formas de pago-->
-    </xs:restriction>
-  </xs:simpleType>
-
-  <xs:simpleType name="TipoCuentaPagoType">
-    <xs:restriction base="xs:string">
-      <xs:enumeration value="CT"/> <!--Cta. Corriente-->
-      <xs:enumeration value="AH"/> <!--Ahorro-->
-      <xs:enumeration value="OT"/> <!--Otra -->
-    </xs:restriction>
-  </xs:simpleType>
-
-  <xs:simpleType name="NumeroCuentaPagoType">
-    <xs:restriction base="xs:string">
-      <xs:minLength value="1"/>
-      <xs:maxLength value="28"/>
-    </xs:restriction>
-  </xs:simpleType>
-
-  <xs:simpleType name="BancoPagoType">
-    <xs:restriction base="xs:string">
-      <xs:minLength value="1"/>
-      <xs:maxLength value="75"/>
     </xs:restriction>
   </xs:simpleType>
 
@@ -704,45 +370,45 @@
 
   <xs:simpleType name="UnidadMedidaType">
     <xs:restriction base="xs:integer" >
-      <xs:enumeration value= "1"/>	<!--BARR	Barril                         -->
+      <xs:enumeration value= "1"/>	<!--BARR	Barril                       -->
       <xs:enumeration value= "2"/>	<!--BOL	Bolsa                            -->
       <xs:enumeration value= "3"/>	<!--BOT	Bote                             -->
-      <xs:enumeration value= "4"/>	<!--BULTO	Bultos                         -->
+      <xs:enumeration value= "4"/>	<!--BULTO	Bultos                       -->
       <xs:enumeration value= "5"/>	<!--BOTELLA	Botella                      -->
       <xs:enumeration value= "6"/>	<!--CAJ	Caja/Cajón                       -->
       <xs:enumeration value= "7"/>	<!--CAJETILLA 	Cajetilla                -->
       <xs:enumeration value= "8"/>	<!--CM	Centímetro                       -->
       <xs:enumeration value= "9"/>	<!--CIL	Cilindro                         -->
-      <xs:enumeration value= "10"/>	<!--CONJ	Conjunto                       -->
-      <xs:enumeration value= "11"/>	<!--CONT	Contenedor                     -->
+      <xs:enumeration value= "10"/>	<!--CONJ	Conjunto                     -->
+      <xs:enumeration value= "11"/>	<!--CONT	Contenedor                   -->
       <xs:enumeration value= "12"/>	<!--DÍA	Día                              -->
       <xs:enumeration value= "13"/>	<!--DOC	Docena                           -->
-      <xs:enumeration value= "14"/>	<!--FARD	Fardo                          -->
+      <xs:enumeration value= "14"/>	<!--FARD	Fardo                        -->
       <xs:enumeration value= "15"/>	<!--GL	Galones                          -->
-      <xs:enumeration value= "16"/>	<!--GRAD	Grado                          -->
+      <xs:enumeration value= "16"/>	<!--GRAD	Grado                        -->
       <xs:enumeration value= "17"/>	<!--GR	Gramo                            -->
-      <xs:enumeration value= "18"/>	<!--GRAN	Granel                         -->
+      <xs:enumeration value= "18"/>	<!--GRAN	Granel                       -->
       <xs:enumeration value= "19"/>	<!--HOR	Hora                             -->
-      <xs:enumeration value= "20"/>	<!--HUAC	Huacal                         -->
+      <xs:enumeration value= "20"/>	<!--HUAC	Huacal                       -->
       <xs:enumeration value= "21"/>	<!--KG	Kilogramo                        -->
       <xs:enumeration value= "22"/>	<!--kWh	Kilovatio Hora                   -->
       <xs:enumeration value= "23"/>	<!--LB	Libra                            -->
-      <xs:enumeration value= "24"/>	<!--LITRO	Litro                          -->
+      <xs:enumeration value= "24"/>	<!--LITRO	Litro                        -->
       <xs:enumeration value= "25"/>	<!--LOT	Lote                             -->
-      <xs:enumeration value= "26"/>	<!--M	Metro                              -->
+      <xs:enumeration value= "26"/>	<!--M	Metro                            -->
       <xs:enumeration value= "27"/>	<!--M2	Metro Cuadrado                   -->
       <xs:enumeration value= "28"/>	<!--M3	Metro Cúbico                     -->
-      <xs:enumeration value= "29"/>	<!--MMBTU	Millones de Unidades Térmicas  -->
+      <xs:enumeration value= "29"/>	<!--MMBTU	Millones de Unidades Térmicas-->
       <xs:enumeration value= "30"/>	<!--MIN	Minuto                           -->
       <xs:enumeration value= "31"/>	<!--PAQ	Paquete                          -->
       <xs:enumeration value= "32"/>	<!--PAR	Par                              -->
       <xs:enumeration value= "33"/>	<!--PIE	Pie                              -->
       <xs:enumeration value= "34"/>	<!--PZA	Pieza                            -->
       <xs:enumeration value= "35"/>	<!--ROL	Rollo                            -->
-      <xs:enumeration value= "36"/>	<!--SOBR	Sobre                          -->
+      <xs:enumeration value= "36"/>	<!--SOBR	Sobre                        -->
       <xs:enumeration value= "37"/>	<!--SEG	Segundo                          -->
       <xs:enumeration value= "38"/>	<!--TANQUE	Tanque                       -->
-      <xs:enumeration value= "39"/>	<!--TONE	Tonelada                       -->
+      <xs:enumeration value= "39"/>	<!--TONE	Tonelada                     -->
       <xs:enumeration value= "40"/>	<!--TUB	Tubo                             -->
       <xs:enumeration value= "41"/>	<!--YD	Yarda                            -->
       <xs:enumeration value= "42"/>	<!--YD2	Yarda cuadrada                   -->
@@ -1468,7 +1134,7 @@
 
   <xs:simpleType name="Decimal18D4ValidationType">
     <xs:restriction base="xs:decimal">
-      <xs:pattern value='[0-9]{0,16}(\.[0-9]{0,4})?'/>
+      <xs:pattern value="[0-9]{0,16}(\.[0-9]{0,4})?"/>
       <xs:totalDigits value="18"></xs:totalDigits>
       <xs:fractionDigits value="2"></xs:fractionDigits>
     </xs:restriction>
@@ -1491,18 +1157,6 @@
   </xs:simpleType>
   <!--=================================================================-->
 
-  <!-- Alfa -->
-  <xs:simpleType name="Alfa20Type">
-    <xs:restriction base="xs:string" >
-      <xs:maxLength value="20"/>
-      <xs:pattern value="[a-zA-ZñÑáéíóúÁÉÍÓÚ,\s]*"/>
-    </xs:restriction>
-  </xs:simpleType>
-  <!--=================================================================-->
-  
-  
-  
-  
   <!-- Alfa Numeric-->
   <xs:simpleType name="AlfNum1ValidationType">
     <xs:restriction base="xs:string">
@@ -1552,7 +1206,7 @@
       <xs:maxLength value="7"/>
     </xs:restriction>
   </xs:simpleType>
-  
+
   <xs:simpleType name="AlfNum8ValidationType">
     <xs:restriction base="xs:string">
       <xs:minLength value="1"/>
@@ -1638,13 +1292,6 @@
     </xs:restriction>
   </xs:simpleType>
 
-  <xs:simpleType name="AlfNum60Type">
-    <xs:restriction base="xs:string">
-      <xs:minLength value="1"/>
-      <xs:maxLength value="60"/>
-    </xs:restriction>
-  </xs:simpleType>
-
   <xs:simpleType name="AlfNum70ValidationType">
     <xs:restriction base="xs:string">
       <xs:minLength value="1"/>
@@ -1695,3 +1342,4 @@
   </xs:simpleType>
   <!--============================================================-->
 </xs:schema>
+

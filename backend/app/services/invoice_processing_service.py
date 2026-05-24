@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.config import SUPABASE_URL
 from app.repositories import InvoiceRepository
-from app.models import Invoice
+from app.models import Invoice, Organization
 from app.core.redis import invalidate_cache_pattern
 
 logger = logging.getLogger(__name__)
@@ -70,6 +70,11 @@ class InvoiceProcessingService:
         invoice.description = extracted_data.get("description")
         invoice.confidence_score = extracted_data.get("confidence")
         invoice.goods_services_type = extracted_data.get("goods_services_type")
+        invoice.rnc_comprador = extracted_data.get("rnc_comprador")
+        invoice.is_electronic = extracted_data.get("is_electronic", False)
+        invoice.ingestion_source = extracted_data.get("ingestion_source")
+        if extracted_data.get("status"):
+            invoice.status = extracted_data["status"]
 
         invoice.vendor_country = extracted_data.get("vendor_country")
         invoice.vendor_tax_id = extracted_data.get("vendor_tax_id")
@@ -82,7 +87,16 @@ class InvoiceProcessingService:
 
         qa_warnings = extracted_data.get("quality_warnings")
         if qa_warnings and isinstance(qa_warnings, list):
-            invoice.quality_report = json.dumps({"pipeline_warnings": qa_warnings})
+            report = {"pipeline_warnings": qa_warnings}
+        else:
+            report = {}
+
+        cat_source = extracted_data.get("category_source")
+        if cat_source:
+            report["category_source"] = cat_source
+
+        if report:
+            invoice.quality_report = json.dumps(report, ensure_ascii=False)
 
         duplicate_ncf = None
         duplicate_vendor = None
@@ -170,6 +184,10 @@ class InvoiceProcessingService:
                 return {"status": "error", "error": "No se pudo descargar el archivo del storage"}
             cleanup_path = local_path
 
+        # Look up org RNC for direction resolution
+        org = db.query(Organization).filter(Organization.id == org_id).first()
+        org_rnc = org.tax_id if org else None
+
         try:
             success, extracted_data, source_type = await run_in_threadpool(
                 self.orchestrator.process,
@@ -178,6 +196,7 @@ class InvoiceProcessingService:
                 invoice,
                 db,
                 str(user_id) if user_id else None,
+                org_rnc,
             )
         finally:
             if cleanup_path and os.path.exists(cleanup_path):
@@ -199,6 +218,31 @@ class InvoiceProcessingService:
         
         if extracted_data.get("ecf_type"):
             invoice.ecf_type = extracted_data["ecf_type"]
+        
+        # Hybrid ingestion layer: set pipeline metadata
+        is_ecf = bool(extracted_data.get("ecf_type")) or source_type == "xml"
+        invoice.is_electronic = is_ecf
+        invoice.status = "verified" if is_ecf else "draft"
+        if not invoice.ingestion_source:
+            invoice.ingestion_source = "manual_entry"
+
+        # Auto-link credit/debit notes to their original invoice via NCFModificado
+        ecf_type = extracted_data.get("ecf_type")
+        if ecf_type in ("33", "34"):
+            modified_ncf = extracted_data.get("ncf_modified")
+            if modified_ncf:
+                original = (
+                    db.query(Invoice)
+                    .filter(
+                        Invoice.tenant_id == tenant_id,
+                        Invoice.organization_id == org_id,
+                        Invoice.invoice_number == modified_ncf,
+                        Invoice.deleted_at.is_(None),
+                    )
+                    .first()
+                )
+                if original:
+                    invoice.parent_invoice_id = original.id
 
         db.commit()
         db.refresh(invoice)

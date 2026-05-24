@@ -74,7 +74,7 @@ class PostExtractionValidator:
         ncf = data.get("invoice_number")
         transaction_type = data.get("transaction_type")
         if ncf and transaction_type:
-            ncf_warning = self._check_ncf_type(ncf, transaction_type)
+            ncf_warning = self._check_ncf_type(ncf, transaction_type, data)
             if ncf_warning:
                 warnings.append(ncf_warning)
 
@@ -123,16 +123,27 @@ class PostExtractionValidator:
             return f"La cédula {tax_id} no pasó la validación de dígito verificador (Luhn). Verifica que esté correcta."
         return None
 
-    def _check_ncf_type(self, ncf: str, transaction_type: str) -> Optional[str]:
-        """Cross-check NCF prefix letter against transaction_type."""
+    def _check_ncf_type(self, ncf: str, transaction_type: str, data: Optional[Dict[str, Any]] = None) -> Optional[str]:
+        """Cross-check NCF prefix letter against transaction_type.
+        
+        For e-CF NCFs (E prefix + ecf_type present), the E means "Electronic"
+        not "Income" — skip the traditional prefix check.
+        """
         prefix = ncf[0].upper() if ncf else None
+        if not prefix:
+            return None
+        # e-CF NCFs use E prefix for "Electronic" — skip the income/expense mapping
+        if prefix == "E" and data and data.get("ecf_type"):
+            return None
         if prefix not in NCF_PREFIX_MAP:
             return None
         expected_type = NCF_PREFIX_MAP[prefix]
         if expected_type != transaction_type:
+            label = "ingreso" if expected_type == "income" else "gasto"
+            actual_label = "ingreso" if transaction_type == "income" else "gasto"
             return (
-                f"El NCF \"{ncf}\" (prefijo {prefix}) corresponde a {expected_type}, "
-                f"pero el tipo de transacción es {transaction_type}. "
+                f"El NCF \"{ncf}\" (prefijo {prefix}) corresponde a {label}, "
+                f"pero el tipo de transacción es {actual_label}. "
                 "Verifica el tipo de comprobante."
             )
         return None

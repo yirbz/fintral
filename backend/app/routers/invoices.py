@@ -7,18 +7,20 @@ from typing import Any, Optional
 
 from app.services.audit_logger import record
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 import io
 from sqlalchemy import desc
 
-from app.models import DgiiSubmission, Invoice, InvoiceDgiiStatus
+from app.models import DgiiSubmission, Invoice, InvoiceDgiiStatus, TenantVendorRule
 
 from app.config import SUPABASE_URL
 from app.core.container import export_service, openai_processor, webhook_sender
 from app.dependencies.tenant import TenantContext, require_tenant
 from app.repositories import InvoiceRepository
-from app.schemas import BulkActionRequest, CancelInvoiceRequest, ExportRequest, ManualInvoiceCreate, WebhookPushRequest
+from app.schemas import BulkActionRequest, CancelInvoiceRequest, CreditNoteCreate, ExportRequest, ManualInvoiceCreate, WebhookPushRequest
 from app.services import InvoiceProcessingService
+from app.services.pipeline.categorizer import DGII_CATEGORY_LABELS
 from app.services.pipeline.image_preprocessor import image_preprocessor
 from app.services.supabase_storage import (
     INVOICES_PREFIX,
@@ -201,7 +203,7 @@ def _build_invoice_dgii_status(
         return {
             "format": fmt,
             "status": "confirmed_ncf",
-            "label": "Confirmada DGII",
+            "label": "Reportado a DGII",
             "tone": "indigo",
             "locked": True,
         }
@@ -558,6 +560,19 @@ async def get_invoices(
     }
 
 
+@router.get("/invoices/pending-count")
+async def pending_invoice_count(
+    ctx: TenantContext = Depends(require_tenant),
+):
+    count = ctx.db.query(Invoice).filter(
+        Invoice.tenant_id == ctx.tenant_id,
+        Invoice.organization_id == ctx.org_id,
+        Invoice.processed.is_(False),
+        Invoice.deleted_at.is_(None),
+    ).count()
+    return {"count": count}
+
+
 @router.get("/invoices/trash")
 async def list_trashed_invoices(
     skip: int = 0,
@@ -612,6 +627,21 @@ async def get_optimized_image(
     return {"optimized_image": optimized_data}
 
 
+FISCAL_CORE_FIELDS = frozenset({
+    "vendor_name", "invoice_number", "invoice_date",
+    "total_amount", "tax_amount", "currency",
+    "transaction_type", "vendor_country", "vendor_tax_id",
+    "vendor_fiscal_address", "goods_services_type",
+    "rnc_comprador", "ecf_type",
+})
+
+OPERATIONAL_METADATA_FIELDS = frozenset({
+    "category", "description",
+    "accounting_account_id", "cost_center_id",
+    "tags", "internal_notes", "payment_status",
+})
+
+
 @router.put("/invoices/{invoice_id}")
 async def update_invoice(
     invoice_id: str,
@@ -622,31 +652,42 @@ async def update_invoice(
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
+    is_locked = invoice.is_electronic or invoice.status == "verified"
+
+    # Dual-pipeline guard: reject fiscal-core changes on locked invoices
+    attempted_fiscal = FISCAL_CORE_FIELDS & invoice_data.keys()
+    if is_locked and attempted_fiscal:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Esta factura electrónica ya está verificada y no se pueden modificar "
+                "sus datos fiscales ({}). "
+                "Si necesitas ajustar el monto, crea una Nota de Crédito vinculada."
+            ).format(", ".join(sorted(attempted_fiscal))),
+        )
+
     before = _invoice_snapshot(invoice)
 
-    updateable_fields = [
-        "vendor_name",
-        "invoice_number",
-        "total_amount",
-        "tax_amount",
-        "currency",
-        "transaction_type",
-        "category",
-        "description",
-        "vendor_country",
-        "vendor_tax_id",
-        "vendor_fiscal_address",
-        "goods_services_type",
-    ]
-    for field in updateable_fields:
+    if is_locked:
+        # Only operational metadata is mutable for locked invoices
+        mutable = OPERATIONAL_METADATA_FIELDS
+    else:
+        # Draft physical invoices allow full editing
+        mutable = FISCAL_CORE_FIELDS | OPERATIONAL_METADATA_FIELDS
+
+    for field in mutable:
         if field in invoice_data:
             setattr(invoice, field, invoice_data[field])
 
-    if "invoice_date" in invoice_data:
+    if "invoice_date" in invoice_data and not is_locked:
         try:
             invoice.invoice_date = datetime.strptime(invoice_data["invoice_date"], "%Y-%m-%d")
         except Exception:  # noqa: BLE001
             pass
+
+    # Parse tags JSON string if provided
+    if "tags" in invoice_data and isinstance(invoice_data["tags"], list):
+        invoice.tags = json.dumps(invoice_data["tags"], ensure_ascii=False)
 
     invoice.updated_at = datetime.utcnow()
     ctx.db.commit()
@@ -673,6 +714,106 @@ async def update_invoice(
     )
 
     return invoice.to_dict()
+
+
+@router.post("/invoices/{invoice_id}/verify")
+async def verify_invoice(
+    invoice_id: str,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """Lock a draft physical NCF invoice by setting status to verified."""
+    invoice = invoice_repo.get(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+    if invoice.is_electronic:
+        raise HTTPException(status_code=400, detail="Las facturas electrónicas se verifican automáticamente al procesarse")
+    if invoice.status == "verified":
+        return {"message": "La factura ya estaba verificada", "invoice": invoice.to_dict()}
+
+    before = _invoice_snapshot(invoice)
+    invoice.status = "verified"
+    invoice.processed = True
+    invoice.updated_at = datetime.utcnow()
+    ctx.db.commit()
+    ctx.db.refresh(invoice)
+
+    record(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_email=ctx.user.email,
+        action="invoice.verified",
+        resource_type="invoice",
+        resource_id=str(invoice_id),
+        summary=f"Factura '{invoice.invoice_number}' verificada",
+        details="Factura física bloqueada para reportes fiscales",
+        snapshot_before=before,
+        snapshot_after=_invoice_snapshot(invoice),
+    )
+
+    return {"message": "Factura verificada exitosamente", "invoice": invoice.to_dict()}
+
+
+@router.post("/invoices/{invoice_id}/credit-note")
+async def create_credit_note(
+    invoice_id: str,
+    payload: CreditNoteCreate,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """Create a credit/debit note linked to a verified or electronic invoice."""
+    original = invoice_repo.get(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
+    if not original:
+        raise HTTPException(status_code=404, detail="Factura original no encontrada")
+
+    credit = Invoice(
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        filename=f"credit_note_{original.invoice_number}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+        file_type="manual",
+        vendor_name=original.vendor_name,
+        invoice_number=f"NC-{original.invoice_number}",
+        invoice_date=datetime.now(),
+        total_amount=payload.total_amount,
+        tax_amount=payload.tax_amount,
+        currency=original.currency,
+        transaction_type="expense" if original.transaction_type == "income" else "income",
+        category=original.category,
+        description=payload.description or f"Nota de Crédito — {original.invoice_number}",
+        vendor_tax_id=original.vendor_tax_id,
+        vendor_country=original.vendor_country,
+        line_items_data=json.dumps(payload.line_items, ensure_ascii=False) if payload.line_items else None,
+        source_type="manual",
+        is_electronic=False,
+        status="verified",
+        parent_invoice_id=original.id,
+        processed=True,
+        confidence_score=1.0,
+        goods_services_type=original.goods_services_type,
+    )
+    invoice_repo.create(ctx.db, credit)
+    ctx.db.flush()
+
+    record(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_email=ctx.user.email,
+        action="credit_note.created",
+        resource_type="invoice",
+        resource_id=str(credit.id),
+        summary=f"Nota de Crédito creada para factura '{original.invoice_number}'",
+        details=f"Monto: {payload.total_amount} {original.currency}. Motivo: {payload.motivo or 'N/A'}",
+        snapshot_before=None,
+        snapshot_after=_invoice_snapshot(credit),
+    )
+
+    return {"message": "Nota de Crédito creada exitosamente", "invoice": credit.to_dict()}
 
 
 @router.post("/invoices")
@@ -1417,6 +1558,118 @@ async def export_invoices_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Vendor Categorization Rules (Feedback Loop)
+# ---------------------------------------------------------------------------
+
+class VendorRulePayload(BaseModel):
+    emisor_rnc: str
+    dgii_category_code: str
+    vendor_name: Optional[str] = None
+
+
+@router.get("/api/vendor-rules")
+async def list_vendor_rules(
+    ctx: TenantContext = Depends(require_tenant),
+):
+    rules = (
+        ctx.db.query(TenantVendorRule)
+        .filter(TenantVendorRule.tenant_id == ctx.tenant_id)
+        .order_by(TenantVendorRule.updated_at.desc())
+        .all()
+    )
+    return {
+        "rules": [
+            {
+                "id": str(r.id),
+                "emisor_rnc": r.emisor_rnc,
+                "dgii_category_code": r.dgii_category_code,
+                "category_label": DGII_CATEGORY_LABELS.get(r.dgii_category_code, ""),
+                "source": r.source,
+                "vendor_name": r.vendor_name,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+            for r in rules
+        ]
+    }
+
+
+@router.post("/api/vendor-rules")
+async def upsert_vendor_rule(
+    payload: VendorRulePayload,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    if payload.dgii_category_code not in DGII_CATEGORY_LABELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Código de categoría inválido: {payload.dgii_category_code}. "
+                   f"Valores válidos: {', '.join(sorted(DGII_CATEGORY_LABELS))}",
+        )
+
+    from re import sub as _sub
+    clean_rnc = _sub(r"[^0-9]", "", payload.emisor_rnc)
+
+    existing = (
+        ctx.db.query(TenantVendorRule)
+        .filter(
+            TenantVendorRule.tenant_id == ctx.tenant_id,
+            TenantVendorRule.emisor_rnc == clean_rnc,
+        )
+        .first()
+    )
+
+    if existing:
+        existing.dgii_category_code = payload.dgii_category_code
+        existing.source = "accountant_override"
+        if payload.vendor_name:
+            existing.vendor_name = payload.vendor_name
+        existing.updated_at = datetime.utcnow()
+    else:
+        existing = TenantVendorRule(
+            tenant_id=ctx.tenant_id,
+            emisor_rnc=clean_rnc,
+            dgii_category_code=payload.dgii_category_code,
+            source="accountant_override",
+            vendor_name=payload.vendor_name,
+        )
+        ctx.db.add(existing)
+
+    ctx.db.commit()
+    ctx.db.refresh(existing)
+    return {"message": "Regla guardada exitosamente", "rule_id": str(existing.id)}
+
+
+@router.delete("/api/vendor-rules/{rule_id}")
+async def delete_vendor_rule(
+    rule_id: str,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    rule = (
+        ctx.db.query(TenantVendorRule)
+        .filter(
+            TenantVendorRule.id == rule_id,
+            TenantVendorRule.tenant_id == ctx.tenant_id,
+        )
+        .first()
+    )
+    if not rule:
+        raise HTTPException(status_code=404, detail="Regla no encontrada")
+    ctx.db.delete(rule)
+    ctx.db.commit()
+    return {"message": "Regla eliminada"}
+
+
+@router.get("/api/dgii-categories")
+async def list_dgii_categories():
+    return {
+        "categories": [
+            {"code": k, "label": v}
+            for k, v in sorted(DGII_CATEGORY_LABELS.items())
+        ]
+    }
 
 
 @router.get("/invoices/template")

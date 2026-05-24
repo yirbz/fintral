@@ -52,10 +52,28 @@ def init_database() -> None:
             logger.info("Already at head revision — skipping alembic upgrade")
             return
 
+        db_rev_exists = row in [r.revision for r in script.walk_revisions()]
+        if not db_rev_exists and has_data_tables:
+            base_rev = script.get_base()
+            logger.warning("Current alembic_version=%s not found in migration scripts — "
+                           "likely the initial migration was regenerated. "
+                           "Stamping to base (%s) via SQL, then running pending migrations.",
+                           row, base_rev)
+            with engine.connect() as conn:
+                conn.execute(text("UPDATE alembic_version SET version_num = :base"), {"base": base_rev})
+                conn.commit()
+            logger.info("Updated alembic_version from %s to %s", row, base_rev)
+            # Fall through to run pending migrations below
+
         t1 = time.time()
         logger.info("Running pending migrations from %s to %s ...", row, head_rev)
-        command.upgrade(alembic_cfg, "head")
-        logger.info("Alembic migrations applied (%.2fs)", time.time() - t1)
+        try:
+            command.upgrade(alembic_cfg, "head")
+            logger.info("Alembic migrations applied (%.2fs)", time.time() - t1)
+        except Exception as e:
+            logger.error("Alembic upgrade failed (%s) after %.2fs: %s",
+                         type(e).__name__, time.time() - t1, e)
+            raise
         return
 
     if has_data_tables:
@@ -203,7 +221,11 @@ async def run_startup(db: Session) -> None:
 
     logger.info("")
     logger.info("--- Phase 1/4: Database ---")
-    init_database()
+    try:
+        init_database()
+    except Exception as exc:
+        logger.error("Database initialization failed: %s", exc)
+        raise
 
     logger.info("")
     logger.info("--- Phase 2/4: Trash Cleanup ---")
