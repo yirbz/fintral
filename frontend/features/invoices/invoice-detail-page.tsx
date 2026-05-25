@@ -26,6 +26,108 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DgiiSelect } from "@/components/dgii-select";
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { toast } from "sonner";
+import { Building2, Globe, Landmark, MinusCircle, PlusCircle, Receipt, ShoppingBag, UserCheck, Calendar as LucideCalendar } from "lucide-react";
+
+interface FiscalImpactInfo {
+  title: string;
+  isr: { status: "apto" | "no_apto" | "retencion"; desc: string };
+  itbis: { status: "apto" | "no_apto" | "exento" | "costo"; desc: string };
+  retention: string | null;
+  desc: string;
+  icon: React.ElementType;
+}
+
+const FISCAL_IMPACT_MAP: Record<string, FiscalImpactInfo> = {
+  "31": {
+    title: "Crédito Fiscal (B01/E31)",
+    isr: { status: "apto", desc: "Apto para deducir costos/gastos en el ISR." },
+    itbis: { status: "apto", desc: "Adelanta 100% del ITBIS facturado como crédito fiscal." },
+    retention: null,
+    desc: "Factura comercial para transacciones entre contribuyentes registrados en la DGII.",
+    icon: FileText,
+  },
+  "32": {
+    title: "Consumo (B02/E32)",
+    isr: { status: "no_apto", desc: "No deducible para el Impuesto Sobre la Renta (ISR)." },
+    itbis: { status: "no_apto", desc: "No deducible. El ITBIS pagado no genera crédito fiscal." },
+    retention: null,
+    desc: "Destinado a consumidores finales. Nota: Para transacciones de RD$250,000 o más, es obligatorio registrar la cédula/pasaporte del comprador.",
+    icon: ShoppingBag,
+  },
+  "33": {
+    title: "Nota de Débito (B03/E33)",
+    isr: { status: "apto", desc: "Aumenta el costo o gasto originalmente reportado." },
+    itbis: { status: "apto", desc: "Aumenta el ITBIS originalmente adelantado." },
+    retention: null,
+    desc: "Utilizado por el emisor para recuperar costos adicionales o recargos posteriores. Requiere NCF Modificado.",
+    icon: PlusCircle,
+  },
+  "34": {
+    title: "Nota de Crédito (B04/E34)",
+    isr: { status: "apto", desc: "Disminuye el costo o gasto originalmente reportado." },
+    itbis: { status: "apto", desc: "Disminuye el ITBIS originalmente adelantado." },
+    retention: null,
+    desc: "Aplicado para anulaciones, devoluciones o descuentos concedidos. Requiere NCF Modificado.",
+    icon: MinusCircle,
+  },
+  "41": {
+    title: "Comprobante de Compras (B11/E41)",
+    isr: { status: "apto", desc: "Deducible de ISR (autoemitido por el adquirente)." },
+    itbis: { status: "exento", desc: "Sujeto a retención del 100% del ITBIS." },
+    retention: "Requiere retención obligatoria del 100% del ITBIS facturado y del ISR (2% para bienes, 10% para servicios).",
+    desc: "Comprobante emitido por el comprador para registrar transacciones con personas físicas no registradas como contribuyentes (informales).",
+    icon: UserCheck,
+  },
+  "42": {
+    title: "Registro Único de Ingresos (B12/E42)",
+    isr: { status: "apto", desc: "Deduce costos consolidados (RUI)." },
+    itbis: { status: "exento", desc: "No genera crédito de ITBIS (operaciones exentas)." },
+    retention: null,
+    desc: "Documento para consolidar transacciones diarias exentas de ITBIS realizadas a consumidores finales.",
+    icon: LucideCalendar,
+  },
+  "43": {
+    title: "Gastos Menores (B13/E43)",
+    isr: { status: "apto", desc: "Deducible como gasto operativo en el ISR." },
+    itbis: { status: "costo", desc: "El ITBIS pagado se lleva directamente al costo (no se adelanta)." },
+    retention: null,
+    desc: "Emitido para sustentar gastos menores incurridos por empleados de la empresa (caja chica, peajes, dietas).",
+    icon: Receipt,
+  },
+  "44": {
+    title: "Regímenes Especiales (B14/E44)",
+    isr: { status: "apto", desc: "Deducible de ISR." },
+    itbis: { status: "exento", desc: "Exento de ITBIS (tasa 0% por ley especial)." },
+    retention: null,
+    desc: "Para ventas a clientes amparados por regímenes de exención fiscal (Zonas Francas, turismo). Requiere número de carnet de exención.",
+    icon: Sparkles,
+  },
+  "45": {
+    title: "Gubernamental (B15/E45)",
+    isr: { status: "apto", desc: "Deducible de ISR." },
+    itbis: { status: "apto", desc: "Sujeto a retención del 5% del ISR por parte del Estado." },
+    retention: "Sujeto a retención del 5% del ISR al momento de recibir el pago de la institución pública.",
+    desc: "Emitido para facturar ventas realizadas al Estado Dominicano e instituciones públicas.",
+    icon: Building2,
+  },
+  "46": {
+    title: "Exportaciones (B16/E46)",
+    isr: { status: "apto", desc: "Deducible. Tasa cero." },
+    itbis: { status: "exento", desc: "ITBIS Tasa 0% (exento)." },
+    retention: null,
+    desc: "Emitido para facturar mercancías vendidas a clientes fuera de la República Dominicana.",
+    icon: Globe,
+  },
+  "47": {
+    title: "Pagos al Exterior (B17/E47)",
+    isr: { status: "retencion", desc: "Deducible de ISR tras efectuar retención obligatoria." },
+    itbis: { status: "no_apto", desc: "No aplica ITBIS." },
+    retention: "Sujeto a retención obligatoria de ISR (tasa del 27% o similar según la naturaleza de la renta).",
+    desc: "Comprobante autoemitido por la empresa para registrar gastos por servicios o rentas de proveedores no residentes. El emisor es el RNC del contribuyente.",
+    icon: Landmark,
+  },
+};
+
 
 const DGII_CATEGORIES: { code: string; label: string }[] = [
   { code: "01", label: "01 Gastos de Personal" },
@@ -149,6 +251,11 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
     }
   }, [query.data?.audit_flags]);
 
+  const hasUnsavedChanges = useMemo(() => {
+    if (!query.data || !editable.vendor_name) return false;
+    return JSON.stringify(editable) !== JSON.stringify(query.data);
+  }, [editable, query.data]);
+
   if (query.isLoading || !query.data) {
     return (
       <div className="flex flex-col gap-4">
@@ -207,10 +314,9 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
     );
   }
 
-  const invoice = query.data;
+  const invoice = query.data!;
   const isTrashed = !!invoice.deleted_at;
   const isLocked = invoice.is_electronic || invoice.status === "verified";
-  const hasUnsavedChanges = JSON.stringify(editable) !== JSON.stringify(invoice);
   const discardChanges = () => setEditable({ ...invoice });
   const amount = new Intl.NumberFormat("es-DO", {
     style: "currency",
@@ -218,7 +324,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   }).format(editable.total_amount ?? invoice.total_amount ?? 0);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 px-4 lg:px-6 pb-10 w-full max-w-7xl mx-auto">
       <Card>
         <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
@@ -328,17 +434,38 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
       ) : null}
 
       {flags.length > 0 ? (
-        <Card className="border-amber-200 bg-amber-50">
-          <CardContent className="pt-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Observaciones de auditoría</p>
-            <ul className="mt-2 list-disc flex flex-col gap-1 pl-5 text-xs text-amber-900">
-              {flags.map((flag) => (
-                <li key={flag}>{flag}</li>
-              ))}
-            </ul>
+        <Card className="border-amber-500/20 bg-amber-500/[0.04] dark:bg-amber-500/[0.02]">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-2 mb-2 text-amber-800 dark:text-amber-400 font-semibold text-[11px] uppercase tracking-wider">
+              <span className="flex h-2 w-2 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+              </span>
+              Alertas del Auditor Fiscal (DGII)
+            </div>
+            <div className="grid gap-2">
+              {flags.map((flag, idx) => {
+                const isCritical = flag.includes("RNC") || flag.includes("retención") || flag.includes("inválido") || flag.includes("debe coincidir");
+                return (
+                  <div key={idx} className={`flex items-start gap-2.5 p-2.5 rounded-lg border text-xs leading-relaxed transition-all hover:translate-x-0.5 ${
+                    isCritical 
+                      ? "border-destructive/20 bg-destructive/5 text-destructive dark:text-red-400"
+                      : "border-amber-500/10 bg-amber-500/[0.02] text-amber-950 dark:text-amber-300"
+                  }`}>
+                    {isCritical ? (
+                      <Ban className="size-4 text-destructive shrink-0 mt-0.5" />
+                    ) : (
+                      <Sparkles className="size-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                    )}
+                    <span className="text-[11px] leading-relaxed">{flag}</span>
+                  </div>
+                );
+              })}
+            </div>
           </CardContent>
         </Card>
       ) : null}
+
 
       {isLocked ? (
         <Card className="border-primary/20 bg-primary/[0.03]">
@@ -500,16 +627,34 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                 />
               </Field>
               <Field
-                label="Tipo e-CF"
+                label="Tipo Comprobante (e-CF / NCF)"
                 locked={isLocked}
               >
-                <Input
-                  value={editable.ecf_type ?? ""}
-                  onChange={(event) => setEditable((prev) => ({ ...prev, ecf_type: event.target.value }))}
+                <Select
+                  value={editable.ecf_type || "none"}
+                  onValueChange={(val) => setEditable((prev) => ({ ...prev, ecf_type: val === "none" ? "" : val }))}
                   disabled={isTrashed || isLocked}
-                  className={isLocked ? "bg-muted/40 cursor-not-allowed opacity-70" : ""}
-                />
+                >
+                  <SelectTrigger className={isLocked ? "bg-muted/40 cursor-not-allowed opacity-70" : ""}>
+                    <SelectValue placeholder="Selecciona tipo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Ninguno (No dominicano)</SelectItem>
+                    <SelectItem value="31">Crédito Fiscal (B01/E31)</SelectItem>
+                    <SelectItem value="32">Consumo (B02/E32)</SelectItem>
+                    <SelectItem value="33">Nota de Débito (B03/E33)</SelectItem>
+                    <SelectItem value="34">Nota de Crédito (B04/E34)</SelectItem>
+                    <SelectItem value="41">Compras (B11/E41)</SelectItem>
+                    <SelectItem value="42">Registro Único de Ingresos (B12/E42)</SelectItem>
+                    <SelectItem value="43">Gastos Menores (B13/E43)</SelectItem>
+                    <SelectItem value="44">Regímenes Especiales (B14/E44)</SelectItem>
+                    <SelectItem value="45">Gubernamental (B15/E45)</SelectItem>
+                    <SelectItem value="46">Exportación (B16/E46)</SelectItem>
+                    <SelectItem value="47">Pago al Exterior (B17/E47)</SelectItem>
+                  </SelectContent>
+                </Select>
               </Field>
+
               <Field
                 label="Tipo bienes (DGII 606)"
                 locked={isLocked}
@@ -531,6 +676,99 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
               </Field>
             </CardContent>
           </Card>
+
+          {/* ── Card de Impacto Fiscal ── */}
+          {(() => {
+            const selectedEcf = editable.ecf_type;
+            const impact = selectedEcf ? FISCAL_IMPACT_MAP[selectedEcf] : null;
+            if (!impact) return null;
+            const ImpactIcon = impact.icon;
+            return (
+              <Card className="border-indigo-500/10 bg-indigo-500/[0.02] dark:bg-indigo-500/[0.01]">
+                <CardHeader className="flex flex-row items-center gap-3 pb-3">
+                  <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                    <ImpactIcon className="size-5" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-xs font-semibold text-foreground">
+                      Impacto Fiscal: {impact.title}
+                    </CardTitle>
+                    <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">
+                      {impact.desc}
+                    </p>
+                  </div>
+                </CardHeader>
+                <CardContent className="grid gap-3 md:grid-cols-3 pt-0 text-xs">
+                  {/* ISR Deductibility */}
+                  <div className={`p-3 rounded-lg border flex flex-col gap-1 ${
+                    impact.isr.status === "apto"
+                      ? "border-emerald-500/20 bg-emerald-500/[0.02] text-emerald-950 dark:text-emerald-300"
+                      : impact.isr.status === "retencion"
+                      ? "border-amber-500/20 bg-amber-500/[0.02] text-amber-950 dark:text-amber-300"
+                      : "border-red-500/20 bg-red-500/[0.02] text-red-950 dark:text-red-300"
+                  }`}>
+                    <div className="flex items-center gap-1.5 font-semibold text-[11px] text-foreground">
+                      <span className={`w-2.5 h-2.5 rounded-full flex items-center justify-center shrink-0 ${
+                        impact.isr.status === "apto"
+                          ? "bg-emerald-500"
+                          : impact.isr.status === "retencion"
+                          ? "bg-amber-500"
+                          : "bg-red-500"
+                      }`} />
+                      Deducible ISR
+                    </div>
+                    <p className="text-[10px] text-muted-foreground leading-normal mt-0.5">
+                      {impact.isr.desc}
+                    </p>
+                  </div>
+
+                  {/* ITBIS Credit */}
+                  <div className={`p-3 rounded-lg border flex flex-col gap-1 ${
+                    impact.itbis.status === "apto"
+                      ? "border-emerald-500/20 bg-emerald-500/[0.02] text-emerald-950 dark:text-emerald-300"
+                      : impact.itbis.status === "costo"
+                      ? "border-blue-500/20 bg-blue-500/[0.02] text-blue-950 dark:text-blue-300"
+                      : impact.itbis.status === "exento"
+                      ? "border-orange-500/20 bg-orange-500/[0.02] text-orange-950 dark:text-orange-300"
+                      : "border-red-500/20 bg-red-500/[0.02] text-red-950 dark:text-red-300"
+                  }`}>
+                    <div className="flex items-center gap-1.5 font-semibold text-[11px] text-foreground">
+                      <span className={`w-2.5 h-2.5 rounded-full flex items-center justify-center shrink-0 ${
+                        impact.itbis.status === "apto"
+                          ? "bg-emerald-500"
+                          : impact.itbis.status === "costo"
+                          ? "bg-blue-500"
+                          : impact.itbis.status === "exento"
+                          ? "bg-orange-500"
+                          : "bg-red-500"
+                      }`} />
+                      Crédito ITBIS
+                    </div>
+                    <p className="text-[10px] text-muted-foreground leading-normal mt-0.5">
+                      {impact.itbis.desc}
+                    </p>
+                  </div>
+
+                  {/* Retenciones */}
+                  <div className={`p-3 rounded-lg border flex flex-col gap-1 ${
+                    impact.retention
+                      ? "border-amber-500/30 bg-amber-500/[0.04] text-amber-950 dark:text-amber-300"
+                      : "border-border bg-muted/20 text-muted-foreground"
+                  }`}>
+                    <div className="flex items-center gap-1.5 font-semibold text-[11px] text-foreground">
+                      <span className={`w-2.5 h-2.5 rounded-full flex items-center justify-center shrink-0 ${
+                        impact.retention ? "bg-amber-500" : "bg-muted-foreground/30"
+                      }`} />
+                      Retenciones
+                    </div>
+                    <p className="text-[10px] text-muted-foreground leading-normal mt-0.5">
+                      {impact.retention || "No requiere retención de ITBIS/ISR obligatoria en la transacción."}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
 
           {/* ── Metadatos Operativos ── */}
           <Card>

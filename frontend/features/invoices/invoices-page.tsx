@@ -67,7 +67,7 @@ import { AdvancedInvoiceDialog } from "@/features/invoices/advanced-invoice-dial
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { formatDate } from "@/lib/utils/date";
+import { formatDate, formatCurrency } from "@/lib/utils/date";
 
 const EXPORT_FORMATS = [
   { id: "dgii_606" as const, label: "DGII 606 (Compras)" },
@@ -279,7 +279,7 @@ export function InvoicesPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 px-4 lg:px-6 pb-10 w-full max-w-7xl mx-auto">
       <Card>
         <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -742,6 +742,41 @@ function DgiiStatusBadge({ invoice }: { invoice: Invoice }) {
   );
 }
 
+const ECF_TYPE_LABELS: Record<string, { label: string; short: string; cls: string }> = {
+  "01": { label: "Crédito Fiscal", short: "Créd. Fiscal", cls: "text-indigo-600 bg-indigo-50 border-indigo-200/60 dark:text-indigo-400 dark:bg-indigo-950/20" },
+  "31": { label: "Crédito Fiscal", short: "Créd. Fiscal", cls: "text-indigo-600 bg-indigo-50 border-indigo-200/60 dark:text-indigo-400 dark:bg-indigo-950/20" },
+  "02": { label: "Consumo", short: "Consumo", cls: "text-slate-600 bg-slate-50 border-slate-200/60 dark:text-slate-400 dark:bg-slate-900/20" },
+  "32": { label: "Consumo", short: "Consumo", cls: "text-slate-600 bg-slate-50 border-slate-200/60 dark:text-slate-400 dark:bg-slate-900/20" },
+  "03": { label: "Nota de Débito", short: "Nota Débito", cls: "text-amber-600 bg-amber-50 border-amber-200/60 dark:text-amber-400 dark:bg-amber-950/20" },
+  "33": { label: "Nota de Débito", short: "Nota Débito", cls: "text-amber-600 bg-amber-50 border-amber-200/60 dark:text-amber-400 dark:bg-amber-950/20" },
+  "04": { label: "Nota de Crédito", short: "Nota Crédito", cls: "text-rose-600 bg-rose-50 border-rose-200/60 dark:text-rose-400 dark:bg-rose-950/20" },
+  "34": { label: "Nota de Crédito", short: "Nota Crédito", cls: "text-rose-600 bg-rose-50 border-rose-200/60 dark:text-rose-400 dark:bg-rose-950/20" },
+  "11": { label: "Compras", short: "Comp. Compras", cls: "text-teal-600 bg-teal-50 border-teal-200/60 dark:text-teal-400 dark:bg-teal-950/20" },
+  "41": { label: "Compras", short: "Comp. Compras", cls: "text-teal-600 bg-teal-50 border-teal-200/60 dark:text-teal-400 dark:bg-teal-950/20" },
+  "12": { label: "RUI", short: "RUI", cls: "text-cyan-600 bg-cyan-50 border-cyan-200/60 dark:text-cyan-400 dark:bg-cyan-950/20" },
+  "42": { label: "RUI", short: "RUI", cls: "text-cyan-600 bg-cyan-50 border-cyan-200/60 dark:text-cyan-400 dark:bg-cyan-950/20" },
+  "13": { label: "Gastos Menores", short: "G. Menores", cls: "text-emerald-600 bg-emerald-50 border-emerald-200/60 dark:text-emerald-400 dark:bg-emerald-950/20" },
+  "43": { label: "Gastos Menores", short: "G. Menores", cls: "text-emerald-600 bg-emerald-50 border-emerald-200/60 dark:text-emerald-400 dark:bg-emerald-950/20" },
+  "14": { label: "Reg. Especial", short: "Reg. Esp.", cls: "text-purple-600 bg-purple-50 border-purple-200/60 dark:text-purple-400 dark:bg-purple-950/20" },
+  "44": { label: "Reg. Especial", short: "Reg. Esp.", cls: "text-purple-600 bg-purple-50 border-purple-200/60 dark:text-purple-400 dark:bg-purple-950/20" },
+  "15": { label: "Gubernamental", short: "Gubernam.", cls: "text-blue-600 bg-blue-50 border-blue-200/60 dark:text-blue-400 dark:bg-blue-950/20" },
+  "45": { label: "Gubernamental", short: "Gubernam.", cls: "text-blue-600 bg-blue-50 border-blue-200/60 dark:text-blue-400 dark:bg-blue-950/20" },
+  "16": { label: "Exportación", short: "Export.", cls: "text-orange-600 bg-orange-50 border-orange-200/60 dark:text-orange-400 dark:bg-orange-950/20" },
+  "46": { label: "Exportación", short: "Export.", cls: "text-orange-600 bg-orange-50 border-orange-200/60 dark:text-orange-400 dark:bg-orange-950/20" },
+  "17": { label: "Pago Exterior", short: "Pago Ext.", cls: "text-pink-600 bg-pink-50 border-pink-200/60 dark:text-pink-400 dark:bg-pink-950/20" },
+  "47": { label: "Pago Exterior", short: "Pago Ext.", cls: "text-pink-600 bg-pink-50 border-pink-200/60 dark:text-pink-400 dark:bg-pink-950/20" },
+};
+
+function getInvoiceTypeCode(invoice: Invoice): string | null {
+  if (invoice.ecf_type) return invoice.ecf_type;
+  const ncf = invoice.invoice_number?.trim().toUpperCase();
+  if (ncf && ncf.length >= 3 && (ncf.startsWith("B") || ncf.startsWith("E"))) {
+    const code = ncf.slice(1, 3);
+    if (/^\d+$/.test(code)) return code;
+  }
+  return null;
+}
+
 function InvoiceRow({
   invoice,
   selected,
@@ -761,11 +796,7 @@ function InvoiceRow({
 }) {
   const h = invoiceHealth(invoice);
   const date = formatDate(invoice.invoice_date);
-  const amount = new Intl.NumberFormat("es-DO", {
-    style: "currency",
-    currency: invoice.currency || "USD",
-    maximumFractionDigits: 2
-  }).format(invoice.total_amount ?? 0);
+  const amount = formatCurrency(invoice.total_amount, invoice.currency || "DOP");
 
   const isCancelled = !!invoice.cancelled_at;
   const typeStyle = invoice.transaction_type ? TYPE_STYLES[invoice.transaction_type] : null;
@@ -785,15 +816,41 @@ function InvoiceRow({
       </TableCell>
       <TableCell className={cn("px-3 py-3", isCancelled ? "text-red-400/50" : "text-muted-foreground")}>{date}</TableCell>
       <TableCell className="px-3 py-3 font-mono text-[11px] font-medium text-foreground">
-        {invoice.invoice_number
-          ? <span className={cn(isCancelled ? "line-through text-red-500/60" : h === "duplicate" && "text-destructive font-semibold")}>{invoice.invoice_number}</span>
-          : <span className="text-muted-foreground/50 italic">sin NCF</span>}
+        <div className="flex flex-col gap-1">
+          {invoice.invoice_number ? (
+            <span className={cn(isCancelled ? "line-through text-red-500/60" : h === "duplicate" && "text-destructive font-semibold")}>
+              {invoice.invoice_number}
+            </span>
+          ) : (
+            <span className="text-muted-foreground/50 italic">sin NCF</span>
+          )}
+          {(() => {
+            const typeCode = getInvoiceTypeCode(invoice);
+            const style = typeCode ? ECF_TYPE_LABELS[typeCode] : null;
+            if (!style) return null;
+            return (
+              <span className={cn("inline-flex w-fit items-center rounded-sm border px-1 py-0.5 text-[9px] font-medium tracking-tight", style.cls)}>
+                {style.short} ({invoice.invoice_number?.[0] || 'B'}{typeCode})
+              </span>
+            );
+          })()}
+        </div>
       </TableCell>
-      <TableCell className={cn("px-3 py-3 cursor-pointer", isCancelled ? "text-red-500/60 hover:text-red-500" : "text-foreground hover:text-primary")} onClick={onOpen}>
+      <TableCell 
+        className={cn("px-3 py-3 cursor-pointer max-w-[180px] truncate", isCancelled ? "text-red-500/60 hover:text-red-500" : "text-foreground hover:text-primary")} 
+        onClick={onOpen}
+        title={invoice.vendor_name || ""}
+      >
         {invoice.vendor_name || <span className="italic text-muted-foreground/60">Procesando...</span>}
       </TableCell>
-      <TableCell className="px-3 py-3">
-        <Badge variant={invoice.category ? "default" : "secondary"} className={cn(isCancelled && "opacity-50")}>{categoryLabel(invoice.category, invoice.transaction_type)}</Badge>
+
+      <TableCell className="px-3 py-3 max-w-[150px] truncate" title={categoryLabel(invoice.category, invoice.transaction_type)}>
+        <Badge 
+          variant={invoice.category ? "default" : "secondary"} 
+          className={cn("max-w-full truncate block text-center", isCancelled && "opacity-50")}
+        >
+          {categoryLabel(invoice.category, invoice.transaction_type)}
+        </Badge>
       </TableCell>
       <TableCell className={cn("px-3 py-3 text-right font-mono tabular-nums font-semibold", isCancelled ? "text-red-500/60 line-through" : "text-foreground")}>{amount}</TableCell>
       <TableCell className="px-3 py-3 text-center">

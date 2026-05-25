@@ -40,9 +40,9 @@ export async function getMe(signal?: AbortSignal) {
     if (process.env.NEXT_PUBLIC_ENVIRONMENT === "DEVELOPMENT") {
       console.warn("⚠️ Backend unavailable - dev mode bypass");
       return {
-        user: { id: "dev", email: "admin@fintral.local", full_name: "Admin Dev", is_active: true, is_superuser: true },
+        user: { id: "dev", email: "admin@fintral.local", full_name: "Admin Dev", job_title: "Desarrollador", phone: null, avatar_url: null, is_active: true, is_superuser: true, created_at: new Date(Date.now() - 86400000 * 30).toISOString() },
         tenant: { id: "dev-tenant", plan: "free" },
-        organization: { id: "dev-org", name: "Mi Empresa (Dev)", tax_id: "123456789", country: "DO" },
+        organization: { id: "dev-org", name: "Mi Empresa (Dev)", tax_id: "123456789", phone: null, email_contact: null, website: null, country: "DO", fiscal_address: null },
         role: "owner",
         company_name: "Mi Empresa (Dev)",
         company_tax_id: "123456789",

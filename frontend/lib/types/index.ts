@@ -5,8 +5,12 @@ export interface SessionPayload {
     id: string;
     email: string;
     full_name: string;
+    job_title: string | null;
+    phone: string | null;
+    avatar_url: string | null;
     is_active: boolean;
     is_superuser: boolean;
+    created_at: string | null;
   };
   tenant: {
     id: string;
@@ -16,7 +20,11 @@ export interface SessionPayload {
     id: string;
     name: string;
     tax_id: string | null;
+    phone: string | null;
+    email_contact: string | null;
+    website: string | null;
     country: string | null;
+    fiscal_address: string | null;
   };
   role: string;
   company_name: string;
@@ -132,6 +140,7 @@ export interface StatisticsPayload {
   audit: {
     alerts_count: number;
     clean_count: number;
+    recent_alerts: Invoice[];
     distribution: {
       labels: string[];
       data: number[];
@@ -154,6 +163,11 @@ export interface StatisticsPayload {
   };
   categories: Array<{ category: string; count: number; total: number }>;
   monthly_stats: Array<{ month: string; count: number }>;
+  totals: {
+    income: { amount: number; count: number };
+    expense: { amount: number; count: number };
+    net: number;
+  };
 }
 
 export interface RealtimeEvent {

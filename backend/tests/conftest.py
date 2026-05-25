@@ -25,7 +25,7 @@ def setup_test_database():
     init_database()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture()
 def test_tenant():
     db = SessionLocal()
     try:
@@ -40,7 +40,7 @@ def test_tenant():
         db.close()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture()
 def test_org(test_tenant):
     db = SessionLocal()
     try:
@@ -63,7 +63,7 @@ def test_org(test_tenant):
         db.close()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture()
 def test_user(test_tenant, test_org):
     db = SessionLocal()
     try:

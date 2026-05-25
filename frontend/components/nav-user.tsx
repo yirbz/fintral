@@ -14,7 +14,7 @@ import {
 import {
   SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar,
 } from "@/components/ui/sidebar"
-import { EllipsisVerticalIcon, CircleUserRoundIcon, BellIcon, LogOutIcon, Settings2 } from "lucide-react"
+import { EllipsisVerticalIcon, UserIcon, BellIcon, LogOutIcon, Settings2 } from "lucide-react"
 import Link from "next/link"
 
 export function NavUser({ user }: { user: { name: string; email: string; avatar: string } }) {
@@ -22,10 +22,12 @@ export function NavUser({ user }: { user: { name: string; email: string; avatar:
   const { data: session, isLoading } = useSession()
   const [displayName, setDisplayName] = useState(user.name)
   const [displayEmail, setDisplayEmail] = useState(user.email)
+  const [displayAvatar, setDisplayAvatar] = useState(user.avatar)
 
   useEffect(() => {
     if (session?.user?.full_name) setDisplayName(session.user.full_name)
     if (session?.user?.email) setDisplayEmail(session.user.email)
+    if (session?.user?.avatar_url) setDisplayAvatar(session.user.avatar_url)
   }, [session])
 
   if (isLoading) {
@@ -51,8 +53,8 @@ export function NavUser({ user }: { user: { name: string; email: string; avatar:
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
-              <Avatar className="h-8 w-8 rounded-lg grayscale">
-                {user.avatar && <AvatarImage src={user.avatar} alt={displayName} />}
+              <Avatar className="h-8 w-8 rounded-lg">
+<AvatarImage src={displayAvatar || undefined} alt={displayName} />
                 <AvatarFallback className="rounded-lg">{displayName.substring(0, 2).toUpperCase()}</AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
@@ -67,7 +69,7 @@ export function NavUser({ user }: { user: { name: string; email: string; avatar:
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                 <Avatar className="h-8 w-8 rounded-lg">
-                  {user.avatar && <AvatarImage src={user.avatar} alt={displayName} />}
+<AvatarImage src={displayAvatar || undefined} alt={displayName} />
                   <AvatarFallback className="rounded-lg">{displayName.substring(0, 2).toUpperCase()}</AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
@@ -79,19 +81,19 @@ export function NavUser({ user }: { user: { name: string; email: string; avatar:
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem asChild>
-                <Link href="/dashboard/settings" className="flex items-center gap-2">
-                  <CircleUserRoundIcon className="size-4" />
+                <Link href="/dashboard/settings/profile" className="flex items-center gap-2">
+                  <UserIcon className="size-4" />
                   Perfil
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href="/dashboard/settings" className="flex items-center gap-2">
+                <Link href="/dashboard/settings/profile" className="flex items-center gap-2">
                   <Settings2 className="size-4" />
                   Ajustes
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href="/dashboard/settings" className="flex items-center gap-2">
+                <Link href="/dashboard/settings/notifications" className="flex items-center gap-2">
                   <BellIcon className="size-4" />
                   Notificaciones
                 </Link>

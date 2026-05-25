@@ -14,7 +14,11 @@ class Organization(Base):
     tenant_id = Column(GUID, ForeignKey("tenants.id"), nullable=False, index=True)
     name = Column(String, nullable=False)
     tax_id = Column(String)
+    phone = Column(String, nullable=True)
+    email_contact = Column(String, nullable=True)
+    website = Column(String, nullable=True)
     country = Column(String(3))  # ISO 3166-1 alpha-3
+    fiscal_address = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     settings_json = Column(Text, default="{}")
     created_at = Column(DateTime(timezone=True), default=utc_now)

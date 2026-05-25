@@ -23,19 +23,11 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import { formatCurrency } from "@/lib/utils/date"
 import type { StatisticsPayload } from "@/lib/types"
 
-/* ────────────────────────────────────────────
-   Currency formatter (Dominican peso / USD)
-──────────────────────────────────────────── */
 function formatAmount(amount: number | null, currency = "DOP") {
-  if (amount === null) return "—"
-  return new Intl.NumberFormat("es-DO", {
-    style: "currency",
-    currency: currency || "DOP",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount)
+  return formatCurrency(amount, currency)
 }
 
 /* ────────────────────────────────────────────

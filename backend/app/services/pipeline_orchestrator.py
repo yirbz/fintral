@@ -75,7 +75,7 @@ class PipelineOrchestrator:
                 )
                 self._resolve_direction(normalized, org_rnc)
                 self._categorize_data(normalized, invoice, db)
-                validated = post_extraction_validator.validate(normalized)
+                validated = post_extraction_validator.validate(normalized, org_rnc=org_rnc)
                 return True, validated, source_type
 
             if source_type in AI_FALLBACK_STRATEGIES and result.confidence < CONFIDENCE_THRESHOLD:
@@ -90,7 +90,7 @@ class PipelineOrchestrator:
                 if success:
                     ai_data["quality_warnings"] = result.warnings
                     self._categorize_data(ai_data, invoice, db)
-                    validated = post_extraction_validator.validate(ai_data)
+                    validated = post_extraction_validator.validate(ai_data, org_rnc=org_rnc)
                     return True, validated, ai_source
                 return success, ai_data, ai_source
 
@@ -101,7 +101,7 @@ class PipelineOrchestrator:
             )
             self._resolve_direction(normalized, org_rnc)
             self._categorize_data(normalized, invoice, db)
-            validated = post_extraction_validator.validate(normalized)
+            validated = post_extraction_validator.validate(normalized, org_rnc=org_rnc)
             return result.success, validated, source_type
 
         except Exception as e:
@@ -161,10 +161,11 @@ class PipelineOrchestrator:
             data["transaction_type"] = "income"
         elif clean_comprador == clean_org:
             data["transaction_type"] = "expense"
-        elif ecf_type in ("31", "32", "33", "34"):
+        elif ecf_type in ("31", "32", "33", "34", "42"):
             data["transaction_type"] = "income"
         else:
             data["transaction_type"] = "expense"
+
 
     def _process_by_strategy(
         self,

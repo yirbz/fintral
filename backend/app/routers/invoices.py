@@ -11,6 +11,8 @@ from pydantic import BaseModel
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 import io
 from sqlalchemy import desc
+from sqlalchemy.orm import Session
+
 
 from app.models import DgiiSubmission, Invoice, InvoiceDgiiStatus, TenantVendorRule
 
@@ -348,10 +350,12 @@ async def upload_files(
                 continue
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            safe_filename = f"{timestamp}_{file.filename}"
+            from app.utils.filenames import normalize_filename
+            clean_filename = normalize_filename(file.filename or "invoice.jpg")
+            safe_filename = f"{timestamp}_{clean_filename}"
             file_data = file.file.read()
-            file_type = get_file_type(file.filename)
-            logger.info("File read: %s (type=%s, size=%d bytes)", file.filename, file_type, len(file_data))
+            file_type = get_file_type(clean_filename)
+            logger.info("File read: %s (type=%s, size=%d bytes)", clean_filename, file_type, len(file_data))
 
             invoice = Invoice(
                 tenant_id=ctx.tenant_id,
@@ -642,6 +646,70 @@ OPERATIONAL_METADATA_FIELDS = frozenset({
 })
 
 
+def revalidate_invoice(invoice: Invoice, db: Session, org_rnc: Optional[str] = None) -> list[str]:
+    from app.services.pipeline.validator import post_extraction_validator
+    
+    # Infer electronic status and ecf_type from invoice number if not already set
+    ncf_clean = (invoice.invoice_number or "").strip().upper()
+    is_ecf = len(ncf_clean) == 13 and ncf_clean.startswith("E")
+    
+    if len(ncf_clean) >= 3 and ncf_clean[1:3].isdigit():
+        invoice.ecf_type = ncf_clean[1:3]
+    
+    invoice.is_electronic = is_ecf
+
+    ncf_modified = None
+    if invoice.raw_extracted_data:
+        try:
+            raw = json.loads(invoice.raw_extracted_data)
+            ncf_modified = raw.get("ncf_modified")
+        except Exception:
+            pass
+
+    # Build validation dictionary
+    data = {
+        "vendor_tax_id": invoice.vendor_tax_id,
+        "invoice_number": invoice.invoice_number,
+        "transaction_type": invoice.transaction_type,
+        "total_amount": invoice.total_amount,
+        "tax_amount": invoice.tax_amount,
+        "vendor_country": invoice.vendor_country,
+        "currency": invoice.currency,
+        "goods_services_type": invoice.goods_services_type,
+        "ecf_type": invoice.ecf_type,
+        "rnc_comprador": invoice.rnc_comprador,
+        "ncf_modified": ncf_modified,
+    }
+
+    # Run validation
+    validated = post_extraction_validator.validate(data, org_rnc=org_rnc)
+    
+    # Auto-link parent invoice
+    ncf_code = ncf_clean[1:3] if (ncf_clean and len(ncf_clean) >= 3 and ncf_clean[1:3].isdigit()) else None
+    if invoice.ecf_type in ("33", "34") or ncf_code in ("03", "04"):
+        if ncf_modified:
+            original = (
+                db.query(Invoice)
+                .filter(
+                    Invoice.tenant_id == invoice.tenant_id,
+                    Invoice.organization_id == invoice.organization_id,
+                    Invoice.invoice_number == ncf_modified,
+                    Invoice.deleted_at.is_(None),
+                )
+                .first()
+            )
+            if original:
+                invoice.parent_invoice_id = original.id
+            else:
+                invoice.parent_invoice_id = None
+        else:
+            invoice.parent_invoice_id = None
+    else:
+        invoice.parent_invoice_id = None
+
+    return validated.get("audit_warnings", [])
+
+
 @router.put("/invoices/{invoice_id}")
 async def update_invoice(
     invoice_id: str,
@@ -652,18 +720,19 @@ async def update_invoice(
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
+    # Guard Clause of Inmutabilidad for e-CF
     is_locked = invoice.is_electronic or invoice.status == "verified"
-
-    # Dual-pipeline guard: reject fiscal-core changes on locked invoices
     attempted_fiscal = FISCAL_CORE_FIELDS & invoice_data.keys()
+    
     if is_locked and attempted_fiscal:
+        detail_msg = (
+            "Esta factura electrónica (e-CF) es inmutable y no se pueden modificar sus datos fiscales ({})."
+            if invoice.is_electronic else
+            "Esta factura ya está verificada y no se pueden modificar sus datos fiscales ({})."
+        ).format(", ".join(sorted(attempted_fiscal)))
         raise HTTPException(
             status_code=403,
-            detail=(
-                "Esta factura electrónica ya está verificada y no se pueden modificar "
-                "sus datos fiscales ({}). "
-                "Si necesitas ajustar el monto, crea una Nota de Crédito vinculada."
-            ).format(", ".join(sorted(attempted_fiscal))),
+            detail=detail_msg,
         )
 
     before = _invoice_snapshot(invoice)
@@ -688,6 +757,10 @@ async def update_invoice(
     # Parse tags JSON string if provided
     if "tags" in invoice_data and isinstance(invoice_data["tags"], list):
         invoice.tags = json.dumps(invoice_data["tags"], ensure_ascii=False)
+
+    # Re-run fiscal audits and update audit_flags
+    warnings = revalidate_invoice(invoice, ctx.db, org_rnc=ctx.organization.tax_id)
+    invoice.audit_flags = json.dumps(warnings, ensure_ascii=False)
 
     invoice.updated_at = datetime.utcnow()
     ctx.db.commit()
@@ -865,7 +938,13 @@ async def create_manual_invoice(
         processed=True,
         confidence_score=1.0,
     )
+    
+    # Run validation and save audit_flags
+    warnings = revalidate_invoice(invoice, ctx.db, org_rnc=ctx.organization.tax_id)
+    invoice.audit_flags = json.dumps(warnings, ensure_ascii=False)
+
     invoice_repo.create(ctx.db, invoice)
+
 
     record(
         db=ctx.db,

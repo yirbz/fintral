@@ -33,6 +33,16 @@ def init_database() -> None:
         logger.warning("init_database — engine not available, skipping")
         return
 
+    if engine.dialect.name == "sqlite":
+        logger.info("init_database — SQLite detected, creating all tables directly via metadata")
+        try:
+            Base.metadata.create_all(bind=engine)
+            logger.info("init_database — SQLite tables created successfully")
+        except Exception as e:
+            logger.error("init_database — SQLite create_all failed: %s", e)
+            raise
+        return
+
     t0 = time.time()
     alembic_cfg = Config("alembic.ini")
     inspector = inspect(engine)
