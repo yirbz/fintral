@@ -258,6 +258,7 @@ class ECFParser(BaseProcessor):
             data["ruta_venta"] = self._get_text(emisor.xpath("RutaVenta/text()"))
             data["informacion_adicional_emisor"] = self._get_text(emisor.xpath("InformacionAdicionalEmisor/text()"))
             data["invoice_date"] = self._get_text(emisor.xpath("FechaEmision/text()"))
+            data["fecha_emision"] = self._get_text(emisor.xpath("FechaEmision/text()"))
 
             telefonos = emisor.xpath("TablaTelefonoEmisor/TelefonoEmisor/text()")
             if telefonos:

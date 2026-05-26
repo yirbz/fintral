@@ -10,7 +10,7 @@ from app.database import get_db
 from app.config import IS_PRODUCTION, SUPABASE_URL
 from app.core.bootstrap import run_startup
 from app.core.ui import ensure_runtime_dirs
-from app.routers import admin, auth_pages, dgii, evolution, history, integrations, invoices, notifications, odoo_integration, organizations, pending_uploads, quickbooks_integration, settings, statistics, websocket, webhooks, xero_integration
+from app.routers import admin, auth_pages, dgii, evolution, history, integrations, invoices, notifications, odoo_integration, organizations, pending_uploads, quickbooks_integration, settings, statistics, websocket, webhooks, xero_integration, bank_accounts, billing
 from app.services.cleanup_service import start_cleanup_task
 
 logger = logging.getLogger(__name__)
@@ -68,5 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(organizations.router)
     app.include_router(websocket.router)
     app.include_router(dgii.router)
+    app.include_router(bank_accounts.router)
+    app.include_router(billing.router)
 
     return app

@@ -20,6 +20,8 @@ from app.routers.invoices import ALLOWED_EXTENSIONS, get_file_type
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/pending-uploads", tags=["pending-uploads"])
+from app.core.redis import invalidate_stats_cache
+
 invoice_repo = InvoiceRepository()
 processing_service = InvoiceProcessingService(
     invoice_repo=invoice_repo,
@@ -179,6 +181,7 @@ async def process_pending_upload(
             metadata={},
         )
 
+        invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
         return {
             "message": "Factura procesada exitosamente",
             "invoice": invoice.to_dict(),
@@ -237,6 +240,7 @@ async def bulk_process_pending(
             ctx.db.commit()
             errors.append(f"{pending.filename}: {exc}")
 
+    invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
     return {
         "message": f"{success_count} de {len(pendings)} procesadas",
         "success_count": success_count,

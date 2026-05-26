@@ -85,6 +85,8 @@ export function ManualInvoiceDialog({
 
   const [goodsType, setGoodsType] = useState("none");
   const [paymentMethod, setPaymentMethod] = useState("none");
+  const [paymentCondition, setPaymentCondition] = useState("contado");
+  const [dueDate, setDueDate] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -111,6 +113,8 @@ export function ManualInvoiceDialog({
       if (draft.description) setDescription(draft.description as string);
       if (draft.goodsType) setGoodsType(draft.goodsType as string);
       if (draft.paymentMethod) setPaymentMethod(draft.paymentMethod as string);
+      if (draft.paymentCondition) setPaymentCondition(draft.paymentCondition as string);
+      if (draft.dueDate) setDueDate(draft.dueDate as string);
       if (draft.lineItems) setLineItems(draft.lineItems as LineItem[]);
     }
     restored.current = true;
@@ -122,13 +126,13 @@ export function ManualInvoiceDialog({
       vendorName, vendorTaxId, vendorCountry, vendorFiscalAddress,
       invoiceNumber, invoiceDate, ncfModified, category,
       totalAmount, taxAmount, currency, transactionType, description,
-      goodsType, paymentMethod, lineItems,
+      goodsType, paymentMethod, paymentCondition, dueDate, lineItems,
     });
   }, [
     open, vendorName, vendorTaxId, vendorCountry, vendorFiscalAddress,
     invoiceNumber, invoiceDate, ncfModified, category,
     totalAmount, taxAmount, currency, transactionType, description,
-    goodsType, paymentMethod, lineItems, saveDraftDebounced,
+    goodsType, paymentMethod, paymentCondition, dueDate, lineItems, saveDraftDebounced,
   ]);
 
   const isExpense = transactionType === "expense";
@@ -149,6 +153,8 @@ export function ManualInvoiceDialog({
     setDescription("");
     setGoodsType("none");
     setPaymentMethod("none");
+    setPaymentCondition("contado");
+    setDueDate("");
     setLineItems([]);
     setErrors({});
     restored.current = false;
@@ -205,6 +211,8 @@ export function ManualInvoiceDialog({
         category: category.trim() || undefined,
         description: description.trim() || undefined,
         payment_method: paymentMethod === "none" ? undefined : paymentMethod,
+        payment_condition: paymentCondition,
+        due_date: paymentCondition === "credito" && dueDate ? dueDate : undefined,
         ncf_modified: ncfModified.trim() || undefined,
         goods_services_type: goodsType === "none" ? undefined : goodsType,
         line_items: lineItems.map((li) => ({
@@ -329,6 +337,30 @@ export function ManualInvoiceDialog({
                   placeholder="Oficina, Servicios..."
                 />
               </div>
+              <div>
+                <Label>Condición de pago</Label>
+                <Select value={paymentCondition} onValueChange={setPaymentCondition}>
+                  <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="contado">Contado</SelectItem>
+                    <SelectItem value="credito">Crédito</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {paymentCondition === "credito" ? (
+                <div>
+                  <Label>Vence el</Label>
+                  <Input
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    className="h-7 text-xs"
+                  />
+                </div>
+              ) : (
+                <div className="hidden sm:block"></div>
+              )}
+              <div className="hidden sm:block"></div>
               <div className="sm:col-span-3">
                 <Label>NCF modificado</Label>
                 <Input
@@ -525,6 +557,8 @@ export function ManualInvoiceDialog({
                   if (category.trim()) current.category = category.trim();
                   if (goodsType !== "none") current.goods_services_type = goodsType;
                   if (paymentMethod !== "none") current.payment_method = paymentMethod;
+                  if (paymentCondition) current.payment_condition = paymentCondition;
+                  if (paymentCondition === "credito" && dueDate) current.due_date = dueDate;
                   if (ncfModified.trim()) current.ncf_modified = ncfModified.trim();
                   if (totalAmount) current.total_amount = Number(totalAmount);
                   if (taxAmount) current.tax_amount = Number(taxAmount);

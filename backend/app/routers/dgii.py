@@ -2030,6 +2030,7 @@ def _compute_pending_summary(ctx: TenantContext) -> dict:
         query = ctx.db.query(Invoice).filter(
             Invoice.tenant_id == ctx.tenant_id,
             Invoice.organization_id == ctx.org_id,
+            Invoice.is_electronic.is_(False),
         )
 
         if trans_type:
@@ -2104,6 +2105,7 @@ def _query_voided_invoices(ctx, date_from, date_to, body: DgiiExportRequest):
         Invoice.organization_id == ctx.org_id,
         Invoice.cancelled_at.isnot(None),
         Invoice.transaction_type == "income",
+        Invoice.is_electronic.is_(False),
     )
     if date_from:
         query = query.filter(Invoice.cancelled_at >= date_from)

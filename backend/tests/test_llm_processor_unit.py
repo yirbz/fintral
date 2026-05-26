@@ -1,13 +1,13 @@
-"""Unit tests for OpenAIInvoiceProcessor (pure methods, no external API calls)."""
+"""Unit tests for LLMInvoiceProcessor (pure methods, no external API calls)."""
 
 from unittest.mock import patch, Mock
-from app.services.openai_processor import OpenAIInvoiceProcessor
+from app.services.llm_processor import LLMInvoiceProcessor
 
 
 def make_processor():
     """Create processor instance without triggering API key checks in __init__."""
-    with patch.object(OpenAIInvoiceProcessor, "_get_api_key", return_value=None):
-        return OpenAIInvoiceProcessor()
+    with patch.object(LLMInvoiceProcessor, "_get_api_key", return_value=None):
+        return LLMInvoiceProcessor()
 
 
 class TestCleanString:
@@ -379,7 +379,7 @@ class TestCallGeminiWithRetry:
         mock_resp.status_code = 200
 
         with patch("requests.post", return_value=mock_resp) as mock_post:
-            result = OpenAIInvoiceProcessor._call_gemini_with_retry("https://example.com", {}, max_retries=3)
+            result = LLMInvoiceProcessor._call_gemini_with_retry("https://example.com", {}, max_retries=3)
             assert result.status_code == 200
             assert mock_post.call_count == 1
 
@@ -390,7 +390,7 @@ class TestCallGeminiWithRetry:
         ]
         with patch("time.sleep") as mock_sleep:
             with patch("requests.post", side_effect=responses) as mock_post:
-                result = OpenAIInvoiceProcessor._call_gemini_with_retry(
+                result = LLMInvoiceProcessor._call_gemini_with_retry(
                     "https://example.com", {}, max_retries=3,
                 )
                 assert result.status_code == 200
@@ -405,7 +405,7 @@ class TestCallGeminiWithRetry:
         ]
         with patch("time.sleep") as mock_sleep:
             with patch("requests.post", side_effect=responses) as mock_post:
-                result = OpenAIInvoiceProcessor._call_gemini_with_retry(
+                result = LLMInvoiceProcessor._call_gemini_with_retry(
                     "https://example.com", {}, max_retries=3,
                 )
                 assert result.status_code == 200
@@ -416,7 +416,7 @@ class TestCallGeminiWithRetry:
         responses = [Mock(status_code=429), Mock(status_code=429), Mock(status_code=429)]
         with patch("time.sleep"):
             with patch("requests.post", side_effect=responses) as mock_post:
-                result = OpenAIInvoiceProcessor._call_gemini_with_retry(
+                result = LLMInvoiceProcessor._call_gemini_with_retry(
                     "https://example.com", {}, max_retries=3,
                 )
                 assert result.status_code == 429
@@ -425,7 +425,7 @@ class TestCallGeminiWithRetry:
     def test_no_retry_on_400(self):
         mock_resp = Mock(status_code=400)
         with patch("requests.post", return_value=mock_resp) as mock_post:
-            result = OpenAIInvoiceProcessor._call_gemini_with_retry(
+            result = LLMInvoiceProcessor._call_gemini_with_retry(
                 "https://example.com", {}, max_retries=3,
             )
             assert result.status_code == 400

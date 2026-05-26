@@ -17,7 +17,7 @@ from app.utils.dates import utc_now, utc_today
 
 logger = logging.getLogger(__name__)
 
-class OpenAIInvoiceProcessor:
+class LLMInvoiceProcessor:
     def __init__(self):
         self.api_key = self._get_api_key()
         self.ollama_host = OLLAMA_HOST
@@ -181,9 +181,39 @@ class OpenAIInvoiceProcessor:
             # Registrar inicio de request para rate limiting
             start_time = self.cost_control.record_request_start()
             
+            bank_accounts_str = "[]"
+            if db and invoice:
+                try:
+                    from app.models.bank_account import BankAccount
+                    bank_accounts = (
+                        db.query(BankAccount)
+                        .filter(
+                            BankAccount.tenant_id == invoice.tenant_id,
+                            BankAccount.organization_id == invoice.organization_id,
+                        )
+                        .all()
+                    )
+                    if not bank_accounts:
+                        b1 = BankAccount(tenant_id=invoice.tenant_id, organization_id=invoice.organization_id, name="Banco Popular", balance=0.00)
+                        b2 = BankAccount(tenant_id=invoice.tenant_id, organization_id=invoice.organization_id, name="BHD León", balance=0.00)
+                        db.add(b1)
+                        db.add(b2)
+                        db.commit()
+                        bank_accounts = [b1, b2]
+                    bank_accounts_str = json.dumps(
+                        [{"id": str(b.id), "name": b.name, "balance": float(b.balance)} for b in bank_accounts],
+                        ensure_ascii=False,
+                    )
+                except Exception as e:
+                    print(f"Error fetching/seeding bank accounts: {e}")
+
             prompt = f"""
             Analiza esta imagen de factura y extrae la información clave. ADEMÁS, actúa como auditor contable y detecta anomalías.
             Devuelve la respuesta en formato JSON válido:
+
+            CUENTAS BANCARIAS DISPONIBLES DE LA EMPRESA (JSON):
+            {bank_accounts_str}
+            - Debes sugerir la asociación a una de estas cuentas de banco si hay evidencia en el documento (nombre de banco, tarjeta, transferencia, etc.) o por lógica de negocio (según el tipo de proveedor/gasto/ingreso). Retorna el ID correspondiente en "bank_account_id". Si no hay evidencia clara, pon null.
 
             FECHA ACTUAL: {datetime.now().strftime('%Y-%m-%d')} — La fecha de la factura NO puede ser posterior a esta fecha.
 
@@ -211,6 +241,9 @@ class OpenAIInvoiceProcessor:
                 "other_taxes": monto_otros_impuestos_o_tasas_como_float (null si no se encuentra),
                 "legal_tip": monto_propina_legal_como_float (null si no se encuentra),
                 "payment_method": "forma de pago (1-7) o texto si aparece (null si no se encuentra)",
+                "payment_condition": "condición de pago: contado o credito (null si no se encuentra)",
+                "due_date": "fecha de vencimiento/límite de pago de la factura en formato YYYY-MM-DD (null si no se encuentra)",
+                "bank_account_id": "ID de la cuenta bancaria sugerida (String UUID) de la lista de CUENTAS BANCARIAS DISPONIBLES que mejor se asocie a la transacción (ej. si fue pagada con fondos de ese banco o si la factura indica ese banco para depósito/pago) (null si no aplica o no hay coincidencia)",
                 "currency": "código de moneda como DOP, USD, EUR, etc. (null si no se encuentra)",
                 "transaction_type": "expense para gastos o income para ingresos (null si no estás seguro)",
                 "category": "categoría como oficina, viajes, comida, servicios, ventas, etc. (null si no estás seguro)",
@@ -237,6 +270,7 @@ class OpenAIInvoiceProcessor:
             - Códigos DGII 606 (01-11): 01 Gastos de personal, 02 Gastos por trabajos/suministros/servicios, 03 Arrendamientos, 04 Gastos de activos fijos, 05 Gastos de representación, 06 Otras deducciones admitidas, 07 Gastos financieros, 08 Gastos extraordinarios, 09 Compras/gastos costo de venta, 10 Adquisiciones de activos, 11 Gastos de seguros.
             - Forma de pago (DGII 606): 1 Efectivo, 2 Cheques/Transferencias/Depósito, 3 Tarjeta crédito/débito, 4 Compra a crédito, 5 Permuta, 6 Notas de crédito, 7 Mixto. Solo completa si es explícito.
             - Retenciones: solo completa retenciones/ISR/ITBIS retenido si el documento lo indica explícitamente.
+            - Condición de pago: "contado" si se pagó inmediatamente (efectivo, tarjeta, transferencia en el momento), "credito" si indica que es a crédito, términos de pago (30 días, etc.), fecha de vencimiento a futuro, o si el método de pago indica crédito.
 
             REGLAS DE LÍNEAS DE PRODUCTOS (line_items):
             - Extrae TODAS las líneas de productos/servicios visibles en la factura.
@@ -528,6 +562,8 @@ class OpenAIInvoiceProcessor:
             "other_taxes": self._clean_number(data.get("other_taxes")),
             "legal_tip": self._clean_number(data.get("legal_tip")),
             "payment_method": self._validate_payment_method(data.get("payment_method")),
+            "payment_condition": self._clean_string(data.get("payment_condition")),
+            "due_date": self._clean_string(data.get("due_date")),
             "currency": self._clean_currency(data.get("currency")),
             "transaction_type": self._validate_transaction_type(data.get("transaction_type")),
             "category": self._clean_string(data.get("category")),
@@ -816,10 +852,40 @@ class OpenAIInvoiceProcessor:
             
             # Limitar el texto para evitar tokens excesivos
             text = text[:4000]  # Limitar a ~4000 caracteres
-            
+
+            bank_accounts_str = "[]"
+            if db and invoice:
+                try:
+                    from app.models.bank_account import BankAccount
+                    bank_accounts = (
+                        db.query(BankAccount)
+                        .filter(
+                            BankAccount.tenant_id == invoice.tenant_id,
+                            BankAccount.organization_id == invoice.organization_id,
+                        )
+                        .all()
+                    )
+                    if not bank_accounts:
+                        b1 = BankAccount(tenant_id=invoice.tenant_id, organization_id=invoice.organization_id, name="Banco Popular", balance=0.00)
+                        b2 = BankAccount(tenant_id=invoice.tenant_id, organization_id=invoice.organization_id, name="BHD León", balance=0.00)
+                        db.add(b1)
+                        db.add(b2)
+                        db.commit()
+                        bank_accounts = [b1, b2]
+                    bank_accounts_str = json.dumps(
+                        [{"id": str(b.id), "name": b.name, "balance": float(b.balance)} for b in bank_accounts],
+                        ensure_ascii=False,
+                    )
+                except Exception as e:
+                    print(f"Error fetching/seeding bank accounts: {e}")
+
             prompt = f"""
             Analiza este texto extraído de una factura PDF y extrae la información clave. ADEMÁS, actúa como auditor contable y detecta anomalías.
             Devuelve la respuesta en formato JSON válido:
+
+            CUENTAS BANCARIAS DISPONIBLES DE LA EMPRESA (JSON):
+            {bank_accounts_str}
+            - Debes sugerir la asociación a una de estas cuentas de banco si hay evidencia en el documento (nombre de banco, tarjeta, transferencia, etc.) o por lógica de negocio (según el tipo de proveedor/gasto/ingreso). Retorna el ID correspondiente en "bank_account_id". Si no hay evidencia clara, pon null.
 
             FECHA ACTUAL (UTC): {utc_now().strftime('%Y-%m-%d')} — La fecha de la factura NO puede ser posterior a esta fecha.
 
@@ -851,6 +917,9 @@ class OpenAIInvoiceProcessor:
                 "other_taxes": monto_otros_impuestos_o_tasas_como_float (null si no se encuentra),
                 "legal_tip": monto_propina_legal_como_float (null si no se encuentra),
                 "payment_method": "forma de pago (1-7) o texto si aparece (null si no se encuentra)",
+                "payment_condition": "condición de pago: contado o credito (null si no se encuentra)",
+                "due_date": "fecha de vencimiento/límite de pago de la factura en formato YYYY-MM-DD (null si no se encuentra)",
+                "bank_account_id": "ID de la cuenta bancaria sugerida (String UUID) de la lista de CUENTAS BANCARIAS DISPONIBLES que mejor se asocie a la transacción (ej. si fue pagada con fondos de ese banco o si la factura indica ese banco para depósito/pago) (null si no aplica o no hay coincidencia)",
                 "currency": "código de moneda como DOP, USD, EUR, etc. (null si no se encuentra)",
                 "transaction_type": "expense para gastos o income para ingresos (null si no estás seguro)",
                 "category": "categoría como oficina, viajes, comida, servicios, ventas, etc. (null si no estás seguro)",
@@ -877,6 +946,7 @@ class OpenAIInvoiceProcessor:
             - Códigos DGII 606 (01-11): 01 Gastos de personal, 02 Gastos por trabajos/suministros/servicios, 03 Arrendamientos, 04 Gastos de activos fijos, 05 Gastos de representación, 06 Otras deducciones admitidas, 07 Gastos financieros, 08 Gastos extraordinarios, 09 Compras/gastos costo de venta, 10 Adquisiciones de activos, 11 Gastos de seguros.
             - Forma de pago (DGII 606): 1 Efectivo, 2 Cheques/Transferencias/Depósito, 3 Tarjeta crédito/débito, 4 Compra a crédito, 5 Permuta, 6 Notas de crédito, 7 Mixto. Solo completa si es explícito.
             - Retenciones: solo completa retenciones/ISR/ITBIS retenido si el documento lo indica explícitamente.
+            - Condición de pago: "contado" si se pagó inmediatamente (efectivo, tarjeta, transferencia en el momento), "credito" si indica que es a crédito, términos de pago (30 días, etc.), fecha de vencimiento a futuro, o si el método de pago indica crédito.
 
             REGLAS DE LÍNEAS DE PRODUCTOS (line_items):
             - Extrae TODAS las líneas de productos/servicios visibles.

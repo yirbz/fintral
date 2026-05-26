@@ -62,17 +62,23 @@ export interface Invoice {
   goods_services_type: string | null;
   source_type: string | null;
   original_xml_data: string | null;
+  raw_extracted_data: string | null;
   ecf_type: string | null;
   rnc_comprador: string | null;
   is_electronic: boolean;
   ingestion_source: string | null;
   status: string; // draft | verified | voided
   parent_invoice_id: string | null;
-  accounting_account_id: string | null;
-  cost_center_id: string | null;
+
   tags: string[];
   internal_notes: string | null;
   payment_status: string | null;
+  payment_condition: string | null;
+  payment_method?: string | null;
+  warnings_reviewed?: boolean;
+  due_date: string | null;
+  payment_date: string | null;
+  bank_account_id: string | null;
   created_at: string | null;
   deleted_at: string | null;
   cancelled_at: string | null;
@@ -114,6 +120,15 @@ export interface WebhookEndpoint {
   is_active: boolean;
   created_at: string;
 }
+
+export interface BankAccount {
+  id: string;
+  name: string;
+  balance: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
 
 export interface SettingValue {
   key: string;

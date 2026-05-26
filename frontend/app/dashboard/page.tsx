@@ -69,7 +69,28 @@ export default function Page() {
       {loading ? <SectionCardsSkeleton /> : <SectionCards stats={data} />}
 
       {/* ── Volume chart (real data) ── */}
-      <ChartAreaInteractive volumeHistory={data?.charts?.volume_history ?? []} />
+      {loading ? (
+        <div className="rounded-xl border bg-card p-5 h-64 flex flex-col justify-between shadow-xs animate-pulse">
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-48 rounded" />
+            <Skeleton className="h-3.5 w-32 rounded" />
+          </div>
+          <div className="flex items-end gap-3 h-36 pt-4">
+            {Array.from({ length: 12 }).map((_, i) => {
+              const h = [24, 40, 16, 32, 48, 60, 44, 28, 52, 64, 36, 48][i];
+              return (
+                <Skeleton 
+                  key={i} 
+                  className="flex-1 rounded-t-sm" 
+                  style={{ height: `${h}%` }} 
+                />
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <ChartAreaInteractive volumeHistory={data?.charts?.volume_history ?? []} />
+      )}
 
       {/* ── Main grid: invoices + updates ── */}
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
@@ -182,7 +203,16 @@ export default function Page() {
             </div>
           </div>
           <div className="flex-1 overflow-auto p-3 space-y-1.5 max-h-72">
-            {events.length === 0 ? (
+            {!connected && events.length === 0 ? (
+              <div className="space-y-2 p-1">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="flex flex-col gap-1.5 rounded-lg border border-border/50 bg-background/50 px-3 py-2 animate-pulse">
+                    <Skeleton className="h-3 w-24 rounded" />
+                    <Skeleton className="h-2.5 w-40 rounded" />
+                  </div>
+                ))}
+              </div>
+            ) : events.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-40 text-center">
                 <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/8">
                   <Activity className="size-4 text-primary" />
@@ -215,10 +245,15 @@ export default function Page() {
       </div>
 
       {/* ── Categories ── */}
-      {!loading && (data?.categories ?? []).length > 0 && (
-        <CategoryStrip categories={data!.categories} />
+      {loading ? (
+        <CategoryStripSkeleton />
+      ) : (
+        (data?.categories ?? []).length > 0 && (
+          <CategoryStrip categories={data!.categories} />
+        )
       )}
     </div>
+
   )
 }
 
@@ -313,7 +348,7 @@ function AuditHealth({
   // at /invoices/trash, so the default /invoices endpoint excludes them)
   const flaggedQuery = useQuery({
     queryKey: ["invoices", "flagged-active"],
-    queryFn: () => listInvoices({ quality: "flagged" }),
+    queryFn: () => listInvoices({ quality: "with_warnings" }),
     staleTime: 60_000,
   })
 
@@ -389,7 +424,7 @@ function AuditHealth({
             </div>
 
             {alerts > 0 && (
-              <Link href="/dashboard/invoices?quality=flagged">
+              <Link href="/dashboard/invoices?quality=with_warnings">
                 <Button variant="outline" size="sm" className="w-full h-7 text-xs gap-1">
                   Revisar facturas con alertas
                   <ArrowUpRight className="size-3" />
@@ -462,3 +497,29 @@ function SectionCardsSkeleton() {
     </div>
   )
 }
+
+function CategoryStripSkeleton() {
+  return (
+    <div className="rounded-xl border bg-card shadow-xs p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Tag className="size-3.5 text-primary/50" />
+        <Skeleton className="h-4 w-24 rounded" />
+        <Skeleton className="h-3 w-16 rounded ml-auto" />
+      </div>
+      <div className="flex flex-wrap gap-2 animate-pulse">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div
+            key={i}
+            className="flex items-center gap-2 rounded-lg border bg-background px-3 py-2"
+          >
+            <Skeleton className="h-3.5 w-16 rounded" />
+            <Skeleton className="h-3.5 w-6 rounded" />
+            <span className="text-muted-foreground/30">·</span>
+            <Skeleton className="h-3.5 w-8 rounded" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+

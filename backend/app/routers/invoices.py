@@ -2,8 +2,10 @@ import csv
 import json
 import logging
 import os
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from typing import Any, Optional
+from uuid import UUID
 
 from app.services.audit_logger import record
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -14,7 +16,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 
-from app.models import DgiiSubmission, Invoice, InvoiceDgiiStatus, TenantVendorRule
+from app.models import BankAccount, DgiiSubmission, Invoice, InvoiceDgiiStatus, TenantVendorRule
 
 from app.config import SUPABASE_URL
 from app.core.container import export_service, openai_processor, webhook_sender
@@ -22,7 +24,7 @@ from app.dependencies.tenant import TenantContext, require_tenant
 from app.repositories import InvoiceRepository
 from app.schemas import BulkActionRequest, CancelInvoiceRequest, CreditNoteCreate, ExportRequest, ManualInvoiceCreate, WebhookPushRequest
 from app.services import InvoiceProcessingService
-from app.services.pipeline.categorizer import DGII_CATEGORY_LABELS
+from app.services.pipeline.categorizer import DGII_CATEGORY_LABELS, get_dgii_code
 from app.services.pipeline.image_preprocessor import image_preprocessor
 from app.services.supabase_storage import (
     INVOICES_PREFIX,
@@ -40,6 +42,8 @@ processing_service = InvoiceProcessingService(
     openai_processor=openai_processor,
     webhook_sender=webhook_sender,
 )
+from app.core.redis import invalidate_stats_cache
+
 
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff"}
 ALLOWED_PDF_EXTENSIONS = {".pdf"}
@@ -66,6 +70,8 @@ def _normalize_ncf(value: Optional[str]) -> str:
 
 
 def _expected_dgii_format(invoice: Invoice) -> Optional[str]:
+    if invoice.is_electronic:
+        return None
     if invoice.cancelled_at and invoice.transaction_type == "income":
         return "608"
     if invoice.transaction_type == "income":
@@ -464,9 +470,9 @@ async def upload_files(
 
         except Exception as exc:  # noqa: BLE001
             logger.error("Upload error: %s", exc)
-            results.append({"filename": file.filename, "success": False, "error": str(exc)})
-
+    invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
     return {"results": results}
+
 
 
 @router.post("/process/{invoice_id}")
@@ -492,6 +498,7 @@ async def process_invoice(
             # partially extracted — a hard HTTP error causes the frontend
             # to discard everything.
             invoice_dict = invoice.to_dict()
+            invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
             return {
                 "message": "Procesamiento completado con advertencias",
                 "status": "partial",
@@ -514,12 +521,14 @@ async def process_invoice(
             resource_id=str(invoice_id),
             summary=f"Factura '{invoice_obj.invoice_number or invoice_id}' procesada",
         )
+        invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
         return {
             "message": "Factura procesada exitosamente",
             "invoice": invoice_obj.to_dict(),
             "extracted_data": result["extracted_data"],
             "duplicate_ncf": result.get("duplicate_ncf"),
         }
+
     except HTTPException:
         raise
     except Exception:
@@ -539,6 +548,8 @@ async def get_invoices(
     search: Optional[str] = None,
     processed: Optional[str] = None,
     quality: Optional[str] = None,
+    payment_status: Optional[str] = None,
+    payment_condition: Optional[str] = None,
     ctx: TenantContext = Depends(require_tenant),
 ):
     processed_bool = None
@@ -556,6 +567,8 @@ async def get_invoices(
         search=search,
         processed=processed_bool,
         quality=quality,
+        payment_status=payment_status,
+        payment_condition=payment_condition,
     )
 
     return {
@@ -643,6 +656,8 @@ OPERATIONAL_METADATA_FIELDS = frozenset({
     "category", "description",
     "accounting_account_id", "cost_center_id",
     "tags", "internal_notes", "payment_status",
+    "payment_condition", "due_date", "payment_date",
+    "bank_account_id",
 })
 
 
@@ -659,10 +674,16 @@ def revalidate_invoice(invoice: Invoice, db: Session, org_rnc: Optional[str] = N
     invoice.is_electronic = is_ecf
 
     ncf_modified = None
+    payment_method = None
     if invoice.raw_extracted_data:
         try:
             raw = json.loads(invoice.raw_extracted_data)
             ncf_modified = raw.get("ncf_modified")
+            payment_method = raw.get("payment_method")
+            # Fallback: extract rnc_comprador from raw data if DB field is empty
+            # (old invoices processed before this field was persisted)
+            if not invoice.rnc_comprador:
+                invoice.rnc_comprador = raw.get("rnc_comprador")
         except Exception:
             pass
 
@@ -679,6 +700,7 @@ def revalidate_invoice(invoice: Invoice, db: Session, org_rnc: Optional[str] = N
         "ecf_type": invoice.ecf_type,
         "rnc_comprador": invoice.rnc_comprador,
         "ncf_modified": ncf_modified,
+        "payment_method": payment_method,
     }
 
     # Run validation
@@ -754,6 +776,55 @@ async def update_invoice(
         except Exception:  # noqa: BLE001
             pass
 
+    if "due_date" in invoice_data:
+        if invoice_data["due_date"]:
+            try:
+                invoice.due_date = datetime.strptime(invoice_data["due_date"].split("T")[0], "%Y-%m-%d")
+            except Exception:
+                pass
+        else:
+            invoice.due_date = None
+
+    if "payment_date" in invoice_data:
+        if invoice_data["payment_date"]:
+            try:
+                invoice.payment_date = datetime.strptime(invoice_data["payment_date"].split("T")[0], "%Y-%m-%d")
+            except Exception:
+                pass
+        else:
+            invoice.payment_date = None
+
+    if "bank_account_id" in invoice_data:
+        val = invoice_data["bank_account_id"]
+        if val:
+            try:
+                from uuid import UUID
+                invoice.bank_account_id = UUID(str(val))
+            except Exception:
+                pass
+        else:
+            invoice.bank_account_id = None
+
+    if "payment_method" in invoice_data:
+        try:
+            raw_data = {}
+            if invoice.raw_extracted_data:
+                raw_data = json.loads(invoice.raw_extracted_data)
+            raw_data["payment_method"] = invoice_data["payment_method"]
+            invoice.raw_extracted_data = json.dumps(raw_data, ensure_ascii=False)
+        except Exception:
+            pass
+
+    if "warnings_reviewed" in invoice_data:
+        try:
+            raw_data = {}
+            if invoice.raw_extracted_data:
+                raw_data = json.loads(invoice.raw_extracted_data)
+            raw_data["warnings_reviewed"] = bool(invoice_data["warnings_reviewed"])
+            invoice.raw_extracted_data = json.dumps(raw_data, ensure_ascii=False)
+        except Exception:
+            pass
+
     # Parse tags JSON string if provided
     if "tags" in invoice_data and isinstance(invoice_data["tags"], list):
         invoice.tags = json.dumps(invoice_data["tags"], ensure_ascii=False)
@@ -762,9 +833,70 @@ async def update_invoice(
     warnings = revalidate_invoice(invoice, ctx.db, org_rnc=ctx.organization.tax_id)
     invoice.audit_flags = json.dumps(warnings, ensure_ascii=False)
 
+    # ACID: bank balance mutation lives in the same transaction as the invoice state
+    was_unpaid = before.get("payment_status") != "paid"
+    if was_unpaid and invoice.payment_status == "paid" and invoice.bank_account_id:
+        bank_acct = ctx.db.query(BankAccount).filter(
+            BankAccount.id == invoice.bank_account_id,
+            BankAccount.organization_id == ctx.org_id,
+        ).first()
+        if not bank_acct:
+            raise HTTPException(
+                status_code=422,
+                detail=f"La cuenta bancaria {invoice.bank_account_id} no pertenece a esta organización o no existe.",
+            )
+        total_amount = invoice.total_amount or 0.0
+        if invoice.transaction_type == "income":
+            net = total_amount
+            raw_data = None
+            if invoice.raw_extracted_data:
+                try:
+                    raw_data = json.loads(invoice.raw_extracted_data)
+                except Exception:
+                    pass
+            if raw_data:
+                itbis_ret = raw_data.get("total_itbis_retenido") or 0
+                isr_ret = raw_data.get("total_isr_retencion") or 0
+                itbis_perc = raw_data.get("total_itbis_percepcion") or 0
+                isr_perc = raw_data.get("total_isr_percepcion") or 0
+                net = net - float(itbis_ret) - float(isr_ret) + float(itbis_perc) + float(isr_perc)
+            bank_acct.balance = (bank_acct.balance or 0.0) + net
+        else:
+            bank_acct.balance = (bank_acct.balance or 0.0) - total_amount
+
     invoice.updated_at = datetime.utcnow()
     ctx.db.commit()
     ctx.db.refresh(invoice)
+
+    # Auto-learn TenantVendorRule when user changes category
+    if "category" in invoice_data and invoice.vendor_tax_id:
+        clean_rnc = re.sub(r"[^0-9]", "", invoice.vendor_tax_id)
+        if clean_rnc:
+            dgii_code = invoice_data.get("goods_services_type") or get_dgii_code(invoice.category, invoice.transaction_type)
+            if dgii_code and dgii_code in DGII_CATEGORY_LABELS:
+                existing = (
+                    ctx.db.query(TenantVendorRule)
+                    .filter(
+                        TenantVendorRule.tenant_id == ctx.tenant_id,
+                        TenantVendorRule.emisor_rnc == clean_rnc,
+                    )
+                    .first()
+                )
+                if existing:
+                    existing.dgii_category_code = dgii_code
+                    existing.source = "accountant_override"
+                    existing.vendor_name = invoice.vendor_name
+                    existing.updated_at = datetime.utcnow()
+                else:
+                    rule = TenantVendorRule(
+                        tenant_id=ctx.tenant_id,
+                        emisor_rnc=clean_rnc,
+                        dgii_category_code=dgii_code,
+                        source="accountant_override",
+                        vendor_name=invoice.vendor_name,
+                    )
+                    ctx.db.add(rule)
+                ctx.db.commit()
 
     after = _invoice_snapshot(invoice)
     changed_fields = [k for k in before if before.get(k) != after.get(k)]
@@ -786,7 +918,9 @@ async def update_invoice(
         snapshot_after=after,
     )
 
+    invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
     return invoice.to_dict()
+
 
 
 @router.post("/invoices/{invoice_id}/verify")
@@ -827,7 +961,9 @@ async def verify_invoice(
         snapshot_after=_invoice_snapshot(invoice),
     )
 
+    invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
     return {"message": "Factura verificada exitosamente", "invoice": invoice.to_dict()}
+
 
 
 @router.post("/invoices/{invoice_id}/credit-note")
@@ -901,6 +1037,26 @@ async def create_manual_invoice(
         except Exception:  # noqa: BLE001
             pass
 
+    due_date = None
+    if payload.due_date:
+        try:
+            due_date = datetime.strptime(payload.due_date.split("T")[0], "%Y-%m-%d")
+        except Exception:
+            pass
+
+    payment_date = None
+    if payload.payment_date:
+        try:
+            payment_date = datetime.strptime(payload.payment_date.split("T")[0], "%Y-%m-%d")
+        except Exception:
+            pass
+
+    payment_status = "pending"
+    if (payload.payment_condition or "contado") == "contado":
+        payment_status = "paid"
+    elif due_date and due_date.date() < datetime.now().date():
+        payment_status = "overdue"
+
     line_items_data = None
     if payload.line_items:
         line_items_data = json.dumps(
@@ -937,6 +1093,11 @@ async def create_manual_invoice(
         source_type="manual",
         processed=True,
         confidence_score=1.0,
+        payment_condition=payload.payment_condition or "contado",
+        due_date=due_date,
+        payment_date=payment_date,
+        payment_status=payment_status,
+        bank_account_id=payload.bank_account_id,
     )
     
     # Run validation and save audit_flags
@@ -961,6 +1122,7 @@ async def create_manual_invoice(
         details=f"Proveedor: {payload.vendor_name}, Total: {payload.total_amount} {payload.currency}",
     )
 
+    invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
     return invoice.to_dict()
 
 
@@ -992,6 +1154,7 @@ async def delete_invoice(
     )
 
     logger.info("Invoice moved to trash: id=%s, filename=%s, user=%s", invoice_id, invoice.filename, ctx.user.id)
+    invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
     return {"message": "Factura movida a la papelera"}
 
 
@@ -1027,6 +1190,7 @@ async def bulk_delete_invoices(
         summary=f"{count} factura(s) movidas a la papelera",
     )
 
+    invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
     return {"message": "Facturas movidas a la papelera", "count": count}
 
 
@@ -1043,6 +1207,7 @@ async def bulk_process_invoices(
         ctx.db, invoices, ctx.tenant_id, ctx.org_id, user_id=ctx.user.id,
     )
 
+    invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
     return {
         "message": f"Procesamiento completado. {success_count} exitosos.",
         "success_count": success_count,
@@ -1080,6 +1245,7 @@ async def restore_invoice(
         summary=f"Factura '{invoice.invoice_number}' restaurada de la papelera",
     )
 
+    invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
     return {"message": "Factura restaurada exitosamente", "invoice": invoice.to_dict()}
 
 
@@ -1764,3 +1930,209 @@ async def download_invoice_template():
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+class MarkPaidRequest(BaseModel):
+    payment_date: Optional[str] = None
+    bank_account_id: Optional[UUID] = None
+
+
+@router.post("/api/invoices/{invoice_id}/mark-paid")
+async def mark_invoice_as_paid(
+    invoice_id: str,
+    payload: Optional[MarkPaidRequest] = None,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    invoice = invoice_repo.get(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+
+    # Set status to paid and determine payment date
+    invoice.payment_status = "paid"
+    
+    from app.utils.dates import utc_now
+    p_date = utc_now()
+    if payload and payload.payment_date:
+        try:
+            p_date = datetime.strptime(payload.payment_date.split("T")[0], "%Y-%m-%d")
+        except Exception:
+            pass
+    invoice.payment_date = p_date
+    invoice.updated_at = utc_now()
+
+    if payload and payload.bank_account_id:
+        invoice.bank_account_id = payload.bank_account_id
+        from app.models import BankAccount
+        bank_acc = (
+            ctx.db.query(BankAccount)
+            .filter(
+                BankAccount.id == payload.bank_account_id,
+                BankAccount.tenant_id == ctx.tenant_id,
+                BankAccount.organization_id == ctx.org_id,
+            )
+            .first()
+        )
+        if bank_acc:
+            amount = invoice.total_amount or 0.0
+            if invoice.transaction_type == "expense":
+                bank_acc.balance = float(bank_acc.balance) - amount
+            elif invoice.transaction_type == "income":
+                bank_acc.balance = float(bank_acc.balance) + amount
+            ctx.db.add(bank_acc)
+
+    ctx.db.commit()
+    ctx.db.refresh(invoice)
+
+    # Audit log
+    before = {"payment_status": "pending", "payment_date": None}
+    after = {"payment_status": "paid", "payment_date": invoice.payment_date.isoformat() if invoice.payment_date else None}
+    record(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_email=ctx.user.email,
+        action="invoice.marked_paid",
+        resource_type="invoice",
+        resource_id=str(invoice_id),
+        summary=f"Factura '{invoice.invoice_number}' marcada como pagada/cobrada",
+        details="Pago liquidado",
+        snapshot_before=before,
+        snapshot_after=after,
+    )
+
+    return {"status": "success", "invoice": invoice.to_dict()}
+
+
+def _get_bank_balances(db: Session, tenant_id: UUID, org_id: UUID) -> list[dict]:
+    from app.models import BankAccount
+    accounts = (
+        db.query(BankAccount)
+        .filter(
+            BankAccount.tenant_id == tenant_id,
+            BankAccount.organization_id == org_id,
+        )
+        .all()
+    )
+
+    if not accounts:
+        # Seeding on-demand
+        popular = BankAccount(
+            tenant_id=tenant_id,
+            organization_id=org_id,
+            name="Banco Popular",
+            balance=0.00,
+        )
+        bhd = BankAccount(
+            tenant_id=tenant_id,
+            organization_id=org_id,
+            name="BHD León",
+            balance=0.00,
+        )
+        db.add(popular)
+        db.add(bhd)
+        db.commit()
+        db.refresh(popular)
+        db.refresh(bhd)
+        accounts = [popular, bhd]
+
+    return [acc.to_dict() for acc in accounts]
+
+
+@router.get("/api/cxp/summary")
+async def get_cxp_summary(
+    ctx: TenantContext = Depends(require_tenant),
+):
+    from app.utils.dates import utc_now
+    now = utc_now()
+    start_of_today = datetime.combine(now.date(), datetime.min.time())
+    one_week_from_now = start_of_today + timedelta(days=7)
+
+    # Get outstanding (payment_status in ('pending', 'overdue') or due_date < now)
+    # Filter by transaction_type == 'expense' and payment_condition == 'credito'
+    outstanding_invoices = (
+        ctx.db.query(Invoice)
+        .filter(
+            Invoice.tenant_id == ctx.tenant_id,
+            Invoice.organization_id == ctx.org_id,
+            Invoice.transaction_type == "expense",
+            Invoice.payment_condition == "credito",
+            Invoice.payment_status != "paid",
+            Invoice.deleted_at.is_(None),
+        )
+        .all()
+    )
+
+    total_outstanding = sum(inv.total_amount or 0.0 for inv in outstanding_invoices)
+    
+    total_overdue = sum(
+        inv.total_amount or 0.0 
+        for inv in outstanding_invoices 
+        if inv.due_date and inv.due_date.date() < now.date()
+    )
+
+    weekly_commitments = sum(
+        inv.total_amount or 0.0 
+        for inv in outstanding_invoices 
+        if inv.due_date and start_of_today.date() <= inv.due_date.date() <= one_week_from_now.date()
+    )
+
+    bank_balances = _get_bank_balances(ctx.db, ctx.tenant_id, ctx.org_id)
+    cash_balance = sum(float(b.get("balance", 0.0)) for b in bank_balances if isinstance(b, dict))
+
+    return {
+        "total_outstanding": total_outstanding,
+        "total_overdue": total_overdue,
+        "weekly_commitments": weekly_commitments,
+        "cash_balance": cash_balance,
+        "bank_balances": bank_balances,
+        "recent_invoices": [inv.to_dict() for inv in outstanding_invoices],
+    }
+
+
+@router.get("/api/cxc/summary")
+async def get_cxc_summary(
+    ctx: TenantContext = Depends(require_tenant),
+):
+    from app.utils.dates import utc_now
+    now = utc_now()
+    start_of_today = datetime.combine(now.date(), datetime.min.time())
+    one_week_from_now = start_of_today + timedelta(days=7)
+
+    # Get outstanding (payment_status in ('pending', 'overdue') or due_date < now)
+    # Filter by transaction_type == 'income' and payment_condition == 'credito'
+    outstanding_invoices = (
+        ctx.db.query(Invoice)
+        .filter(
+            Invoice.tenant_id == ctx.tenant_id,
+            Invoice.organization_id == ctx.org_id,
+            Invoice.transaction_type == "income",
+            Invoice.payment_condition == "credito",
+            Invoice.payment_status != "paid",
+            Invoice.deleted_at.is_(None),
+        )
+        .all()
+    )
+
+    total_outstanding = sum(inv.total_amount or 0.0 for inv in outstanding_invoices)
+    
+    total_overdue = sum(
+        inv.total_amount or 0.0 
+        for inv in outstanding_invoices 
+        if inv.due_date and inv.due_date.date() < now.date()
+    )
+
+    weekly_receivables = sum(
+        inv.total_amount or 0.0 
+        for inv in outstanding_invoices 
+        if inv.due_date and start_of_today.date() <= inv.due_date.date() <= one_week_from_now.date()
+    )
+
+    return {
+        "total_outstanding": total_outstanding,
+        "total_overdue": total_overdue,
+        "weekly_receivables": weekly_receivables,
+        "recent_invoices": [inv.to_dict() for inv in outstanding_invoices],
+    }

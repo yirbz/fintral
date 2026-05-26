@@ -39,10 +39,12 @@ class InvoiceProcessingService:
     def _parse_invoice_date(value: Optional[str]) -> Optional[datetime]:
         if not value:
             return None
-        try:
-            return datetime.strptime(value, "%Y-%m-%d")
-        except Exception:  # noqa: BLE001
-            return None
+        for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"):
+            try:
+                return datetime.strptime(value, fmt)
+            except Exception:
+                continue
+        return None
 
     def apply_extracted_data(
         self,
@@ -73,6 +75,23 @@ class InvoiceProcessingService:
         invoice.rnc_comprador = extracted_data.get("rnc_comprador")
         invoice.is_electronic = extracted_data.get("is_electronic", False)
         invoice.ingestion_source = extracted_data.get("ingestion_source")
+        
+        invoice.payment_condition = extracted_data.get("payment_condition") or "contado"
+        due_date = self._parse_invoice_date(extracted_data.get("due_date"))
+        if due_date:
+            invoice.due_date = due_date
+        payment_date = self._parse_invoice_date(extracted_data.get("payment_date"))
+        if payment_date:
+            invoice.payment_date = payment_date
+        if extracted_data.get("payment_status"):
+            invoice.payment_status = extracted_data["payment_status"]
+            
+        if extracted_data.get("bank_account_id"):
+            try:
+                invoice.bank_account_id = UUID(str(extracted_data["bank_account_id"]))
+            except Exception:
+                pass
+            
         if extracted_data.get("status"):
             invoice.status = extracted_data["status"]
 

@@ -1,6 +1,6 @@
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 from app.utils.dates import utc_today
@@ -26,6 +26,8 @@ CANONICAL_SCHEMA = {
     "line_items": list,
     "goods_services_type": Optional[str],
     "payment_method": Optional[str],
+    "payment_condition": Optional[str],
+    "due_date": Optional[str],
     "confidence": float,
     "source_type": str,
     "ecf_type": Optional[str],
@@ -62,6 +64,28 @@ CANONICAL_SCHEMA = {
     "subtotales": list,
     "formas_pago": list,
     "original_xml_data": Optional[str],
+
+    # Emisor extra fields
+    "correo_emisor": Optional[str],
+    "nombre_comercial": Optional[str],
+    "sucursal": Optional[str],
+    "municipio_emisor": Optional[str],
+    "provincia_emisor": Optional[str],
+    "fecha_emision": Optional[str],
+
+    # Comprador fields
+    "razon_social_comprador": Optional[str],
+    "direccion_comprador": Optional[str],
+    "correo_comprador": Optional[str],
+    "municipio_comprador": Optional[str],
+    "provincia_comprador": Optional[str],
+    "contacto_comprador": Optional[str],
+    "numero_orden_compra": Optional[str],
+    "identificador_extranjero": Optional[str],
+
+    # Tax breakdown aliases
+    "itbis_retenido": Optional[float],
+    "isr_retention_amount": Optional[float],
 }
 
 
@@ -96,9 +120,36 @@ class Normalizer:
             "line_items": self._validate_line_items(data.get("line_items", [])),
             "goods_services_type": self._validate_goods_services_type(data.get("goods_services_type")),
             "payment_method": self._validate_payment_method(data.get("payment_method")),
+            "payment_condition": self._clean_string(data.get("payment_condition")),
+            "due_date": self._validate_date(data.get("due_date")),
             "confidence": float(confidence) if confidence else self._clean_confidence(data.get("confidence", 0.5)),
             "source_type": source_type,
             "ecf_type": self._clean_string(data.get("ecf_type")),
+            "rnc_comprador": self._normalize_rnc(data.get("rnc_comprador")),
+            "vendor_tax_id_comprador": self._normalize_rnc(data.get("vendor_tax_id_comprador")),
+
+            # Emisor extra fields
+            "correo_emisor": self._clean_string(data.get("correo_emisor")),
+            "nombre_comercial": self._clean_string(data.get("nombre_comercial")),
+            "sucursal": self._clean_string(data.get("sucursal")),
+            "municipio_emisor": self._clean_string(data.get("municipio_emisor")),
+            "provincia_emisor": self._clean_string(data.get("provincia_emisor")),
+            "fecha_emision": self._validate_date(data.get("fecha_emision")),
+
+            # Comprador fields
+            "razon_social_comprador": self._clean_string(data.get("razon_social_comprador")),
+            "direccion_comprador": self._clean_string(data.get("direccion_comprador")),
+            "correo_comprador": self._clean_string(data.get("correo_comprador")),
+            "municipio_comprador": self._clean_string(data.get("municipio_comprador")),
+            "provincia_comprador": self._clean_string(data.get("provincia_comprador")),
+            "contacto_comprador": self._clean_string(data.get("contacto_comprador")),
+            "numero_orden_compra": self._clean_string(data.get("numero_orden_compra")),
+            "identificador_extranjero": self._clean_string(data.get("identificador_extranjero")),
+
+            # Tax breakdown aliases
+            "itbis_retenido": self._clean_number(data.get("itbis_retenido") or data.get("total_itbis_retenido")),
+            "isr_retention_amount": self._clean_number(data.get("isr_retention_amount") or data.get("total_isr_retencion")),
+
             "audit_warnings": data.get("audit_warnings", []) if isinstance(data.get("audit_warnings"), list) else [],
 
             "eNCF": self._clean_string(data.get("eNCF")),
@@ -134,6 +185,50 @@ class Normalizer:
             "original_xml_data": data.get("original_xml_data"),
         }
 
+        # Clean/infer payment_condition
+        p_cond = normalized.get("payment_condition")
+        if p_cond:
+            p_cond_clean = p_cond.lower()
+            if "cred" in p_cond_clean or p_cond_clean == "4" or "credit" in p_cond_clean:
+                normalized["payment_condition"] = "credito"
+            else:
+                normalized["payment_condition"] = "contado"
+        else:
+            # Inference:
+            pm = normalized.get("payment_method")
+            tp = normalized.get("tipo_pago")
+            term = normalized.get("termino_pago")
+            if pm == "4" or str(tp) == "2" or (term and "cred" in term.lower()):
+                normalized["payment_condition"] = "credito"
+            else:
+                normalized["payment_condition"] = "contado"
+
+        # Resolve due_date
+        due = normalized.get("due_date") or normalized.get("fecha_limite_pago")
+        if due:
+            normalized["due_date"] = due
+        elif normalized["payment_condition"] == "credito" and normalized["invoice_date"]:
+            # default to invoice_date + 30 days
+            try:
+                inv_date = datetime.strptime(normalized["invoice_date"], "%Y-%m-%d")
+                normalized["due_date"] = (inv_date + timedelta(days=30)).strftime("%Y-%m-%d")
+            except Exception:
+                normalized["due_date"] = None
+        else:
+            normalized["due_date"] = None
+
+        # Resolve default payment_status
+        if normalized.get("payment_date"):
+            normalized["payment_status"] = "paid"
+        else:
+            if normalized["payment_condition"] == "credito":
+                normalized["payment_status"] = "pending"
+            elif normalized.get("transaction_type") == "income":
+                # Income invoices are pending until the client actually pays
+                normalized["payment_status"] = "pending"
+            else:
+                normalized["payment_status"] = "paid"
+
         if not normalized["vendor_name"]:
             normalized["vendor_name"] = "Proveedor no identificado"
 
@@ -158,8 +253,13 @@ class Normalizer:
             "goods_services_type": normalized.get("goods_services_type"),
             "payment_method": normalized.get("payment_method"),
             "confidence_score": normalized.get("confidence"),
+            "payment_condition": normalized.get("payment_condition", "contado"),
+            "due_date": self._parse_date(normalized.get("due_date")),
+            "payment_status": normalized.get("payment_status", "paid"),
             "source_type": normalized.get("source_type"),
             "ecf_type": normalized.get("ecf_type"),
+            "rnc_comprador": normalized.get("rnc_comprador"),
+            "rnc_emisor": normalized.get("rnc_emisor") or normalized.get("vendor_tax_id"),
             "audit_flags": json.dumps(normalized.get("audit_warnings", [])),
         }
         if normalized.get("ecf_type"):
@@ -218,24 +318,9 @@ class Normalizer:
             return None
         try:
             date_str = str(value).strip()
-            for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%d", "%Y/%m/%d"]:
-                try:
-                    parsed = datetime.strptime(date_str, fmt)
-                    if parsed.date() > utc_today():
-                        return None
-                    return parsed.strftime("%Y-%m-%d")
-                except ValueError:
-                    continue
-            return None
-        except Exception:
-            return None
-        try:
-            date_str = str(value).strip()
             for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%Y/%m/%d"]:
                 try:
                     parsed = datetime.strptime(date_str, fmt)
-                    if parsed.date() > datetime.now().date():
-                        return None
                     return parsed.strftime("%Y-%m-%d")
                 except ValueError:
                     continue
@@ -247,10 +332,7 @@ class Normalizer:
         if not value:
             return None
         try:
-            parsed = datetime.strptime(value, "%Y-%m-%d")
-            if parsed.date() > utc_today():
-                return None
-            return parsed
+            return datetime.strptime(value, "%Y-%m-%d")
         except Exception:
             return None
 

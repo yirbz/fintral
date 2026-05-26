@@ -134,3 +134,26 @@ export function formatCurrency(
     maximumFractionDigits: 2,
   }).format(n ?? 0);
 }
+
+export interface ItbisDetail {
+  rate: string;
+  amount: number;
+}
+export function getItbisDetail(invoice: { raw_extracted_data?: string | null; tax_amount?: number | null }): ItbisDetail {
+  let rate = "18%";
+  if (invoice.raw_extracted_data) {
+    try {
+      const raw = JSON.parse(invoice.raw_extracted_data);
+      const r1 = raw.itbis1;
+      if (r1 != null) {
+        const r2 = raw.itbis2;
+        const r3 = raw.itbis3;
+        const rates = [String(r1), r2 != null ? String(r2) : null, r3 != null ? String(r3) : null]
+          .filter(Boolean)
+          .filter((r, i, a) => a.indexOf(r) === i);
+        rate = rates.map((r) => `${r}%`).join(" / ");
+      }
+    } catch {}
+  }
+  return { rate, amount: invoice.tax_amount ?? 0 };
+}

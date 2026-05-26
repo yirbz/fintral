@@ -1,12 +1,14 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Ban, Code2, Download, Expand, FileCode2, FileText, Flame, Lock, RotateCcw, Save, Sparkles, Trash2, WandSparkles, X, XCircle } from "lucide-react";
+import { ArrowLeft, Ban, Code2, Download, Expand, FileCode2, FileText, Flame, Lock, RotateCcw, Save, Sparkles, Trash2, X, XCircle, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { bulkPermanentDelete as permanentDeleteApi, cancelInvoice, deleteInvoice, getInvoice, getOptimizedImage, processInvoice, restoreInvoice, uncancelInvoice, updateInvoice } from "@/lib/api/invoices";
+import { getBankAccounts } from "@/lib/api/payments";
+import { formatDate, getItbisDetail } from "@/lib/utils/date";
 import type { Invoice } from "@/lib/types";
 
 import { Button } from "@/components/ui/button";
@@ -135,24 +137,59 @@ const DGII_CATEGORIES: { code: string; label: string }[] = [
   { code: "03", label: "03 Arrendamientos" },
   { code: "04", label: "04 Gastos de Activos Fijos" },
   { code: "05", label: "05 Gastos de Representación" },
-  { code: "06", label: "06 Gastos Financieros" },
-  { code: "07", label: "07 Gastos de Seguros" },
-  { code: "08", label: "08 Gastos por Pérdidas Extraordinarias" },
-  { code: "09", label: "09 Compras que Forman Parte del Costo de Venta" },
-  { code: "10", label: "10 Adquisiciones de Activos Fijos" },
-  { code: "11", label: "11 Gastos de Seguros (auxiliary)" },
+  { code: "06", label: "06 Otras Deducciones Admitidas" },
+  { code: "07", label: "07 Gastos Financieros" },
+  { code: "08", label: "08 Gastos Extraordinarios" },
+  { code: "09", label: "09 Costos y Gastos de Operación" },
+  { code: "10", label: "10 Adquisiciones de Activos" },
+  { code: "11", label: "11 Gastos de Seguros" },
 ];
 
 function validCategoryCode(v: string | null | undefined, validCodes: Set<string>): string {
   return v && validCodes.has(v) ? v : "";
 }
 
-const FISCAL_CORE_FIELDS = new Set([
-  "vendor_name", "invoice_number", "invoice_date",
-  "total_amount", "tax_amount", "currency",
-  "transaction_type", "vendor_tax_id", "vendor_fiscal_address",
-  "goods_services_type", "rnc_comprador", "ecf_type", "vendor_country",
+const OPERATIONAL_METADATA_FIELDS = new Set([
+  "category", "description", "due_date", "payment_status", "payment_condition", "payment_date", "bank_account_id", "payment_method", "warnings_reviewed",
 ] as const);
+
+function normalizePaymentMethod(pm: any): string | null {
+  if (pm === null || pm === undefined) return null;
+  const str = String(pm).trim();
+  if (str === "" || str === "none") return null;
+  return str.length === 1 ? `0${str}` : str;
+}
+
+function getDirtyFields(original: Invoice, current: Partial<Invoice>): Partial<Invoice> {
+  const dirty: Record<string, unknown> = {};
+  
+  // Normalize original warnings_reviewed and payment_method so we compare correctly
+  let origPm = null;
+  let origWr = false;
+  if (original?.raw_extracted_data) {
+    try {
+      const raw = JSON.parse(original.raw_extracted_data);
+      origPm = normalizePaymentMethod(raw.payment_method);
+      origWr = raw.warnings_reviewed === true;
+    } catch {}
+  }
+
+  const normalizedOriginal = {
+    ...original,
+    payment_method: origPm,
+    warnings_reviewed: origWr,
+  } as any;
+
+  for (const key of Object.keys(current) as Array<keyof Invoice>) {
+    const orig = normalizedOriginal[key];
+    const curr = current[key];
+    if (JSON.stringify(orig) !== JSON.stringify(curr)) {
+      dirty[key] = curr;
+    }
+  }
+  return dirty;
+}
+
 
 export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   const router = useRouter();
@@ -173,9 +210,27 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
     enabled: query.data?.file_type === "image"
   });
 
+  const bankAccountsQuery = useQuery({
+    queryKey: ["bank-accounts"],
+    queryFn: getBankAccounts,
+  });
+
   useEffect(() => {
     if (query.data) {
-      setEditable(query.data);
+      let pm = null;
+      let wr = false;
+      if (query.data.raw_extracted_data) {
+        try {
+          const raw = JSON.parse(query.data.raw_extracted_data);
+          pm = normalizePaymentMethod(raw.payment_method);
+          wr = raw.warnings_reviewed === true;
+        } catch {}
+      }
+      setEditable({
+        ...query.data,
+        payment_method: pm,
+        warnings_reviewed: wr,
+      } as any);
       setImageLoaded(false);
     }
   }, [query.data]);
@@ -191,7 +246,19 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   const isIncome = editable.transaction_type === "income";
 
   const saveMutation = useMutation({
-    mutationFn: () => updateInvoice(invoiceId, editable),
+    mutationFn: () => {
+      const dirty = getDirtyFields(query.data!, editable);
+      if (isLocked) {
+        const filtered: Record<string, unknown> = {};
+        for (const key of Object.keys(dirty)) {
+          if ((OPERATIONAL_METADATA_FIELDS as Set<string>).has(key)) {
+            filtered[key] = dirty[key as keyof Invoice];
+          }
+        }
+        return updateInvoice(invoiceId, filtered);
+      }
+      return updateInvoice(invoiceId, dirty);
+    },
     onSuccess: () => query.refetch()
   });
 
@@ -252,9 +319,14 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   }, [query.data?.audit_flags]);
 
   const hasUnsavedChanges = useMemo(() => {
-    if (!query.data || !editable.vendor_name) return false;
-    return JSON.stringify(editable) !== JSON.stringify(query.data);
+    if (!query.data) return false;
+    return Object.keys(getDirtyFields(query.data, editable)).length > 0;
   }, [editable, query.data]);
+
+  const rawData = useMemo(() => {
+    if (!query.data?.raw_extracted_data) return null;
+    try { return JSON.parse(query.data.raw_extracted_data) as Record<string, unknown>; } catch { return null; }
+  }, [query.data?.raw_extracted_data]);
 
   if (query.isLoading || !query.data) {
     return (
@@ -317,7 +389,22 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   const invoice = query.data!;
   const isTrashed = !!invoice.deleted_at;
   const isLocked = invoice.is_electronic || invoice.status === "verified";
-  const discardChanges = () => setEditable({ ...invoice });
+  const discardChanges = () => {
+    let pm = null;
+    let wr = false;
+    if (invoice.raw_extracted_data) {
+      try {
+        const raw = JSON.parse(invoice.raw_extracted_data);
+        pm = normalizePaymentMethod(raw.payment_method);
+        wr = raw.warnings_reviewed === true;
+      } catch {}
+    }
+    setEditable({
+      ...invoice,
+      payment_method: pm,
+      warnings_reviewed: wr,
+    } as any);
+  };
   const amount = new Intl.NumberFormat("es-DO", {
     style: "currency",
     currency: editable.currency || invoice.currency || "USD"
@@ -355,7 +442,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                 <Badge variant={invoice.processed ? "default" : "secondary"}>
                   {invoice.processed ? "Procesado" : "Borrador"}
                 </Badge>
-                {invoice.source_type === "xml" ? (
+                {invoice.source_type === "xml" || invoice.source_type === "ecf" ? (
                   <Badge variant="outline" className="text-[10px] border-amber-500/30 text-amber-700 bg-amber-50 dark:text-amber-400 dark:bg-amber-500/5">
                     <FileCode2 className="size-3 mr-1" />
                     e-CF{invoice.ecf_type ? ` ${invoice.ecf_type}` : ""}
@@ -433,15 +520,26 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
         </Card>
       ) : null}
 
-      {flags.length > 0 ? (
+      {flags.length > 0 && !editable.warnings_reviewed ? (
         <Card className="border-amber-500/20 bg-amber-500/[0.04] dark:bg-amber-500/[0.02]">
           <CardContent className="pt-4 pb-4">
-            <div className="flex items-center gap-2 mb-2 text-amber-800 dark:text-amber-400 font-semibold text-[11px] uppercase tracking-wider">
-              <span className="flex h-2 w-2 relative">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-              </span>
-              Alertas del Auditor Fiscal (DGII)
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-amber-800 dark:text-amber-400 font-semibold text-[11px] uppercase tracking-wider">
+                <span className="flex h-2 w-2 relative">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                </span>
+                Alertas del Auditor Fiscal (DGII)
+              </div>
+              <Button
+                size="xs"
+                variant="outline"
+                className="text-[10px] h-6 border-amber-500/30 text-amber-700 bg-amber-50 hover:bg-amber-100 hover:text-amber-800 dark:text-amber-400 dark:bg-amber-500/5 dark:hover:bg-amber-500/10"
+                onClick={() => setEditable((prev) => ({ ...prev, warnings_reviewed: true }))}
+              >
+                <CheckCircle2 className="size-3 mr-1" />
+                Marcar como revisadas
+              </Button>
             </div>
             <div className="grid gap-2">
               {flags.map((flag, idx) => {
@@ -462,6 +560,23 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                 );
               })}
             </div>
+          </CardContent>
+        </Card>
+      ) : flags.length > 0 && editable.warnings_reviewed ? (
+        <Card className="border-emerald-500/20 bg-emerald-500/[0.04] dark:bg-emerald-500/[0.02]">
+          <CardContent className="flex items-center justify-between py-3">
+            <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-400 text-xs">
+              <CheckCircle2 className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <span>Advertencias de auditoría revisadas y aceptadas como correctas.</span>
+            </div>
+            <Button
+              size="xs"
+              variant="ghost"
+              className="text-[10px] h-6 text-muted-foreground hover:text-foreground"
+              onClick={() => setEditable((prev) => ({ ...prev, warnings_reviewed: false }))}
+            >
+              Reabrir advertencias
+            </Button>
           </CardContent>
         </Card>
       ) : null}
@@ -539,7 +654,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
               >
                 <Input
                   type="date"
-                  value={(editable.invoice_date ?? "") as string}
+                  value={editable.invoice_date ? (editable.invoice_date as string).split("T")[0] : ""}
                   onChange={(event) => setEditable((prev) => ({ ...prev, invoice_date: event.target.value }))}
                   disabled={isTrashed || isLocked}
                   className={isLocked ? "bg-muted/40 cursor-not-allowed opacity-70" : ""}
@@ -601,31 +716,39 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                   className={isLocked ? "bg-muted/40 cursor-not-allowed opacity-70" : ""}
                 />
               </Field>
-              <Field
-                label="ITBIS"
-                locked={isLocked}
-              >
-                <Input
-                  type="number"
-                  value={Number(editable.tax_amount ?? 0)}
-                  onChange={(event) =>
-                    setEditable((prev) => ({ ...prev, tax_amount: Number(event.target.value) || 0 }))
-                  }
-                  disabled={isTrashed || isLocked}
-                  className={isLocked ? "bg-muted/40 cursor-not-allowed opacity-70" : ""}
-                />
+               <Field
+                 label={isIncome ? "ITBIS Cobrado" : "Total ITBIS"}
+                 locked={isLocked}
+               >
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    value={Number(editable.tax_amount ?? 0)}
+                    onChange={(event) =>
+                      setEditable((prev) => ({ ...prev, tax_amount: Number(event.target.value) || 0 }))
+                    }
+                    disabled={isTrashed || isLocked}
+                    className={isLocked ? "bg-muted/40 cursor-not-allowed opacity-70" : ""}
+                  />
+                  <span className="text-[11px] text-muted-foreground font-medium whitespace-nowrap">
+                    {getItbisDetail(invoice).rate}
+                  </span>
+                </div>
               </Field>
-              <Field
-                label="RNC Comprador"
-                locked={isLocked}
-              >
-                <Input
-                  value={editable.rnc_comprador ?? ""}
-                  onChange={(event) => setEditable((prev) => ({ ...prev, rnc_comprador: event.target.value }))}
-                  disabled={isTrashed || isLocked}
-                  className={isLocked ? "bg-muted/40 cursor-not-allowed opacity-70" : ""}
-                />
-              </Field>
+              {/* RNC Comprador - only for e-CF types that require buyer RNC (not 41/43, not income) */}
+              {!isIncome && editable.ecf_type && ["31", "44", "45"].includes(editable.ecf_type) && (
+                <Field
+                  label="RNC Comprador"
+                  locked={isLocked}
+                >
+                  <Input
+                    value={editable.rnc_comprador ?? ""}
+                    onChange={(event) => setEditable((prev) => ({ ...prev, rnc_comprador: event.target.value }))}
+                    disabled={isTrashed || isLocked}
+                    className={isLocked ? "bg-muted/40 cursor-not-allowed opacity-70" : ""}
+                  />
+                </Field>
+              )}
               <Field
                 label="Tipo Comprobante (e-CF / NCF)"
                 locked={isLocked}
@@ -655,16 +778,39 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                 </Select>
               </Field>
 
-              <Field
-                label="Tipo bienes (DGII 606)"
-                locked={isLocked}
-              >
-                <DgiiSelect
-                  domain="goods_services_types"
-                  value={(editable.goods_services_type || "none") as string}
-                  onChange={(value) => setEditable((prev) => ({ ...prev, goods_services_type: value === "none" ? "" : value }))}
+               <Field
+                 label={isIncome ? "Tipo bienes (DGII 607)" : "Tipo bienes (DGII 606)"}
+                 locked={isLocked}
+               >
+                 <DgiiSelect
+                   domain="goods_services_types"
+                   value={(editable.goods_services_type || "none") as string}
+                   onChange={(value) => setEditable((prev) => ({ ...prev, goods_services_type: value === "none" ? "" : value }))}
+                   disabled={isTrashed || isLocked}
+                 />
+               </Field>
+              <Field label="País" locked={isLocked}>
+                <Select
+                  value={(editable.vendor_country || "DO") as string}
+                  onValueChange={(value) => setEditable((prev) => ({ ...prev, vendor_country: value }))}
                   disabled={isTrashed || isLocked}
-                />
+                >
+                  <SelectTrigger className={isLocked ? "bg-muted/40 cursor-not-allowed opacity-70" : ""}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="DO">República Dominicana</SelectItem>
+                      <SelectItem value="US">Estados Unidos</SelectItem>
+                      <SelectItem value="MX">México</SelectItem>
+                      <SelectItem value="ES">España</SelectItem>
+                      <SelectItem value="CO">Colombia</SelectItem>
+                      <SelectItem value="PA">Panamá</SelectItem>
+                      <SelectItem value="PR">Puerto Rico</SelectItem>
+                      <SelectItem value="CR">Costa Rica</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
               </Field>
               <Field label="Dirección fiscal" className="md:col-span-2" locked={isLocked}>
                 <Input
@@ -674,6 +820,48 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                   className={isLocked ? "bg-muted/40 cursor-not-allowed opacity-70" : ""}
                 />
               </Field>
+
+              {/* Emisor extra fields — read-only, from XML raw data */}
+              {(invoice.source_type === "xml" || invoice.source_type === "ecf") && rawData && (
+                <>
+                  <div className="md:col-span-2 -mb-1 mt-1">
+                    <div className="h-px bg-border/50" />
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 mt-2 block">Datos del emisor (XML)</span>
+                  </div>
+                  {rawData.fecha_emision ? (
+                    <Field label="Fecha de emisión">
+                      <div className="flex h-9 items-center text-xs text-muted-foreground">{rawData.fecha_emision as string}</div>
+                    </Field>
+                  ) : null}
+                  {rawData.fecha_vencimiento_secuencia ? (
+                    <Field label="Vencimiento de secuencia NCF">
+                      <div className="flex h-9 items-center text-xs text-muted-foreground">{rawData.fecha_vencimiento_secuencia as string}</div>
+                    </Field>
+                  ) : null}
+                  {rawData.nombre_comercial ? (
+                    <Field label="Nombre comercial">
+                      <div className="flex h-9 items-center text-xs text-muted-foreground">{rawData.nombre_comercial as string}</div>
+                    </Field>
+                  ) : null}
+                  {rawData.correo_emisor ? (
+                    <Field label="Correo electrónico">
+                      <div className="flex h-9 items-center text-xs text-muted-foreground">{rawData.correo_emisor as string}</div>
+                    </Field>
+                  ) : null}
+                  {rawData.sucursal ? (
+                    <Field label="Sucursal">
+                      <div className="flex h-9 items-center text-xs text-muted-foreground">{rawData.sucursal as string}</div>
+                    </Field>
+                  ) : null}
+                  {(rawData.municipio_emisor || rawData.provincia_emisor) ? (
+                    <Field label="Ubicación">
+                      <div className="flex h-9 items-center text-xs text-muted-foreground">
+                        {[rawData.municipio_emisor as string, rawData.provincia_emisor as string].filter(Boolean).join(", ")}
+                      </div>
+                    </Field>
+                  ) : null}
+                </>
+              )}
             </CardContent>
           </Card>
 
@@ -770,111 +958,155 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
             );
           })()}
 
-          {/* ── Metadatos Operativos ── */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <CardTitle>Metadatos operativos</CardTitle>
-                {!isLocked ? (
-                  <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-200 bg-emerald-50">
-                    Editable
-                  </Badge>
+          {/* ── Comprador (e-CF 31/44/45 only) ── */}
+          {(invoice.source_type === "xml" || invoice.source_type === "ecf") && !isIncome && editable.ecf_type && ["31", "44", "45"].includes(editable.ecf_type) && rawData && (
+            <Card className="border-indigo-500/5">
+              <CardHeader>
+                <CardTitle>Comprador</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-2">
+                <Field label="RNC Comprador">
+                  <Input
+                    value={editable.rnc_comprador ?? ""}
+                    onChange={(event) => setEditable((prev) => ({ ...prev, rnc_comprador: event.target.value }))}
+                    disabled={isTrashed || isLocked}
+                    className={isLocked ? "bg-muted/40 cursor-not-allowed opacity-70" : ""}
+                  />
+                </Field>
+                {rawData.razon_social_comprador ? (
+                  <Field label="Razón social">
+                    <div className="flex h-9 items-center text-xs text-muted-foreground">{rawData.razon_social_comprador as string}</div>
+                  </Field>
                 ) : null}
-              </div>
-            </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-2">
-              <Field label={isIncome ? "Tipo de ingreso DGII" : "Categoría DGII"}>
-                <Select
-                  value={validCategoryCode(
-                    editable.category,
-                    isIncome
-                      ? new Set(incomeTypeOptions.map((o) => o.value))
-                      : new Set(DGII_CATEGORIES.map((c) => c.code))
-                  )}
-                  onValueChange={(value) => setEditable((prev) => ({ ...prev, category: value }))}
-                  disabled={isTrashed}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={isIncome ? "Sin tipo de ingreso" : "Sin categoría"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {isIncome
-                        ? incomeTypeOptions.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
-                          ))
-                        : DGII_CATEGORIES.map((cat) => (
-                            <SelectItem key={cat.code} value={cat.code}>
-                              {cat.label}
-                            </SelectItem>
-                          ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Estado de pago">
-                <Select
-                  value={(editable.payment_status ?? "") as string}
-                  onValueChange={(value) => setEditable((prev) => ({ ...prev, payment_status: value || null }))}
-                  disabled={isTrashed}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sin definir" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="pending">Pendiente</SelectItem>
-                      <SelectItem value="paid">Pagado</SelectItem>
-                      <SelectItem value="overdue">Vencido</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Cuenta contable">
-                <Input
-                  value={editable.accounting_account_id ?? ""}
-                  onChange={(event) => setEditable((prev) => ({ ...prev, accounting_account_id: event.target.value }))}
-                  disabled={isTrashed}
-                />
-              </Field>
-              <Field label="Centro de costo">
-                <Input
-                  value={editable.cost_center_id ?? ""}
-                  onChange={(event) => setEditable((prev) => ({ ...prev, cost_center_id: event.target.value }))}
-                  disabled={isTrashed}
-                />
-              </Field>
-              <Field label="Tags (separados por coma)" className="md:col-span-2">
-                <Input
-                  value={Array.isArray(editable.tags) ? editable.tags.join(", ") : ""}
-                  onChange={(event) =>
-                    setEditable((prev) => ({
-                      ...prev,
-                      tags: event.target.value ? event.target.value.split(",").map((t) => t.trim()).filter(Boolean) : [],
-                    }))
-                  }
-                  disabled={isTrashed}
-                  placeholder="oficina, papelería, mensual"
-                />
-              </Field>
-              <Field label="Notas internas" className="md:col-span-2">
-                <Textarea
-                  value={editable.internal_notes ?? ""}
-                  onChange={(event) => setEditable((prev) => ({ ...prev, internal_notes: event.target.value }))}
-                  disabled={isTrashed}
-                />
-              </Field>
-              <Field label="Descripción" className="md:col-span-2">
-                <Textarea
-                  value={editable.description ?? ""}
-                  onChange={(event) => setEditable((prev) => ({ ...prev, description: event.target.value }))}
-                  disabled={isTrashed}
-                />
-              </Field>
-            </CardContent>
-          </Card>
+                {rawData.direccion_comprador ? (
+                  <Field label="Dirección" className="md:col-span-2">
+                    <div className="flex h-9 items-center text-xs text-muted-foreground">{rawData.direccion_comprador as string}</div>
+                  </Field>
+                ) : null}
+                {rawData.correo_comprador ? (
+                  <Field label="Correo">
+                    <div className="flex h-9 items-center text-xs text-muted-foreground">{rawData.correo_comprador as string}</div>
+                  </Field>
+                ) : null}
+                {(rawData.municipio_comprador || rawData.provincia_comprador) ? (
+                  <Field label="Ubicación">
+                    <div className="flex h-9 items-center text-xs text-muted-foreground">
+                      {[rawData.municipio_comprador as string, rawData.provincia_comprador as string].filter(Boolean).join(", ")}
+                    </div>
+                  </Field>
+                ) : null}
+                {rawData.contacto_comprador ? (
+                  <Field label="Contacto">
+                    <div className="flex h-9 items-center text-xs text-muted-foreground">{rawData.contacto_comprador as string}</div>
+                  </Field>
+                ) : null}
+                {rawData.numero_orden_compra ? (
+                  <Field label="Orden de compra #">
+                    <div className="flex h-9 items-center text-xs text-muted-foreground">{rawData.numero_orden_compra as string}</div>
+                  </Field>
+                ) : null}
+                {rawData.identificador_extranjero ? (
+                  <Field label="Id. Extranjero">
+                    <div className="flex h-9 items-center text-xs text-muted-foreground">{rawData.identificador_extranjero as string}</div>
+                  </Field>
+                ) : null}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── Desglose Fiscal (from XML Totales) ── */}
+          {(invoice.source_type === "xml" || invoice.source_type === "ecf") && rawData && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Desglose fiscal</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-3">
+                {rawData.monto_gravado_total != null ? (
+                  <div className="space-y-1 rounded-lg border border-border/60 bg-muted/20 p-3">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Monto gravado</span>
+                    <p className="font-mono tabular-nums text-sm">
+                      {new Intl.NumberFormat("es-DO", { style: "currency", currency: editable.currency || invoice.currency || "DOP" }).format(rawData.monto_gravado_total as number)}
+                    </p>
+                  </div>
+                ) : null}
+                {rawData.monto_exento != null ? (
+                  <div className="space-y-1 rounded-lg border border-border/60 bg-muted/20 p-3">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Monto exento</span>
+                    <p className="font-mono tabular-nums text-sm">
+                      {new Intl.NumberFormat("es-DO", { style: "currency", currency: editable.currency || invoice.currency || "DOP" }).format(rawData.monto_exento as number)}
+                    </p>
+                  </div>
+                ) : null}
+                {rawData.total_itbis_retenido != null ? (
+                  <div className="space-y-1 rounded-lg border border-amber-500/20 bg-amber-500/[0.03] p-3">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">ITBIS retenido</span>
+                    <p className="font-mono tabular-nums text-sm">
+                      {new Intl.NumberFormat("es-DO", { style: "currency", currency: editable.currency || invoice.currency || "DOP" }).format(rawData.total_itbis_retenido as number)}
+                    </p>
+                  </div>
+                ) : null}
+                {rawData.total_isr_retencion != null ? (
+                  <div className="space-y-1 rounded-lg border border-amber-500/20 bg-amber-500/[0.03] p-3">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">ISR retenido</span>
+                    <p className="font-mono tabular-nums text-sm">
+                      {new Intl.NumberFormat("es-DO", { style: "currency", currency: editable.currency || invoice.currency || "DOP" }).format(rawData.total_isr_retencion as number)}
+                    </p>
+                  </div>
+                ) : null}
+                {rawData.total_itbis_percepcion != null ? (
+                  <div className="space-y-1 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.03] p-3">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">ITBIS percepción</span>
+                    <p className="font-mono tabular-nums text-sm">
+                      {new Intl.NumberFormat("es-DO", { style: "currency", currency: editable.currency || invoice.currency || "DOP" }).format(rawData.total_itbis_percepcion as number)}
+                    </p>
+                  </div>
+                ) : null}
+                {rawData.total_isr_percepcion != null ? (
+                  <div className="space-y-1 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.03] p-3">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">ISR percepción</span>
+                    <p className="font-mono tabular-nums text-sm">
+                      {new Intl.NumberFormat("es-DO", { style: "currency", currency: editable.currency || invoice.currency || "DOP" }).format(rawData.total_isr_percepcion as number)}
+                    </p>
+                  </div>
+                ) : null}
+
+                {/* Per-bracket ITBIS breakdown — only if detailed data exists */}
+                {(rawData.total_itbis1 != null || rawData.total_itbis2 != null || rawData.total_itbis3 != null) ? (
+                  <div className="md:col-span-3 space-y-2 rounded-lg border border-border/60 bg-muted/10 p-3">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Desglose ITBIS por tasa</span>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {rawData.total_itbis1 != null ? (
+                        <div className="flex items-center justify-between rounded-md border border-border/40 bg-background px-3 py-2">
+                          <span className="text-xs text-muted-foreground">Tasa {String(rawData.itbis1 ?? "?")}%</span>
+                          <span className="font-mono tabular-nums text-xs font-medium">
+                            {new Intl.NumberFormat("es-DO", { style: "currency", currency: editable.currency || invoice.currency || "DOP", maximumFractionDigits: 2 }).format(rawData.total_itbis1 as number)}
+                          </span>
+                        </div>
+                      ) : null}
+                      {rawData.total_itbis2 != null ? (
+                        <div className="flex items-center justify-between rounded-md border border-border/40 bg-background px-3 py-2">
+                          <span className="text-xs text-muted-foreground">Tasa {String(rawData.itbis2 ?? "?")}%</span>
+                          <span className="font-mono tabular-nums text-xs font-medium">
+                            {new Intl.NumberFormat("es-DO", { style: "currency", currency: editable.currency || invoice.currency || "DOP", maximumFractionDigits: 2 }).format(rawData.total_itbis2 as number)}
+                          </span>
+                        </div>
+                      ) : null}
+                      {rawData.total_itbis3 != null ? (
+                        <div className="flex items-center justify-between rounded-md border border-border/40 bg-background px-3 py-2">
+                          <span className="text-xs text-muted-foreground">Tasa {String(rawData.itbis3 ?? "?")}%</span>
+                          <span className="font-mono tabular-nums text-xs font-medium">
+                            {new Intl.NumberFormat("es-DO", { style: "currency", currency: editable.currency || invoice.currency || "DOP", maximumFractionDigits: 2 }).format(rawData.total_itbis3 as number)}
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          )}
+
+
 
           {invoice.line_items.length > 0 ? (
             <Card>
@@ -949,7 +1181,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                       Tipo {invoice.ecf_type}
                     </Badge>
                   ) : null}
-                  {invoice.source_type === "xml" ? (
+                  {invoice.source_type === "xml" || invoice.source_type === "ecf" ? (
                     <p className="text-[10px] text-muted-foreground/60">
                       Haz clic en <Code2 className="size-3 inline" /> para ver el XML crudo
                     </p>
@@ -1037,7 +1269,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                 </span>
               </div>
               <div className="flex justify-between py-1">
-                <span className="text-muted-foreground">ITBIS</span>
+                <span className="text-muted-foreground">ITBIS <span className="text-[10px]">{getItbisDetail(invoice).rate}</span></span>
                 <span className="font-mono tabular-nums">
                   {new Intl.NumberFormat("es-DO", { style: "currency", currency: editable.currency || invoice.currency || "USD" }).format(editable.tax_amount ?? 0)}
                 </span>
@@ -1047,6 +1279,178 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                 <span className="font-medium text-foreground">Total</span>
                 <span className="font-mono tabular-nums font-semibold text-foreground">{amount}</span>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* ── Metadatos Operativos ── */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">Metadatos operativos</CardTitle>
+                <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-200 bg-emerald-50">
+                  Editable
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3 text-xs">
+              {/* Categoría DGII */}
+              <Field label={isIncome ? "Tipo de ingreso DGII" : "Categoría DGII"}>
+                <Select
+                  value={validCategoryCode(
+                    editable.category,
+                    isIncome
+                      ? new Set(incomeTypeOptions.map((o) => o.value))
+                      : new Set(DGII_CATEGORIES.map((c) => c.code))
+                  )}
+                  onValueChange={(value) => setEditable((prev) => ({ ...prev, category: value }))}
+                  disabled={isTrashed}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder={isIncome ? "Sin tipo de ingreso" : "Sin categoría"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {isIncome
+                        ? incomeTypeOptions.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))
+                        : DGII_CATEGORIES.map((cat) => (
+                            <SelectItem key={cat.code} value={cat.code}>
+                              {cat.label}
+                            </SelectItem>
+                          ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              {/* Condición de pago */}
+              <Field label="Condición de pago">
+                <Select
+                  value={editable.payment_condition || "contado"}
+                  onValueChange={(value) => setEditable((prev) => ({ ...prev, payment_condition: value }))}
+                  disabled={isTrashed}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Seleccionar condición" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="contado">Contado</SelectItem>
+                    <SelectItem value="credito">Crédito</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              {/* Forma de pago (DGII) */}
+              <Field label="Forma de pago (DGII)">
+                <Select
+                  value={editable.payment_method || "none"}
+                  onValueChange={(value) => setEditable((prev) => ({ ...prev, payment_method: value === "none" ? null : value }))}
+                  disabled={isTrashed}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="No especificada" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No especificada / Pendiente</SelectItem>
+                    <SelectItem value="01">01 - Efectivo</SelectItem>
+                    <SelectItem value="02">02 - Cheque / Transferencia / Depósito</SelectItem>
+                    <SelectItem value="03">03 - Tarjeta de Crédito / Débito</SelectItem>
+                    <SelectItem value="04">04 - Compra a Crédito</SelectItem>
+                    <SelectItem value="05">05 - Permuta</SelectItem>
+                    <SelectItem value="06">06 - Notas de Crédito / Bonos</SelectItem>
+                    <SelectItem value="07">07 - Mixto / Otras Formas de Pago</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              {/* Estado de pago */}
+              <Field label="Estado de pago">
+                <Select
+                  value={editable.payment_status || "pending"}
+                  onValueChange={(value) => {
+                    setEditable((prev) => {
+                      const next = { ...prev, payment_status: value };
+                      if (value !== "paid") {
+                        next.payment_date = null;
+                      } else if (!next.payment_date) {
+                        next.payment_date = new Date().toISOString();
+                      }
+                      return next;
+                    });
+                  }}
+                  disabled={isTrashed}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Seleccionar estado" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">Pendiente</SelectItem>
+                    <SelectItem value="paid">Pagado</SelectItem>
+                    <SelectItem value="overdue">Vencido</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              {/* Cuenta Bancaria */}
+              <Field label="Cuenta bancaria asociada">
+                <Select
+                  value={editable.bank_account_id || "none"}
+                  onValueChange={(value) => setEditable((prev) => ({ ...prev, bank_account_id: value === "none" ? null : value }))}
+                  disabled={isTrashed}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="No asociada" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No asociada / Ninguna</SelectItem>
+                    {bankAccountsQuery.data?.map((acc) => (
+                      <SelectItem key={acc.id} value={acc.id}>
+                        {acc.name} ({new Intl.NumberFormat("es-DO", { style: "currency", currency: "DOP" }).format(acc.balance)})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              {/* Fecha de vencimiento (solo si es crédito) */}
+              {editable.payment_condition === "credito" && (
+                <Field label="Fecha de vencimiento">
+                  <Input
+                    type="date"
+                    value={editable.due_date ? editable.due_date.split("T")[0] : ""}
+                    onChange={(event) => setEditable((prev) => ({ ...prev, due_date: event.target.value || null }))}
+                    disabled={isTrashed}
+                    className="h-8 text-xs"
+                  />
+                </Field>
+              )}
+
+              {/* Fecha de pago (solo si está pagado) */}
+              {editable.payment_status === "paid" && (
+                <Field label="Fecha de pago">
+                  <Input
+                    type="date"
+                    value={editable.payment_date ? editable.payment_date.split("T")[0] : ""}
+                    onChange={(event) => setEditable((prev) => ({ ...prev, payment_date: event.target.value || null }))}
+                    disabled={isTrashed}
+                    className="h-8 text-xs"
+                  />
+                </Field>
+              )}
+
+              {/* Descripción */}
+              <Field label="Descripción interna / Notas">
+                <Textarea
+                  value={editable.description ?? ""}
+                  onChange={(event) => setEditable((prev) => ({ ...prev, description: event.target.value }))}
+                  disabled={isTrashed}
+                  className="text-xs min-h-[60px] resize-y"
+                  placeholder="Notas operativas internas sobre este comprobante..."
+                />
+              </Field>
             </CardContent>
           </Card>
         </div>

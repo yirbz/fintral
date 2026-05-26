@@ -74,7 +74,7 @@ class PipelineOrchestrator:
                     confidence=result.confidence,
                 )
                 self._resolve_direction(normalized, org_rnc)
-                self._categorize_data(normalized, invoice, db)
+                self._categorize_data(normalized, invoice, db, source_type=source_type)
                 validated = post_extraction_validator.validate(normalized, org_rnc=org_rnc)
                 return True, validated, source_type
 
@@ -89,7 +89,7 @@ class PipelineOrchestrator:
                 )
                 if success:
                     ai_data["quality_warnings"] = result.warnings
-                    self._categorize_data(ai_data, invoice, db)
+                    self._categorize_data(ai_data, invoice, db, source_type=ai_source)
                     validated = post_extraction_validator.validate(ai_data, org_rnc=org_rnc)
                     return True, validated, ai_source
                 return success, ai_data, ai_source
@@ -100,7 +100,7 @@ class PipelineOrchestrator:
                 confidence=result.confidence,
             )
             self._resolve_direction(normalized, org_rnc)
-            self._categorize_data(normalized, invoice, db)
+            self._categorize_data(normalized, invoice, db, source_type=source_type)
             validated = post_extraction_validator.validate(normalized, org_rnc=org_rnc)
             return result.success, validated, source_type
 
@@ -108,8 +108,13 @@ class PipelineOrchestrator:
             logger.exception("Pipeline error processing %s: %s", file_path, e)
             return False, {"error": "Ocurrió un error interno al procesar el documento. Intenta de nuevo o sube un archivo con mejor calidad."}, None
 
-    def _categorize_data(self, data: Dict[str, Any], invoice, db: Optional[Session]) -> None:
-        """Apply 3-tier categorization cascade to the normalized data."""
+    def _categorize_data(self, data: Dict[str, Any], invoice, db: Optional[Session], source_type: Optional[str] = None) -> None:
+        """Apply 3-tier categorization cascade to the normalized data.
+
+        For structured sources (ecf/xml) the LLM layer is text-only and
+        its result is auto-saved as TenantVendorRule so subsequent invoices
+        from the same vendor are resolved at Layer 1 (deterministic).
+        """
         tenant_id = str(invoice.tenant_id) if invoice and hasattr(invoice, "tenant_id") else None
         if not tenant_id:
             return
@@ -121,11 +126,18 @@ class PipelineOrchestrator:
             tenant_id=tenant_id,
             transaction_type=data.get("transaction_type"),
             db=db,
+            source_type=source_type,
+            ecf_type=data.get("ecf_type"),
         )
 
         if cat_result.get("dgii_category_code"):
-            data["category"] = cat_result["dgii_category_code"]
+            data["goods_services_type"] = cat_result["dgii_category_code"]
+            data["category"] = cat_result["dgii_category_code"] or data.get("category") or "02"
             data["category_source"] = cat_result.get("source", "none")
+            if cat_result.get("requires_review"):
+                data.setdefault("audit_warnings", []).append(
+                    "Categoría asignada por defecto — requiere revisión manual"
+                )
 
     def _resolve_direction(self, data: Dict[str, Any], org_rnc: Optional[str]) -> None:
         """Resolve transaction_type for e-CF invoices by comparing RNCs.
@@ -161,10 +173,15 @@ class PipelineOrchestrator:
             data["transaction_type"] = "income"
         elif clean_comprador == clean_org:
             data["transaction_type"] = "expense"
-        elif ecf_type in ("31", "32", "33", "34", "42"):
-            data["transaction_type"] = "income"
         else:
+            # Neither RNC matches: the org is neither issuer nor buyer.
+            # Default to expense (the org most likely received a supplier invoice).
             data["transaction_type"] = "expense"
+
+        # Income invoices should appear in AR until the client pays.
+        # The normalizer defaults contado → "paid", but for income that is wrong.
+        if data.get("transaction_type") == "income" and not data.get("payment_date"):
+            data["payment_status"] = "pending"
 
 
     def _process_by_strategy(

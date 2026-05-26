@@ -136,3 +136,10 @@ XERO_REDIRECT_URI: str = os.getenv("XERO_REDIRECT_URI", "http://localhost:8003/a
 # Heartbeat
 # ---------------------------------------------------------------------------
 DISABLE_HEARTBEAT_TASK: bool = os.getenv("DISABLE_HEARTBEAT_TASK", "false").lower() == "true"
+
+# ---------------------------------------------------------------------------
+# Alanube API
+# ---------------------------------------------------------------------------
+ALANUBE_API_URL: str = os.getenv("ALANUBE_API_URL", "https://sandbox-api.alanube.co/dom/v1")
+ALANUBE_JWT: str = os.getenv("ALANUBE_JWT", "")
+
