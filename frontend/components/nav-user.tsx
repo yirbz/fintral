@@ -17,9 +17,10 @@ import {
 import { EllipsisVerticalIcon, UserIcon, BellIcon, LogOutIcon, Settings2 } from "lucide-react"
 import Link from "next/link"
 
-export function NavUser({ user }: { user: { name: string; email: string; avatar: string } }) {
+export function NavUser({ user, isBilling }: { user: { name: string; email: string; avatar: string }; isBilling?: boolean }) {
   const { isMobile } = useSidebar()
   const { data: session, isLoading } = useSession()
+  const settingsPath = isBilling ? "/billing/settings" : "/dashboard/settings/profile"
   const [displayName, setDisplayName] = useState(user.name)
   const [displayEmail, setDisplayEmail] = useState(user.email)
   const [displayAvatar, setDisplayAvatar] = useState(user.avatar)
@@ -81,19 +82,19 @@ export function NavUser({ user }: { user: { name: string; email: string; avatar:
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem asChild>
-                <Link href="/dashboard/settings/profile" className="flex items-center gap-2">
+                <Link href={settingsPath} className="flex items-center gap-2">
                   <UserIcon className="size-4" />
                   Perfil
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href="/dashboard/settings/profile" className="flex items-center gap-2">
+                <Link href={settingsPath} className="flex items-center gap-2">
                   <Settings2 className="size-4" />
                   Ajustes
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href="/dashboard/settings/notifications" className="flex items-center gap-2">
+                <Link href={isBilling ? "/billing/settings" : "/dashboard/settings/notifications"} className="flex items-center gap-2">
                   <BellIcon className="size-4" />
                   Notificaciones
                 </Link>

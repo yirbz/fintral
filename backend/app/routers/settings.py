@@ -207,8 +207,23 @@ async def update_organization(
     if not org:
         raise HTTPException(status_code=404, detail="Organización no encontrada")
 
-    # Validate RNC (Dominican format: 11 digits with check digit)
-    if body.tax_id:
+    # Prevent changing RNC/cédula once it has been set
+    if org.tax_id:
+        import re as _re
+        clean_old_rnc = _re.sub(r"\D", "", org.tax_id)
+        if not body.tax_id:
+            raise HTTPException(
+                status_code=400,
+                detail="El RNC/Cédula no puede ser eliminado una vez registrado."
+            )
+        clean_new_rnc = _re.sub(r"\D", "", body.tax_id)
+        if clean_new_rnc != clean_old_rnc:
+            raise HTTPException(
+                status_code=400,
+                detail="El RNC/Cédula no puede ser modificado una vez registrado."
+            )
+    elif body.tax_id:
+        # Validate RNC (Dominican format: 11 digits with check digit)
         import re as _re
         rnc = _re.sub(r"\D", "", body.tax_id)
         if not _is_valid_rnc(rnc):

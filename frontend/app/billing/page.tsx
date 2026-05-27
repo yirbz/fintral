@@ -21,11 +21,13 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { VerificationBanner } from "@/components/billing/verification-banner";
 
 export default function BillingDashboard() {
   const [invoices, setInvoices] = useState<BillingInvoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [transmittingId, setTransmittingId] = useState<string | null>(null);
+  const [isEcfAuthorized, setIsEcfAuthorized] = useState<boolean>(true);
 
   const fetchInvoices = async () => {
     try {
@@ -39,19 +41,30 @@ export default function BillingDashboard() {
     }
   };
 
+  const fetchVerificationStatus = async () => {
+    try {
+      const status = await billingApi.getVerificationStatus();
+      setIsEcfAuthorized(status.is_ecf_authorized);
+    } catch (err) {
+      console.error("Error checking verification status:", err);
+      setIsEcfAuthorized(false);
+    }
+  };
+
   useEffect(() => {
     fetchInvoices();
+    fetchVerificationStatus();
   }, []);
 
   const handleTransmit = async (id: string) => {
     try {
       setTransmittingId(id);
-      toast.info("Transmitiendo comprobante a Alanube / DGII...");
+      toast.info("Emitiendo y certificando factura ante la DGII...");
       const result = await billingApi.transmitInvoice(id);
       toast.success(`Factura emitida con éxito. NCF: ${result.invoice.invoice_number}`);
       fetchInvoices();
     } catch (err: any) {
-      toast.error("Error de transmisión: " + (err.message || "Error desconocido"));
+      toast.error("Error al emitir factura: " + (err.message || "Error desconocido"));
     } finally {
       setTransmittingId(null);
     }
@@ -113,21 +126,23 @@ export default function BillingDashboard() {
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-foreground md:text-2xl">
-            Módulo de Facturación
+            Fintral Factura
           </h2>
           <p className="text-sm text-muted-foreground">
-            Emisión de facturas electrónicas e-CF y tradicionales integradas con Alanube.
+            Emisión de facturas y comprobantes fiscales con certificación de la DGII en tiempo real.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Link href="/billing/quick" passHref>
-            <Button className="h-8 rounded-md bg-[#533afd] text-white hover:bg-[#533afd]/90 text-xs gap-1.5 px-3">
+            <Button className="h-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-xs gap-1.5 px-3">
               <PlusCircle className="size-3.5" />
               Nueva Factura
             </Button>
           </Link>
         </div>
       </div>
+
+      {!isEcfAuthorized && <VerificationBanner />}
 
       {/* Metrics Row */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -157,7 +172,7 @@ export default function BillingDashboard() {
             <CardTitle className="text-xs font-medium text-muted-foreground">
               ITBIS Recaudado
             </CardTitle>
-            <TrendingUp className="size-4 text-[#533afd]" />
+            <TrendingUp className="size-4 text-primary" />
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -206,7 +221,7 @@ export default function BillingDashboard() {
               <div className="text-xl font-bold text-foreground">{draftCount}</div>
             )}
             <p className="text-[10px] text-muted-foreground mt-1">
-              Por transmitir a Alanube
+              Pendientes de emisión
             </p>
           </CardContent>
         </Card>
@@ -217,7 +232,7 @@ export default function BillingDashboard() {
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold">Facturas Recientes</CardTitle>
           <CardDescription className="text-xs">
-            Lista de las últimas facturas creadas y su estado de transmisión fiscal.
+            Lista de las últimas facturas creadas y su estado de certificación fiscal.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">

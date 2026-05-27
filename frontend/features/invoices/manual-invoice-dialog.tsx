@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Plus, Trash2, Calculator, ChevronRightIcon, Info, AlertCircle } from "lucide-react";
+import { Plus, Trash2, Calculator, ChevronRightIcon, Info, AlertCircle, Loader2 } from "lucide-react";
 
 import { useFormDraft } from "@/hooks/use-form-draft";
 
@@ -26,6 +26,8 @@ import {
 import { DgiiSelect } from "@/components/dgii-select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { CreateInvoicePayload } from "@/lib/api/invoices";
+import { dgiiService } from "@/lib/services/dgii";
+import { consultRncAction } from "@/app/actions/dgii";
 
 const COUNTRIES = [
   { code: "DOM", label: "República Dominicana" },
@@ -71,6 +73,54 @@ export function ManualInvoiceDialog({
   const [vendorTaxId, setVendorTaxId] = useState("");
   const [vendorCountry, setVendorCountry] = useState("");
   const [vendorFiscalAddress, setVendorFiscalAddress] = useState("");
+
+  const [verifyingVendorRnc, setVerifyingVendorRnc] = useState(false);
+  const [vendorRncFeedback, setVendorRncFeedback] = useState<{
+    success: boolean;
+    name?: string;
+    message?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setVendorRncFeedback(null);
+      setVerifyingVendorRnc(false);
+      return;
+    }
+    const clean = dgiiService.cleanRNC(vendorTaxId);
+    if (clean.length === 9 || clean.length === 11) {
+      if (dgiiService.isValidRNC(clean)) {
+        let active = true;
+        const lookup = async () => {
+          setVerifyingVendorRnc(true);
+          setVendorRncFeedback(null);
+          try {
+            const data = await consultRncAction(clean);
+            if (!active) return;
+            if (data && data.name) {
+              setVendorRncFeedback({ success: true, name: data.name });
+              if (!vendorName.trim()) {
+                setVendorName(data.name);
+              }
+            } else {
+              setVendorRncFeedback({ success: false, message: "No encontrado en padrón DGII" });
+            }
+          } catch (e) {
+            if (!active) return;
+            setVendorRncFeedback({ success: false, message: "Error de conexión con DGII" });
+          } finally {
+            if (active) setVerifyingVendorRnc(false);
+          }
+        };
+        lookup();
+        return () => { active = false; };
+      } else {
+        setVendorRncFeedback({ success: false, message: "RNC/Cédula inválido (checksum)" });
+      }
+    } else {
+      setVendorRncFeedback(null);
+    }
+  }, [vendorTaxId, open, vendorName]);
 
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
@@ -276,6 +326,31 @@ export function ManualInvoiceDialog({
                   className={`font-mono ${errors.vendorTaxId ? "border-destructive" : ""}`}
                 />
                 {errors.vendorTaxId ? <p className="mt-0.5 text-[10px] text-destructive">{errors.vendorTaxId}</p> : null}
+                {verifyingVendorRnc && (
+                  <p className="text-[10px] text-sky-400 flex items-center gap-1.5 animate-pulse mt-1">
+                    <Loader2 className="size-3 animate-spin" />
+                    Buscando RNC en DGII...
+                  </p>
+                )}
+                {vendorRncFeedback && !verifyingVendorRnc && (
+                  <p className={`text-[10px] flex items-center gap-1 mt-1 ${
+                    vendorRncFeedback.success ? "text-emerald-500" : "text-amber-500"
+                  }`}>
+                    {vendorRncFeedback.success ? (
+                      <>
+                        <svg className="size-3 shrink-0" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="2 6 4.5 8.5 10 3" />
+                        </svg>
+                        <span>Verificado: <strong>{vendorRncFeedback.name}</strong></span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="shrink-0 text-[10px]">⚠</span>
+                        <span>{vendorRncFeedback.message}</span>
+                      </>
+                    )}
+                  </p>
+                )}
               </div>
               <div>
                 <Label>País</Label>

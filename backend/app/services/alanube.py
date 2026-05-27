@@ -21,9 +21,9 @@ class AlanubeService:
     async def create_company(self, company_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Dar de alta a una empresa en la API de Alanube
-        POST /companies
+        POST /company
         """
-        url = f"{self.api_url}/companies"
+        url = f"{self.api_url}/company"
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.post(url, json=company_data, headers=self._get_headers(), timeout=30.0)
@@ -34,6 +34,83 @@ class AlanubeService:
                 raise Exception(f"Alanube API Error: {e.response.text}")
             except Exception as e:
                 logger.error(f"Unexpected error creating company: {e}")
+                raise e
+
+    async def patch_company(self, company_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Actualizar datos de una empresa (ej. certificado digital) en Alanube
+        PATCH /company
+        """
+        url = f"{self.api_url}/company"
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.patch(url, json=company_data, headers=self._get_headers(), timeout=30.0)
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                logger.error(f"Alanube error patching company: {e.response.text}")
+                raise Exception(f"Alanube API Error: {e.response.text}")
+            except Exception as e:
+                logger.error(f"Unexpected error patching company: {e}")
+                raise e
+
+    async def sign_document(self, xml_content: bytes) -> Dict[str, Any]:
+        """
+        Firmar un XML con el certificado de la empresa configurado en Alanube
+        POST /sign-document
+        """
+        url = f"{self.api_url}/sign-document"
+        files = {"xml": ("document.xml", xml_content, "application/xml")}
+        headers = {
+            "Authorization": f"Bearer {self.jwt_token}",
+            "Accept": "application/json"
+        }
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(url, files=files, headers=headers, timeout=30.0)
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                logger.error(f"Alanube error signing document: {e.response.text}")
+                raise Exception(f"Alanube API Error: {e.response.text}")
+            except Exception as e:
+                logger.error(f"Unexpected error signing document: {e}")
+                raise e
+
+    async def create_set_test(self, set_test_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Crear/Iniciar set de pruebas ante la DGII en Alanube
+        POST /set-tests
+        """
+        url = f"{self.api_url}/set-tests"
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(url, json=set_test_data, headers=self._get_headers(), timeout=30.0)
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                logger.error(f"Alanube error creating set test: {e.response.text}")
+                raise Exception(f"Alanube API Error: {e.response.text}")
+            except Exception as e:
+                logger.error(f"Unexpected error creating set test: {e}")
+                raise e
+
+    async def check_set_test_status(self, set_test_id: str) -> Dict[str, Any]:
+        """
+        Consultar el estado del set de pruebas ante la DGII
+        GET /check-set-tests/{id}
+        """
+        url = f"{self.api_url}/check-set-tests/{set_test_id}"
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url, headers=self._get_headers(), timeout=30.0)
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                logger.error(f"Alanube error checking set test status: {e.response.text}")
+                raise Exception(f"Alanube API Error: {e.response.text}")
+            except Exception as e:
+                logger.error(f"Unexpected error checking set test status: {e}")
                 raise e
 
     async def emit_document(self, ecf_type: int, payload: Dict[str, Any], company_id: Optional[str] = None) -> Dict[str, Any]:
@@ -71,6 +148,24 @@ class AlanubeService:
                 raise Exception(f"Alanube API Error: {e.response.text}")
             except Exception as e:
                 logger.error(f"Unexpected error emitting e-CF {ecf_type}: {e}")
+                raise e
+
+    async def verify_connection(self) -> Dict[str, Any]:
+        """
+        Test the Alanube connection by fetching the company associated with the token
+        GET /companies/self
+        """
+        url = f"{self.api_url}/companies/self"
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url, headers=self._get_headers(), timeout=15.0)
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                logger.error(f"Alanube connection test failed: {e.response.text}")
+                raise Exception(f"Alanube API Error: {e.response.text}")
+            except Exception as e:
+                logger.error(f"Unexpected error testing connection: {e}")
                 raise e
 
     async def check_document_status(self, ecf_type: int, doc_id: str, pdf_type: str = "generic") -> Dict[str, Any]:

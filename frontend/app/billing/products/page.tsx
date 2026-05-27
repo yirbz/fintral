@@ -126,7 +126,7 @@ export default function ProductsPage() {
         <div>
           <Button
             onClick={openCreateDialog}
-            className="h-8 rounded-md bg-[#533afd] text-white hover:bg-[#533afd]/90 text-xs gap-1.5 px-3"
+            className="h-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-xs gap-1.5 px-3"
           >
             <PlusCircle className="size-3.5" />
             Agregar Producto/Servicio
@@ -173,7 +173,7 @@ export default function ProductsPage() {
                 <TableBody>
                   {products.map((product) => (
                     <TableRow key={product.id}>
-                      <TableCell className="font-mono text-xs py-3 font-semibold text-[#533afd]">
+                      <TableCell className="font-mono text-xs py-3 font-semibold text-primary">
                         {product.internal_code || "-"}
                       </TableCell>
                       <TableCell className="text-xs py-3">
@@ -188,7 +188,7 @@ export default function ProductsPage() {
                         {formatCurrency(product.price)}
                       </TableCell>
                       <TableCell className="text-xs py-3">
-                        <Badge className="bg-[#533afd]/10 text-[#533afd] border-[#533afd]/20 text-[11px] h-5 px-2">
+                        <Badge className="bg-primary/10 text-primary border-primary/20 text-[11px] h-5 px-2">
                           <Percent className="size-2.5 mr-0.5" />
                           {product.tax_rate}%
                         </Badge>
@@ -317,7 +317,7 @@ export default function ProductsPage() {
               <Button
                 type="submit"
                 disabled={submitting}
-                className="h-8 rounded-md bg-[#533afd] text-white hover:bg-[#533afd]/90 text-xs px-3 gap-1.5"
+                className="h-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-xs px-3 gap-1.5"
               >
                 {submitting && <Loader2 className="size-3 animate-spin" />}
                 {isEdit ? "Guardar Cambios" : "Agregar"}

@@ -56,6 +56,11 @@ const data = {
       icon: <FileTextIcon />,
     },
     {
+      title: "Fintral Factura",
+      url: "/billing",
+      icon: <PlusCircleIcon />,
+    },
+    {
       title: "Papelera",
       url: "/dashboard/invoices/trash",
       icon: <Trash2Icon />,
@@ -131,7 +136,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   }, [])
 
   const getLink = (path: string) => {
-    return isBillingSubdomain ? path : `/billing${path === "/" ? "" : path}`
+    if (typeof window === "undefined") {
+      return `/billing${path === "/" ? "" : path}`
+    }
+    const isSub = window.location.hostname.startsWith("factura.")
+    if (isSub) {
+      return path
+    }
+    return `/billing${path === "/" ? "" : path}`
   }
 
   const getHubUrl = () => {
@@ -182,6 +194,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       title: "Secuencias NCF",
       url: getLink("/sequences"),
       icon: <GridIcon />,
+    },
+    {
+      title: "Ajustes",
+      url: getLink("/settings"),
+      icon: <Settings2Icon />,
     },
   ]
 
@@ -239,7 +256,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavSecondary items={navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={user} />
+        <NavUser user={user} isBilling={isBillingSubdomain} />
       </SidebarFooter>
     </Sidebar>
   )

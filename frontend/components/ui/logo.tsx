@@ -25,8 +25,16 @@ export function Logo({ variant = "dark", size = "md", showWordmark = true, class
   };
 
   const barStyles = {
-    dark: { top: "bg-sky-400", mid: "bg-sky-300", bot: "bg-white" },
-    light: { top: "bg-sky-500", mid: "bg-sky-400", bot: "bg-zinc-950" }
+    dark: {
+      top: { backgroundColor: "var(--logo-primary)" },
+      mid: { backgroundColor: "var(--logo-secondary)" },
+      bot: { backgroundColor: "#ffffff" }
+    },
+    light: {
+      top: { backgroundColor: "var(--logo-light-primary)" },
+      mid: { backgroundColor: "var(--logo-primary)" },
+      bot: { backgroundColor: "#09090b" } // zinc-950
+    }
   };
 
   const wordmarkStyles = {
@@ -38,9 +46,9 @@ export function Logo({ variant = "dark", size = "md", showWordmark = true, class
     <div className={cn("flex items-center gap-3", className)}>
       <div className={cn("rounded-lg flex items-center justify-center", sizeConfig.container, containerStyles[variant])}>
         <div className="flex flex-col gap-1.5">
-          <div className={cn("rounded-sm", sizeConfig.bars.top, barStyles[variant].top)} />
-          <div className={cn("rounded-sm", sizeConfig.bars.mid, barStyles[variant].mid)} />
-          <div className={cn("rounded-sm", sizeConfig.bars.bot, barStyles[variant].bot)} />
+          <div className={cn("rounded-sm", sizeConfig.bars.top)} style={barStyles[variant].top} />
+          <div className={cn("rounded-sm", sizeConfig.bars.mid)} style={barStyles[variant].mid} />
+          <div className={cn("rounded-sm", sizeConfig.bars.bot)} style={barStyles[variant].bot} />
         </div>
       </div>
       {showWordmark && (
@@ -61,8 +69,8 @@ export function LogoMark({ className }: { className?: string }) {
       aria-label="Fintral"
     >
       <rect width="40" height="40" rx="8" fill="#09090b" />
-      <rect x="10" y="11" width="20" height="3.5" rx="1" fill="#38BDF8" />
-      <rect x="10" y="18.25" width="14" height="3.5" rx="1" fill="#7DD3FC" />
+      <rect x="10" y="11" width="20" height="3.5" rx="1" fill="var(--logo-primary)" />
+      <rect x="10" y="18.25" width="14" height="3.5" rx="1" fill="var(--logo-secondary)" />
       <rect x="10" y="25.5" width="9" height="3.5" rx="1" fill="white" />
     </svg>
   );

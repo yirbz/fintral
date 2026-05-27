@@ -1,6 +1,4 @@
-import json
 from uuid import UUID
-from datetime import date
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -8,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
 from app.dependencies.tenant import TenantContext, require_tenant
-from app.models import Tenant, Organization, User, Client, Product, EcfSequence, Invoice
+from app.models import Tenant, Organization, User, EcfSequence, Invoice
 
 
 @pytest.fixture()
@@ -21,6 +19,11 @@ def db_session():
 
 
 def test_billing_crud_endpoints(db_session, test_tenant, test_user, test_org):
+    # Set the test organization as certified for electronic billing
+    org = db_session.query(Organization).get(test_org.id)
+    org.is_ecf_authorized = True
+    db_session.commit()
+
     from app.factory import create_app
     app = create_app()
     # Setup dependency override
@@ -161,6 +164,33 @@ def test_billing_crud_endpoints(db_session, test_tenant, test_user, test_org):
 
         inv_uuid = inv_data["id"]
 
+        # Create draft credit invoice to test due date and condition calculation
+        inv_payload_credit = {
+            "client_id": client_uuid,
+            "ecf_type": 31,
+            "payment_type": 2, # 2 is Credit
+            "payment_method": 2,
+            "items": [
+                {
+                    "product_id": prod_uuid,
+                    "quantity": 1.0,
+                    "unit_price": 100.0,
+                    "discount_rate": 0.0
+                }
+            ]
+        }
+        res_credit = client.post("/api/billing/invoices", json=inv_payload_credit)
+        assert res_credit.status_code == 200
+        credit_data = res_credit.json()
+        assert credit_data["payment_condition"] == "credito"
+        assert credit_data["due_date"] is not None
+
+        # Clean up credit invoice
+        credit_inv_to_del = db_session.query(Invoice).get(UUID(credit_data["id"]))
+        if credit_inv_to_del:
+            db_session.delete(credit_inv_to_del)
+            db_session.commit()
+
         # Mock Alanube emit call
         mock_alanube_response = {
             "id": "mock-alanube-uuid",
@@ -202,3 +232,206 @@ def test_billing_crud_endpoints(db_session, test_tenant, test_user, test_org):
 
     finally:
         app.dependency_overrides.clear()
+
+
+def test_billing_sequence_validation(db_session, test_tenant, test_user, test_org):
+    from app.factory import create_app
+    app = create_app()
+    def mock_require_tenant():
+        tenant = db_session.query(Tenant).get(test_tenant.id)
+        org = db_session.query(Organization).get(test_org.id)
+        user = db_session.query(User).get(test_user.id)
+        return TenantContext(
+            db=db_session,
+            user=user,
+            tenant=tenant,
+            tenant_id=test_tenant.id,
+            org_id=test_org.id,
+            organization=org,
+            role="owner"
+        )
+    app.dependency_overrides[require_tenant] = mock_require_tenant
+    client = TestClient(app)
+
+    try:
+        # 1. Invalid prefix
+        res = client.post("/api/billing/sequences", json={
+            "ecf_type": 31,
+            "prefix": "A",
+            "start_number": 1,
+            "end_number": 100,
+            "current_number": 0,
+            "expiry_date": "2028-12-31"
+        })
+        assert res.status_code == 422
+
+        # 2. Negative numbers
+        res = client.post("/api/billing/sequences", json={
+            "ecf_type": 31,
+            "prefix": "E",
+            "start_number": -5,
+            "end_number": 100,
+            "current_number": 0,
+            "expiry_date": "2028-12-31"
+        })
+        assert res.status_code == 422
+
+        # 3. Start number > End number
+        res = client.post("/api/billing/sequences", json={
+            "ecf_type": 31,
+            "prefix": "E",
+            "start_number": 500,
+            "end_number": 100,
+            "current_number": 0,
+            "expiry_date": "2028-12-31"
+        })
+        assert res.status_code == 422
+
+        # 4. Expired date
+        res = client.post("/api/billing/sequences", json={
+            "ecf_type": 31,
+            "prefix": "E",
+            "start_number": 1,
+            "end_number": 100,
+            "current_number": 0,
+            "expiry_date": "2020-01-01"
+        })
+        assert res.status_code == 422
+
+        # 5. Invalid prefix-type alignment (e.g. type 31 is electronic, but trying to set prefix B)
+        res = client.post("/api/billing/sequences", json={
+            "ecf_type": 31,
+            "prefix": "B",
+            "start_number": 1,
+            "end_number": 100,
+            "current_number": 0,
+            "expiry_date": "2028-12-31"
+        })
+        assert res.status_code == 422
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_billing_ecf_verification_flow(db_session, test_tenant, test_user, test_org):
+    # Ensure it is false initially
+    org = db_session.query(Organization).get(test_org.id)
+    org.is_ecf_authorized = False
+    db_session.commit()
+
+    from app.factory import create_app
+    app = create_app()
+    def mock_require_tenant():
+        tenant = db_session.query(Tenant).get(test_tenant.id)
+        org = db_session.query(Organization).get(test_org.id)
+        user = db_session.query(User).get(test_user.id)
+        return TenantContext(
+            db=db_session,
+            user=user,
+            tenant=tenant,
+            tenant_id=test_tenant.id,
+            org_id=test_org.id,
+            organization=org,
+            role="owner"
+        )
+    app.dependency_overrides[require_tenant] = mock_require_tenant
+    client = TestClient(app)
+
+    from unittest.mock import patch, AsyncMock
+    import io
+
+    mock_service_instance = AsyncMock()
+    mock_service_instance.create_company.return_value = {"id": "123"}
+    mock_service_instance.patch_company.return_value = {}
+    mock_service_instance.sign_document.return_value = {"url": "https://dummy/signed.xml"}
+    mock_service_instance.create_set_test.return_value = {"id": "test-track-123", "status": "processing"}
+    mock_service_instance.check_set_test_status.return_value = {"status": "approved"}
+
+    with patch("app.routers.billing.AlanubeService", return_value=mock_service_instance):
+        try:
+            # 1. Get verification status (should be false)
+            res = client.get("/api/billing/verification-status")
+            assert res.status_code == 200
+            assert res.json()["is_ecf_authorized"] is False
+            assert res.json()["certification_status"] == "none"
+
+            # 2. Try to create electronic sequence (should fail)
+            res_seq = client.post("/api/billing/sequences", json={
+                "ecf_type": 31,
+                "prefix": "E",
+                "start_number": 100,
+                "end_number": 200,
+                "current_number": 99,
+                "expiry_date": "2028-12-31"
+            })
+            assert res_seq.status_code == 400
+            assert "no está verificada" in res_seq.json()["detail"]
+
+            # 3. Create traditional physical sequence (should succeed regardless)
+            res_seq_phys = client.post("/api/billing/sequences", json={
+                "ecf_type": 1,
+                "prefix": "B",
+                "start_number": 1,
+                "end_number": 100,
+                "current_number": 0,
+                "expiry_date": "2028-12-31"
+            })
+            assert res_seq_phys.status_code == 200
+            phys_seq_id = res_seq_phys.json()["id"]
+
+            # 4. Step 1 & 2: Register company and upload certificate
+            certificate_file = ("cert.p12", io.BytesIO(b"dummy_p12_content"))
+            res_reg = client.post(
+                "/api/billing/certification/register",
+                data={
+                    "rnc": "132109122",
+                    "business_name": "Test Company",
+                    "trade_name": "Test Company Trade",
+                    "economic_activity": "Servicios de Software / TI",
+                    "branch_office_address": "Av. Churchill",
+                    "province": "Distrito Nacional",
+                    "municipality": "Santo Domingo",
+                    "certificate_password": "password123",
+                },
+                files={
+                    "certificate": certificate_file
+                }
+            )
+            assert res_reg.status_code == 200
+            assert res_reg.json()["status"] == "certificate_uploaded"
+
+            # Step 3: Start set test
+            res_start = client.post("/api/billing/certification/start-set-test")
+            assert res_start.status_code == 200
+            assert res_start.json()["status"] == "set_test_running"
+
+            # Step 3b: Poll set test status (which returns approved and authorizes org)
+            res_poll = client.get("/api/billing/certification/set-test-status")
+            assert res_poll.status_code == 200
+            assert res_poll.json()["status"] == "COMPLETED"
+            assert res_poll.json()["result"] == "APPROVED"
+
+            # 5. Check status again (should be true)
+            res_status_2 = client.get("/api/billing/verification-status")
+            assert res_status_2.status_code == 200
+            assert res_status_2.json()["is_ecf_authorized"] is True
+            assert res_status_2.json()["certification_status"] == "certified"
+
+            # 6. Try to create electronic sequence (should now succeed)
+            res_seq_elec = client.post("/api/billing/sequences", json={
+                "ecf_type": 31,
+                "prefix": "E",
+                "start_number": 100,
+                "end_number": 200,
+                "current_number": 99,
+                "expiry_date": "2028-12-31"
+            })
+            assert res_seq_elec.status_code == 200
+            elec_seq_id = res_seq_elec.json()["id"]
+
+            # Cleanup
+            client.delete(f"/api/billing/sequences/{phys_seq_id}")
+            client.delete(f"/api/billing/sequences/{elec_seq_id}")
+
+        finally:
+            app.dependency_overrides.clear()

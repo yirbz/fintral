@@ -86,6 +86,26 @@ export interface BillingInvoice {
   client?: Client;
 }
 
+export interface VerificationStatus {
+  is_ecf_authorized: boolean;
+  certification_status: "none" | "company_registered" | "certificate_uploaded" | "set_test_running" | "set_test_approved" | "certified" | "set_test_rejected";
+  alanube_company_id?: string;
+  alanube_environment?: string;
+  certificate_uploaded_at?: string;
+  tax_id?: string;
+  name?: string;
+  economic_activity?: string;
+  fiscal_address?: string;
+}
+
+export async function testAlanubeConnection(data: { api_url: string; jwt_token: string }) {
+  return apiFetch<{ ok: boolean; company?: unknown; error?: string }>("/api/billing/alanube/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
 export const billingApi = {
   // Clients
   getClients: () => apiFetch<Client[]>("/api/billing/clients"),
@@ -157,4 +177,45 @@ export const billingApi = {
     apiFetch<{ status: string; invoice: BillingInvoice }>(`/api/billing/invoices/${id}/transmit`, {
       method: "POST",
     }),
+
+  // Verification & Settings
+  getVerificationStatus: () =>
+    apiFetch<VerificationStatus>("/api/billing/verification-status"),
+  registerCompany: (formData: FormData) =>
+    apiFetch<{ message: string; status: string }>("/api/billing/certification/register", {
+      method: "POST",
+      body: formData,
+    }),
+  startSetTest: () =>
+    apiFetch<{ message: string; track_id: string; status: string }>("/api/billing/certification/start-set-test", {
+      method: "POST",
+    }),
+  checkSetTestStatus: () =>
+    apiFetch<{
+      status: "PROCESSING" | "COMPLETED" | "FAILED";
+      result?: "APPROVED" | "REJECTED";
+      details?: any;
+    }>("/api/billing/certification/set-test-status"),
+
+  updateProfile: (data: { full_name: string; job_title?: string; phone?: string }) =>
+    apiFetch<any>("/api/settings/profile", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  updateOrganization: (data: {
+    name: string;
+    tax_id?: string;
+    phone?: string;
+    email_contact?: string;
+    website?: string;
+    country?: string;
+    fiscal_address?: string;
+  }) =>
+    apiFetch<any>("/api/settings/organization", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  getOrganization: () => apiFetch<any>("/api/settings/organization"),
 };

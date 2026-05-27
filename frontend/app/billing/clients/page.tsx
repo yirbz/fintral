@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Skeleton } from "@/components/ui/skeleton";
 import { UserPlus, Edit2, Trash2, Mail, Phone, MapPin, Hash, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { dgiiService } from "@/lib/services/dgii";
+import { consultRncAction } from "@/app/actions/dgii";
 
 export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([]);
@@ -26,6 +28,53 @@ export default function ClientsPage() {
     address: "",
   });
   const [submitting, setSubmitting] = useState(false);
+  const [verifyingClientRnc, setVerifyingClientRnc] = useState(false);
+  const [clientRncFeedback, setClientRncFeedback] = useState<{
+    success: boolean;
+    name?: string;
+    message?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!dialogOpen) {
+      setClientRncFeedback(null);
+      setVerifyingClientRnc(false);
+      return;
+    }
+    const clean = dgiiService.cleanRNC(form.tax_id || "");
+    if (clean.length === 9 || clean.length === 11) {
+      if (dgiiService.isValidRNC(clean)) {
+        let active = true;
+        const lookup = async () => {
+          setVerifyingClientRnc(true);
+          setClientRncFeedback(null);
+          try {
+            const data = await consultRncAction(clean);
+            if (!active) return;
+            if (data && data.name) {
+              setClientRncFeedback({ success: true, name: data.name });
+              if (!form.name.trim()) {
+                setForm(prev => ({ ...prev, name: data.name }));
+              }
+            } else {
+              setClientRncFeedback({ success: false, message: "No encontrado en padrón DGII" });
+            }
+          } catch (e) {
+            if (!active) return;
+            setClientRncFeedback({ success: false, message: "Error de conexión con DGII" });
+          } finally {
+            if (active) setVerifyingClientRnc(false);
+          }
+        };
+        lookup();
+        return () => { active = false; };
+      } else {
+        setClientRncFeedback({ success: false, message: "RNC/Cédula inválido (checksum)" });
+      }
+    } else {
+      setClientRncFeedback(null);
+    }
+  }, [form.tax_id, dialogOpen]);
 
   const fetchClients = async () => {
     try {
@@ -114,7 +163,7 @@ export default function ClientsPage() {
         <div>
           <Button
             onClick={openCreateDialog}
-            className="h-8 rounded-md bg-[#533afd] text-white hover:bg-[#533afd]/90 text-xs gap-1.5 px-3"
+            className="h-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-xs gap-1.5 px-3"
           >
             <UserPlus className="size-3.5" />
             Registrar Cliente
@@ -164,14 +213,14 @@ export default function ClientsPage() {
                       <TableCell className="font-semibold text-xs py-3">{client.name}</TableCell>
                       <TableCell className="font-mono text-xs py-3">
                         <span className="flex items-center gap-1 text-muted-foreground">
-                          <Hash className="size-3 text-[#533afd]" />
+                          <Hash className="size-3 text-primary" />
                           {client.tax_id}
                         </span>
                       </TableCell>
                       <TableCell className="text-xs py-3 space-y-0.5">
                         {client.email && (
                           <div className="flex items-center gap-1.5 text-muted-foreground">
-                            <Mail className="size-3 text-[#533afd]" />
+                            <Mail className="size-3 text-primary" />
                             <span>{client.email}</span>
                           </div>
                         )}
@@ -254,10 +303,35 @@ export default function ClientsPage() {
                 <input
                   type="text"
                   placeholder="Ej. 132-10912-2"
-                  className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-xs ring-offset-background placeholder:text-muted-foreground/60 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-xs ring-offset-background placeholder:text-muted-foreground/60 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
                   value={form.tax_id}
                   onChange={(e) => setForm({ ...form, tax_id: e.target.value })}
                 />
+                {verifyingClientRnc && (
+                  <p className="text-[10px] text-sky-400 flex items-center gap-1.5 animate-pulse mt-0.5">
+                    <Loader2 className="size-3 animate-spin" />
+                    Buscando RNC en DGII...
+                  </p>
+                )}
+                {clientRncFeedback && !verifyingClientRnc && (
+                  <p className={`text-[10px] flex items-center gap-1 mt-0.5 ${
+                    clientRncFeedback.success ? "text-emerald-500" : "text-amber-500"
+                  }`}>
+                    {clientRncFeedback.success ? (
+                      <>
+                        <svg className="size-3 shrink-0" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="2 6 4.5 8.5 10 3" />
+                        </svg>
+                        <span>Verificado: <strong>{clientRncFeedback.name}</strong></span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="shrink-0 text-[10px]">⚠</span>
+                        <span>{clientRncFeedback.message}</span>
+                      </>
+                    )}
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -307,7 +381,7 @@ export default function ClientsPage() {
               <Button
                 type="submit"
                 disabled={submitting}
-                className="h-8 rounded-md bg-[#533afd] text-white hover:bg-[#533afd]/90 text-xs px-3 gap-1.5"
+                className="h-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-xs px-3 gap-1.5"
               >
                 {submitting && <Loader2 className="size-3 animate-spin" />}
                 {isEdit ? "Guardar Cambios" : "Registrar"}

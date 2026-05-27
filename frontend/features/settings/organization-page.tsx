@@ -16,6 +16,7 @@ import {
   MapPin,
   Link,
   Hash,
+  Lock,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -287,13 +288,20 @@ export function OrganizationPage() {
                 RNC / Tax ID
               </Label>
               <div className="relative">
-                <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                {orgQuery.data?.tax_id ? (
+                  <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                ) : (
+                  <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                )}
                 <Input
                   value={taxId}
                   onChange={(e) => setTaxId(e.target.value.replace(/\D/g, ""))}
                   placeholder="000000000"
                   maxLength={11}
+                  disabled={!!orgQuery.data?.tax_id}
                   className={`pl-8 pr-14 font-mono tracking-wider ${
+                    orgQuery.data?.tax_id ? "bg-muted cursor-not-allowed opacity-80" : ""
+                  } ${
                     taxId.length > 0 && taxId.length !== 9 && taxId.length !== 11
                       ? "border-amber-500/50 focus-visible:ring-amber-500/30"
                       : taxId.length === 9 || taxId.length === 11
@@ -301,20 +309,24 @@ export function OrganizationPage() {
                       : ""
                   }`}
                 />
-                <span
-                  className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono ${
-                    taxId.length === 9 || taxId.length === 11
-                      ? "text-emerald-600"
-                      : taxId.length > 0
-                      ? "text-amber-600"
-                      : "text-muted-foreground"
-                  }`}
-                >
-                  {taxId.length}/{taxId.length <= 9 ? 9 : 11}
-                </span>
+                {!orgQuery.data?.tax_id && (
+                  <span
+                    className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono ${
+                      taxId.length === 9 || taxId.length === 11
+                        ? "text-emerald-600"
+                        : taxId.length > 0
+                        ? "text-amber-600"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    {taxId.length}/{taxId.length <= 9 ? 9 : 11}
+                  </span>
+                )}
               </div>
               <p className="mt-1 text-[10px] text-muted-foreground">
-                9 dígitos (empresa/persona jurídica) · 11 dígitos (cédula/persona física) · Validación DGII
+                {orgQuery.data?.tax_id
+                  ? "El RNC/Cédula está bloqueado y no puede ser modificado por cumplimiento fiscal."
+                  : "9 dígitos (empresa/persona jurídica) · 11 dígitos (cédula/persona física) · Validación DGII"}
               </p>
             </div>
 

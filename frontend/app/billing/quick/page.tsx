@@ -30,6 +30,7 @@ export default function QuickBillingPage() {
   const [paymentType, setPaymentType] = useState<number>(1); // 1: Contado, 2: Crédito
   const [paymentMethod, setPaymentMethod] = useState<number>(2); // 1: Efectivo, 2: Transf, 3: Tarjeta
   const [ecfType, setEcfType] = useState<number>(31); // 31: Crédito Fiscal, 32: Consumo
+  const [isEcfAuthorized, setIsEcfAuthorized] = useState<boolean>(true);
 
   // Cart
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -44,15 +45,23 @@ export default function QuickBillingPage() {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const [cList, pList] = await Promise.all([billingApi.getClients(), billingApi.getProducts()]);
+        const [cList, pList, status] = await Promise.all([
+          billingApi.getClients(),
+          billingApi.getProducts(),
+          billingApi.getVerificationStatus(),
+        ]);
         setClients(cList);
         setProducts(pList);
+        setIsEcfAuthorized(status.is_ecf_authorized);
 
         if (cList.length > 0) setSelectedClientId(cList[0].id);
         if (pList.length > 0) {
           setSelectedProductId(pList[0].id);
           setAddPrice(pList[0].price);
         }
+
+        // Set initial type based on authorization
+        setEcfType(status.is_ecf_authorized ? 31 : 1);
       } catch (err: any) {
         toast.error("Error al cargar datos: " + (err.message || "Error desconocido"));
       } finally {
@@ -130,6 +139,12 @@ export default function QuickBillingPage() {
       return;
     }
 
+    const isEcf = [31, 32, 34, 43].includes(ecfType);
+    if (isEcf && !isEcfAuthorized) {
+      toast.error("Tu organización debe estar certificada ante la DGII para emitir comprobantes electrónicos.");
+      return;
+    }
+
     const payload: InvoiceCreate = {
       client_id: selectedClientId || undefined,
       ecf_type: ecfType,
@@ -149,9 +164,13 @@ export default function QuickBillingPage() {
       const invoice = await billingApi.createInvoice(payload);
 
       if (transmitImmediately) {
-        toast.info("Comprobante creado. Transmitiendo a Alanube / DGII...");
+        toast.info("Comprobante creado. Certificando ante la DGII...");
         const result = await billingApi.transmitInvoice(invoice.id);
-        toast.success(`Factura e-CF emitida y certificada: ${result.invoice.invoice_number}`);
+        if (isEcf) {
+          toast.success(`Factura e-CF emitida y certificada: ${result.invoice.invoice_number}`);
+        } else {
+          toast.success(`Factura física registrada con éxito. NCF asignado: ${result.invoice.invoice_number}`);
+        }
         router.push("/billing");
       } else {
         toast.success("Borrador de factura guardado exitosamente");
@@ -200,7 +219,7 @@ export default function QuickBillingPage() {
           <Card className="border border-border/50 bg-card/50">
             <CardHeader className="py-4">
               <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
-                <User className="size-4 text-[#533afd]" />
+                <User className="size-4 text-primary" />
                 Datos de Emisión
               </CardTitle>
             </CardHeader>
@@ -225,14 +244,24 @@ export default function QuickBillingPage() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-muted-foreground">Tipo e-CF</label>
+                <label className="text-xs font-semibold text-muted-foreground">Tipo Comprobante</label>
                 <select
                   className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
                   value={ecfType}
-                  onChange={(e) => setEcfType(parseInt(e.target.value) || 31)}
+                  onChange={(e) => setEcfType(parseInt(e.target.value) || (isEcfAuthorized ? 31 : 1))}
                 >
-                  <option value="31">Crédito Fiscal (31)</option>
-                  <option value="32">Consumidor Final (32)</option>
+                  <optgroup label="Facturación Electrónica (e-CF)">
+                    <option value="31" disabled={!isEcfAuthorized}>
+                      Crédito Fiscal (31) {!isEcfAuthorized ? " (Requiere Certificación)" : ""}
+                    </option>
+                    <option value="32" disabled={!isEcfAuthorized}>
+                      Consumidor Final (32) {!isEcfAuthorized ? " (Requiere Certificación)" : ""}
+                    </option>
+                  </optgroup>
+                  <optgroup label="Facturación Tradicional / Física">
+                    <option value="1">Crédito Fiscal Físico (01)</option>
+                    <option value="2">Consumidor Final Físico (02)</option>
+                  </optgroup>
                 </select>
               </div>
 
@@ -268,7 +297,7 @@ export default function QuickBillingPage() {
           <Card className="border border-border/50 bg-card/50">
             <CardHeader className="py-4">
               <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
-                <ShoppingCart className="size-4 text-[#533afd]" />
+                <ShoppingCart className="size-4 text-primary" />
                 Agregar Concepto / Servicio
               </CardTitle>
             </CardHeader>
@@ -329,7 +358,7 @@ export default function QuickBillingPage() {
                 <Button
                   onClick={addToCart}
                   disabled={products.length === 0}
-                  className="h-8 rounded-md bg-[#533afd] text-white hover:bg-[#533afd]/90 text-xs px-3 gap-1.5"
+                  className="h-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-xs px-3 gap-1.5"
                 >
                   <Plus className="size-3.5" />
                   Añadir Línea
@@ -379,7 +408,7 @@ export default function QuickBillingPage() {
                             {item.discount > 0 ? `${item.discount}%` : "-"}
                           </TableCell>
                           <TableCell className="text-xs py-2">
-                            <Badge className="bg-[#533afd]/10 text-[#533afd] border-[#533afd]/20 text-[10px] h-4">
+                            <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px] h-4">
                               {item.product.tax_rate}%
                             </Badge>
                           </TableCell>
@@ -408,14 +437,14 @@ export default function QuickBillingPage() {
 
         {/* Right Side: Total calculations & Transmission actions */}
         <div className="lg:col-span-4">
-          <Card className="border border-border bg-[#533afd]/5 relative overflow-hidden backdrop-blur-xs">
+          <Card className="border border-border bg-primary/5 relative overflow-hidden backdrop-blur-xs">
             <div className="absolute top-0 right-0 p-3 opacity-15">
-              <Sparkles className="size-24 text-[#533afd]" />
+              <Sparkles className="size-24 text-primary" />
             </div>
 
             <CardHeader className="border-b border-border/50 pb-4">
               <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
-                <CreditCard className="size-4 text-[#533afd]" />
+                <CreditCard className="size-4 text-primary" />
                 Resumen de Totales
               </CardTitle>
               <CardDescription className="text-xs">
@@ -440,7 +469,7 @@ export default function QuickBillingPage() {
 
               <div className="border-t border-border/50 pt-3 flex justify-between items-baseline">
                 <span className="text-xs font-bold text-foreground">Total Factura</span>
-                <span className="text-lg font-extrabold text-[#533afd]">
+                <span className="text-lg font-extrabold text-primary">
                   {formatCurrency(totals.total)}
                 </span>
               </div>
@@ -449,14 +478,14 @@ export default function QuickBillingPage() {
               <Button
                 onClick={() => handleSaveInvoice(true)}
                 disabled={submitting || cart.length === 0}
-                className="w-full h-9 rounded-md bg-[#533afd] text-white hover:bg-[#533afd]/90 text-xs px-3 gap-1.5"
+                className="w-full h-9 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-xs px-3 gap-1.5"
               >
                 {submitting ? (
                   <Loader2 className="size-3.5 animate-spin" />
                 ) : (
                   <Send className="size-3.5" />
                 )}
-                Transmitir y Emitir e-CF
+                {[31, 32].includes(ecfType) ? "Transmitir y Emitir e-CF" : "Emitir Comprobante Físico"}
               </Button>
               <Button
                 onClick={() => handleSaveInvoice(false)}

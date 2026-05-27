@@ -1,15 +1,13 @@
 import json
 import logging
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field, EmailStr
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, UploadFile, File, Form
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.database import get_db
 from app.dependencies.tenant import TenantContext, require_tenant
 from app.models import Client, Product, EcfSequence, Invoice
 from app.services.alanube import AlanubeService
@@ -79,6 +77,52 @@ class EcfSequenceCreate(BaseModel):
     current_number: int
     expiry_date: Optional[date] = None
 
+    @field_validator("prefix")
+    @classmethod
+    def validate_prefix(cls, v: str) -> str:
+        v_upper = v.upper().strip()
+        if v_upper not in ("E", "B"):
+            raise ValueError("El prefijo de la secuencia debe ser 'E' (Electrónico) o 'B' (Físico/Tradicional).")
+        return v_upper
+
+    @field_validator("start_number", "end_number")
+    @classmethod
+    def validate_positive_numbers(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("El número de secuencia debe ser mayor que cero.")
+        return v
+
+    @field_validator("current_number")
+    @classmethod
+    def validate_non_negative(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("El número actual no puede ser negativo.")
+        return v
+
+    @field_validator("expiry_date")
+    @classmethod
+    def validate_expiry_date(cls, v: Optional[date]) -> Optional[date]:
+        if v is not None and v < date.today():
+            raise ValueError("La fecha de vencimiento no puede estar en el pasado.")
+        return v
+
+    @model_validator(mode="after")
+    def validate_ranges(self) -> "EcfSequenceCreate":
+        if self.start_number > self.end_number:
+            raise ValueError("El número inicial del rango no puede ser mayor que el número final.")
+        if self.current_number < self.start_number - 1:
+            raise ValueError(f"El número actual ({self.current_number}) debe ser mayor o igual al número inicial - 1 ({self.start_number - 1}).")
+        if self.current_number > self.end_number:
+            raise ValueError(f"El número actual ({self.current_number}) no puede exceder el número final del rango ({self.end_number}).")
+        
+        is_electronic = self.ecf_type in (31, 32, 34, 43, 44, 45)
+        if is_electronic and self.prefix != "E":
+            raise ValueError(f"Para comprobantes electrónicos (tipo {self.ecf_type}), el prefijo debe ser 'E'.")
+        elif not is_electronic and self.prefix != "B":
+            raise ValueError(f"Para comprobantes tradicionales/físicos (tipo {self.ecf_type}), el prefijo debe ser 'B'.")
+            
+        return self
+
 class EcfSequenceUpdate(BaseModel):
     prefix: Optional[str] = None
     start_number: Optional[int] = None
@@ -86,6 +130,37 @@ class EcfSequenceUpdate(BaseModel):
     current_number: Optional[int] = None
     expiry_date: Optional[date] = None
     is_active: Optional[bool] = None
+
+    @field_validator("prefix")
+    @classmethod
+    def validate_prefix(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            v_upper = v.upper().strip()
+            if v_upper not in ("E", "B"):
+                raise ValueError("El prefijo de la secuencia debe ser 'E' o 'B'.")
+            return v_upper
+        return v
+
+    @field_validator("start_number", "end_number")
+    @classmethod
+    def validate_positive_numbers(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and v <= 0:
+            raise ValueError("El número de secuencia debe ser mayor que cero.")
+        return v
+
+    @field_validator("current_number")
+    @classmethod
+    def validate_non_negative(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and v < 0:
+            raise ValueError("El número actual no puede ser negativo.")
+        return v
+
+    @field_validator("expiry_date")
+    @classmethod
+    def validate_expiry_date(cls, v: Optional[date]) -> Optional[date]:
+        if v is not None and v < date.today():
+            raise ValueError("La fecha de vencimiento no puede estar en el pasado.")
+        return v
 
 class InvoiceLineItem(BaseModel):
     product_id: str
@@ -297,6 +372,13 @@ async def list_sequences(ctx: TenantContext = Depends(require_tenant)):
 
 @router.post("/sequences", response_model=EcfSequenceSchema)
 async def create_sequence(payload: EcfSequenceCreate, ctx: TenantContext = Depends(require_tenant)):
+    is_electronic = payload.ecf_type in (31, 32, 34, 43, 44, 45)
+    if is_electronic and not ctx.organization.is_ecf_authorized:
+        raise HTTPException(
+            status_code=400,
+            detail="Tu empresa no está verificada como emisor electrónico ante la DGII. Solo puedes registrar secuencias de comprobantes físicos."
+        )
+
     # Deactivate existing active sequences of same type
     ctx.db.query(EcfSequence).filter(
         EcfSequence.tenant_id == ctx.tenant_id,
@@ -347,6 +429,20 @@ async def update_sequence(sequence_id: str, payload: EcfSequenceUpdate, ctx: Ten
     if payload.is_active is not None:
         sequence.is_active = payload.is_active
 
+    # Cross-field validation on final state
+    if sequence.start_number > sequence.end_number:
+        raise HTTPException(status_code=400, detail="El número inicial del rango no puede ser mayor que el número final.")
+    if sequence.current_number < sequence.start_number - 1:
+        raise HTTPException(status_code=400, detail=f"El número actual ({sequence.current_number}) debe ser mayor o igual al número inicial - 1 ({sequence.start_number - 1}).")
+    if sequence.current_number > sequence.end_number:
+        raise HTTPException(status_code=400, detail=f"El número actual ({sequence.current_number}) no puede exceder el número final del rango ({sequence.end_number}).")
+    
+    is_electronic = sequence.ecf_type in (31, 32, 34, 43, 44, 45)
+    if is_electronic and sequence.prefix != "E":
+        raise HTTPException(status_code=400, detail=f"Para comprobantes electrónicos (tipo {sequence.ecf_type}), el prefijo debe ser 'E'.")
+    elif not is_electronic and sequence.prefix != "B":
+        raise HTTPException(status_code=400, detail=f"Para comprobantes tradicionales/físicos (tipo {sequence.ecf_type}), el prefijo debe ser 'B'.")
+
     sequence.updated_at = datetime.utcnow()
     ctx.db.commit()
     ctx.db.refresh(sequence)
@@ -369,6 +465,293 @@ async def delete_sequence(sequence_id: str, ctx: TenantContext = Depends(require
     ctx.db.delete(sequence)
     ctx.db.commit()
     return {"message": "Secuencia eliminada exitosamente"}
+
+class CertificationRegister(BaseModel):
+    rnc: str
+    business_name: str
+    trade_name: Optional[str] = None
+    economic_activity: str
+    branch_office_address: Optional[str] = None
+
+@router.get("/verification-status")
+async def get_verification_status(ctx: TenantContext = Depends(require_tenant)):
+    return {
+        "is_ecf_authorized": ctx.organization.is_ecf_authorized,
+        "certification_status": ctx.organization.certification_status,
+        "alanube_company_id": ctx.organization.alanube_company_id,
+        "alanube_environment": ctx.organization.alanube_environment,
+        "certificate_uploaded_at": ctx.organization.certificate_uploaded_at.isoformat() if ctx.organization.certificate_uploaded_at else None,
+        "tax_id": ctx.organization.tax_id,
+        "name": ctx.organization.name,
+        "economic_activity": ctx.organization.economic_activity,
+        "fiscal_address": ctx.organization.fiscal_address,
+    }
+
+@router.post("/certification/register")
+async def register_company(
+    request: Request,
+    rnc: str = Form(...),
+    business_name: str = Form(...),
+    trade_name: Optional[str] = Form(None),
+    economic_activity: str = Form(...),
+    branch_office_address: str = Form(...),
+    province: str = Form(...),
+    municipality: str = Form(...),
+    certificate: UploadFile = File(...),
+    certificate_password: str = Form(...),
+    ctx: TenantContext = Depends(require_tenant)
+):
+    import base64
+    from app.config import SECRET_KEY
+    from app.utils.dates import utc_now
+    
+    clean_rnc = re.sub(r"[^0-9]", "", rnc)
+    if len(clean_rnc) not in (9, 11):
+        raise HTTPException(
+            status_code=400,
+            detail="El RNC/Cédula debe tener 9 u 11 dígitos."
+        )
+
+    # Verify that the submitted RNC matches the organization's registered RNC
+    org_rnc = re.sub(r"[^0-9]", "", ctx.organization.tax_id or "")
+    if org_rnc and clean_rnc != org_rnc:
+        raise HTTPException(
+            status_code=400,
+            detail="El RNC/Cédula enviado no coincide con el RNC registrado de la organización."
+        )
+
+    filename = certificate.filename or ""
+    if not (filename.endswith(".p12") or filename.endswith(".pfx")):
+        raise HTTPException(
+            status_code=400,
+            detail="El certificado debe ser un archivo con extensión .p12 o .pfx"
+        )
+
+    try:
+        cert_bytes = await certificate.read()
+        cert_b64 = base64.b64encode(cert_bytes).decode("utf-8")
+
+        base_url = str(request.base_url).rstrip("/")
+        webhook_url = f"{base_url}/api/billing/alanube/webhook"
+
+        alanube_payload = {
+            "name": business_name,
+            "tradeName": trade_name or business_name,
+            "identification": clean_rnc,
+            "address": branch_office_address,
+            "province": province,
+            "municipality": municipality,
+            "type": "associated",
+            "certificate": {
+                "name": filename or "certificate.p12",
+                "extension": "p12" if filename.endswith(".p12") else "pfx",
+                "content": cert_b64,
+                "password": certificate_password
+            },
+            "webhooks": {
+                "documents": {
+                    "emissionFinished": {
+                        "status": "active",
+                        "url": webhook_url,
+                        "headers": {
+                            "x-api-key": SECRET_KEY
+                        }
+                    }
+                },
+                "general": {
+                    "governmentStatusChanged": {
+                        "status": "active",
+                        "url": f"{webhook_url}/status",
+                        "headers": {
+                            "x-api-key": SECRET_KEY
+                        }
+                    }
+                }
+            }
+        }
+
+        alanube_service = AlanubeService()
+        res = await alanube_service.create_company(alanube_payload)
+
+        # Sign dummy XML to verify certificate/signature validity
+        now_str = datetime.utcnow().strftime('%d-%m-%Y')
+        dummy_xml = f"""<?xml version="1.0" encoding="utf-8"?>
+<eCF xmlns="http://dgii.gov.do/eCF" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <ECF>
+    <Encabezado>
+      <IdDoc>
+        <TipoeCF>31</TipoeCF>
+        <eNCF>E310000000001</eNCF>
+        <FechaEmision>{now_str}</FechaEmision>
+      </IdDoc>
+      <Emisor>
+        <RNC>{clean_rnc}</RNC>
+        <RazonSocial>{business_name}</RazonSocial>
+      </Emisor>
+      <Comprador>
+        <RNC>132109122</RNC>
+        <RazonSocial>Consumidor Final Prueba</RazonSocial>
+      </Comprador>
+    </Encabezado>
+  </ECF>
+</eCF>"""
+
+        await alanube_service.sign_document(dummy_xml.encode('utf-8'))
+
+        ctx.organization.tax_id = clean_rnc
+        ctx.organization.name = business_name
+        ctx.organization.economic_activity = economic_activity
+        ctx.organization.fiscal_address = branch_office_address
+        ctx.organization.certification_status = "certificate_uploaded"
+        ctx.organization.alanube_company_id = clean_rnc
+        ctx.organization.alanube_environment = "TesteCF"
+        ctx.organization.certificate_uploaded_at = utc_now()
+        ctx.db.commit()
+
+        return {
+            "message": "Empresa y certificado registrados exitosamente en Alanube.",
+            "status": "certificate_uploaded",
+            "alanube_response": res
+        }
+    except Exception as e:
+        logger.exception("Error registering company and certificate with Alanube")
+        err_msg = str(e)
+        if "Unauthorized" in err_msg or "401" in err_msg:
+            detail_msg = "Error de autorización con el proveedor fiscal (Alanube). Verifique que las credenciales (JWT) en la configuración del servidor sean correctas."
+        elif "address" in err_msg or "province" in err_msg or "municipality" in err_msg:
+            detail_msg = "La API de Alanube requiere que proporciones dirección, provincia y municipio completos."
+        elif "contraseña" in err_msg.lower() or "password" in err_msg.lower() or "signature" in err_msg.lower():
+            detail_msg = "La contraseña del certificado digital es incorrecta o el archivo está dañado."
+        elif "Timeout" in err_msg or "timeout" in err_msg:
+            detail_msg = "Se agotó el tiempo de espera al conectar con el proveedor fiscal. Por favor, intente de nuevo."
+        elif "Network" in err_msg or "connection" in err_msg.lower():
+            detail_msg = "Error de conexión con el proveedor fiscal. Verifique el estado del servidor."
+        else:
+            detail_msg = f"Error al procesar el registro fiscal: {err_msg}"
+        raise HTTPException(
+            status_code=500,
+            detail=detail_msg
+        )
+
+@router.post("/certification/start-set-test")
+async def start_set_test(ctx: TenantContext = Depends(require_tenant)):
+    if ctx.organization.certification_status not in ("certificate_uploaded", "set_test_running", "set_test_rejected"):
+        raise HTTPException(
+            status_code=400,
+            detail="Debe registrar la empresa y subir un certificado digital válido antes de iniciar las pruebas."
+        )
+
+    rnc = ctx.organization.alanube_company_id or ctx.organization.tax_id or "132109122"
+    set_test_payload = {
+        "identification": rnc,
+        "environment": "TesteCF"
+    }
+
+    alanube_service = AlanubeService()
+    try:
+        res = await alanube_service.create_set_test(set_test_payload)
+        set_test_id = res.get("id") or res.get("trackId") or "DUMMY_SET_TEST_ID"
+
+        settings_dict = {}
+        if ctx.organization.settings_json:
+            try:
+                settings_dict = json.loads(ctx.organization.settings_json)
+            except Exception:
+                pass
+        settings_dict["alanube_set_test_id"] = set_test_id
+        ctx.organization.settings_json = json.dumps(settings_dict)
+
+        ctx.organization.certification_status = "set_test_running"
+        ctx.db.commit()
+
+        return {
+            "message": "Pruebas de certificación iniciadas exitosamente.",
+            "status": "set_test_running",
+            "track_id": set_test_id
+        }
+    except Exception as e:
+        logger.exception("Error starting set test with Alanube")
+        err_msg = str(e)
+        if "Unauthorized" in err_msg or "401" in err_msg:
+            detail_msg = "Error de autorización con el proveedor fiscal. El token es inválido o no tiene permisos."
+        elif "Timeout" in err_msg or "timeout" in err_msg:
+            detail_msg = "Se agotó el tiempo de espera al iniciar el set de pruebas ante la DGII."
+        else:
+            detail_msg = "No se pudo iniciar el set de pruebas automáticas. Verifique que la empresa esté registrada y el certificado esté cargado."
+        raise HTTPException(
+            status_code=500,
+            detail=detail_msg
+        )
+
+@router.get("/certification/set-test-status")
+async def get_set_test_status(ctx: TenantContext = Depends(require_tenant)):
+    settings_dict = {}
+    if ctx.organization.settings_json:
+        try:
+            settings_dict = json.loads(ctx.organization.settings_json)
+        except Exception:
+            pass
+    
+    set_test_id = settings_dict.get("alanube_set_test_id")
+    if not set_test_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No se encontró ningún set de pruebas activo para esta organización."
+        )
+
+    alanube_service = AlanubeService()
+    try:
+        res = await alanube_service.check_set_test_status(set_test_id)
+        status_raw = res.get("status", "").lower()
+
+        if status_raw in ("approved", "completed", "success"):
+            ctx.organization.certification_status = "certified"
+            ctx.organization.is_ecf_authorized = True
+            ctx.db.commit()
+            return {
+                "status": "COMPLETED",
+                "result": "APPROVED",
+                "details": res
+            }
+        elif status_raw in ("rejected", "failed"):
+            ctx.organization.certification_status = "set_test_rejected"
+            ctx.db.commit()
+            return {
+                "status": "FAILED",
+                "result": "REJECTED",
+                "details": res
+            }
+        else:
+            return {
+                "status": "PROCESSING",
+                "details": res
+            }
+    except Exception as e:
+        logger.exception("Error checking set test status with Alanube")
+        err_msg = str(e)
+        if "Unauthorized" in err_msg or "401" in err_msg:
+            detail_msg = "Error de autorización al consultar el estado de las pruebas en Alanube."
+        elif "Timeout" in err_msg or "timeout" in err_msg:
+            detail_msg = "Se agotó el tiempo de espera al consultar el estado de las pruebas con la DGII."
+        else:
+            detail_msg = "No se pudo obtener el estado de las pruebas automáticas. Intente de nuevo en unos momentos."
+        raise HTTPException(
+            status_code=500,
+            detail=detail_msg
+        )
+
+@router.post("/alanube/webhook")
+async def alanube_webhook(
+    request: Request,
+    x_api_key: Optional[str] = Header(None, alias="x-api-key")
+):
+    from app.config import SECRET_KEY
+    if not x_api_key or x_api_key != SECRET_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    payload = await request.json()
+    logger.info(f"Received webhook from Alanube: {json.dumps(payload)}")
+    return {"status": "ok"}
 
 # ---------------------------------------------------------------------------
 # Issued Invoices CRUD & Transmission
@@ -393,7 +776,6 @@ async def list_issued_invoices(ctx: TenantContext = Depends(require_tenant)):
 @router.post("/invoices")
 async def create_invoice_draft(payload: InvoiceCreate, ctx: TenantContext = Depends(require_tenant)):
     # Fetch client details if provided
-    client_name = "Consumidor Final"
     client_tax_id = None
     if payload.client_id:
         client = ctx.db.query(Client).filter(
@@ -403,7 +785,6 @@ async def create_invoice_draft(payload: InvoiceCreate, ctx: TenantContext = Depe
         ).first()
         if not client:
             raise HTTPException(status_code=422, detail="Cliente no encontrado")
-        client_name = client.name
         client_tax_id = client.tax_id
 
     # Compute calculations based on product details
@@ -447,12 +828,18 @@ async def create_invoice_draft(payload: InvoiceCreate, ctx: TenantContext = Depe
     raw_data = {
         "client_id": payload.client_id,
         "ecf_type": payload.ecf_type,
+        "payment_type": payload.payment_type,
         "payment_method": payload.payment_method,
         "notes": payload.notes,
         "reference_ecf": payload.reference_ecf,
         "reference_date": payload.reference_date.isoformat() if payload.reference_date else None,
         "items": [item.dict() for item in payload.items]
     }
+
+    payment_cond = "credito" if payload.payment_type == 2 else "contado"
+    invoice_due_date = None
+    if payment_cond == "credito":
+        invoice_due_date = datetime.utcnow() + timedelta(days=30)
 
     invoice = Invoice(
         tenant_id=ctx.tenant_id,
@@ -471,7 +858,9 @@ async def create_invoice_draft(payload: InvoiceCreate, ctx: TenantContext = Depe
         processed=False,
         status="draft",
         line_items_data=json.dumps(line_items, ensure_ascii=False),
-        raw_extracted_data=json.dumps(raw_data, ensure_ascii=False)
+        raw_extracted_data=json.dumps(raw_data, ensure_ascii=False),
+        payment_condition=payment_cond,
+        due_date=invoice_due_date
     )
 
     ctx.db.add(invoice)
@@ -528,7 +917,18 @@ async def transmit_invoice(invoice_id: str, ctx: TenantContext = Depends(require
 
     # Increment sequence number
     sequence.current_number += 1
-    encf = f"{sequence.prefix}{ecf_type:02d}{sequence.current_number:010d}"
+    
+    is_electronic = sequence.prefix == "E"
+    if is_electronic:
+        if not ctx.organization.is_ecf_authorized:
+            raise HTTPException(
+                status_code=400,
+                detail="Tu empresa no está verificada como emisor electrónico ante la DGII. Debes completar la verificación en los Ajustes."
+            )
+        encf = f"{sequence.prefix}{ecf_type:02d}{sequence.current_number:010d}"
+    else:
+        encf = f"{sequence.prefix}{ecf_type:02d}{sequence.current_number:08d}"
+
     due_date_str = sequence.expiry_date.isoformat() if sequence.expiry_date else "2028-12-31"
 
     # Fetch client details
@@ -623,6 +1023,40 @@ async def transmit_invoice(invoice_id: str, ctx: TenantContext = Depends(require
         alanube_payload["idDoc"]["referenceEcf"] = raw_data["reference_ecf"]
         alanube_payload["idDoc"]["referenceDate"] = raw_data["reference_date"]
 
+    if not is_electronic:
+        # Bypass Alanube API for traditional/physical NCFs (handled locally)
+        raw_data.update({
+            "security_code": "LOCAL_NCF",
+            "track_id": "LOCAL_NCF",
+            "legal_status": "ACCEPTED",
+            "pdf_url": None,
+            "xml_url": None,
+            "qr_url": None
+        })
+        invoice.invoice_number = encf
+        invoice.status = "verified"  # Locks the invoice in accounting
+        invoice.processed = True
+        invoice.file_path = None
+        invoice.processed_path = None
+        invoice.raw_extracted_data = json.dumps(raw_data, ensure_ascii=False)
+        invoice.updated_at = datetime.utcnow()
+
+        ctx.db.commit()
+        invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
+
+        return {
+            "message": "Factura física emitida exitosamente y registrada localmente",
+            "invoice": invoice.to_dict(),
+            "alanube_response": {
+                "id": "LOCAL_NCF",
+                "trackId": "LOCAL_NCF",
+                "securityCode": "LOCAL_NCF",
+                "legalStatus": "ACCEPTED",
+                "pdfUrl": None,
+                "xmlUrl": None
+            }
+        }
+
     # Call Alanube Service
     alanube_service = AlanubeService()
     try:
@@ -674,3 +1108,21 @@ async def transmit_invoice(invoice_id: str, ctx: TenantContext = Depends(require
             status_code=500,
             detail=f"Error en la comunicación con Alanube: {str(e)}"
         )
+
+# ---------------------------------------------------------------------------
+# Alanube Connection Test
+# ---------------------------------------------------------------------------
+
+class AlanubeConfig(BaseModel):
+    api_url: str = "https://sandbox-api.alanube.co/dom/v1"
+    jwt_token: str
+
+@router.post("/alanube/test")
+async def test_alanube_connection(payload: AlanubeConfig):
+    """Test Alanube connection with provided credentials."""
+    service = AlanubeService(api_url=payload.api_url, jwt_token=payload.jwt_token)
+    try:
+        result = await service.verify_connection()
+        return {"ok": True, "company": result}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}

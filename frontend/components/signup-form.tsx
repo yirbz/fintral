@@ -10,6 +10,9 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { register, verifyAndLogin, resendCode } from "@/lib/api/auth";
+import { dgiiService } from "@/lib/services/dgii";
+import { consultRncAction } from "@/app/actions/dgii";
+import { Loader2 } from "lucide-react";
 
 const SIGNUP_STORAGE_KEY = "fintral_signup";
 
@@ -205,6 +208,50 @@ function StepCompany({
   onBack: () => void;
   loading: boolean;
 }) {
+  const [verifying, setVerifying] = useState(false);
+  const [verificationResult, setVerificationResult] = useState<{
+    success: boolean;
+    name?: string;
+    message?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    const clean = dgiiService.cleanRNC(taxId);
+    if (clean.length === 9 || clean.length === 11) {
+      if (dgiiService.isValidRNC(clean)) {
+        let active = true;
+        const lookup = async () => {
+          setVerifying(true);
+          setVerificationResult(null);
+          try {
+            const data = await consultRncAction(clean);
+            if (!active) return;
+            if (data && data.name) {
+              setVerificationResult({ success: true, name: data.name });
+              // Autofill company name if empty
+              if (!companyName.trim()) {
+                setCompanyName(data.name);
+              }
+            } else {
+              setVerificationResult({ success: false, message: "No encontrado en padrón DGII" });
+            }
+          } catch (e) {
+            if (!active) return;
+            setVerificationResult({ success: false, message: "Error de conexión con DGII" });
+          } finally {
+            if (active) setVerifying(false);
+          }
+        };
+        lookup();
+        return () => { active = false; };
+      } else {
+        setVerificationResult({ success: false, message: "Formato/Dígito verificador inválido" });
+      }
+    } else {
+      setVerificationResult(null);
+    }
+  }, [taxId, setCompanyName]);
+
   const valid = companyName.trim().length > 0;
   return (
     <FieldGroup>
@@ -220,9 +267,35 @@ function StepCompany({
       </Field>
       <Field>
         <FieldLabel htmlFor="taxId2" className="text-zinc-300">RNC / Cédula</FieldLabel>
-        <Input id="taxId2" type="text" placeholder="123-45678-9"
-          className="border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:border-sky-500/50"
-          value={taxId} onChange={(e) => setTaxId(e.target.value)} />
+        <Input id="taxId2" type="text" inputMode="numeric" placeholder="123-45678-9" maxLength={11}
+          className="border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:border-sky-500/50 font-mono"
+          value={taxId} onChange={(e) => setTaxId(e.target.value.replace(/\D/g, "").slice(0, 11))} />
+        {verifying && (
+          <p className="mt-1 text-xs text-sky-400 flex items-center gap-1.5 animate-pulse">
+            <Loader2 className="size-3 animate-spin" />
+            Buscando RNC en la DGII...
+          </p>
+        )}
+        {verificationResult && !verifying && (
+          <p className={cn(
+            "mt-1 text-xs flex items-center gap-1.5",
+            verificationResult.success ? "text-emerald-400" : "text-amber-400"
+          )}>
+            {verificationResult.success ? (
+              <>
+                <svg className="size-3 shrink-0" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="2 6 4.5 8.5 10 3" />
+                </svg>
+                <span>RNC Verificado: <strong>{verificationResult.name}</strong></span>
+              </>
+            ) : (
+              <>
+                <span className="shrink-0 text-[10px]">⚠</span>
+                <span>{verificationResult.message}. Puedes continuar de todos modos.</span>
+              </>
+            )}
+          </p>
+        )}
       </Field>
       <Field>
         <FieldLabel htmlFor="phone2" className="text-zinc-300">Teléfono</FieldLabel>
@@ -354,9 +427,15 @@ export function SignUpForm({
       return;
     }
 
+    const cleanTaxId = dgiiService.cleanRNC(taxId);
+    if (cleanTaxId && !dgiiService.isValidRNC(cleanTaxId)) {
+      setError("El RNC / Cédula ingresado es inválido. Debe tener 9 u 11 dígitos y cumplir con el dígito verificador.");
+      return;
+    }
+
     setLoading(true);
     try {
-      await register({ email, password, full_name: fullName, company_name: companyName, tax_id: taxId, phone });
+      await register({ email, password, full_name: fullName, company_name: companyName, tax_id: cleanTaxId || "", phone });
       saveSignupState(email, 2);
       setStep(2);
     } catch (err) {

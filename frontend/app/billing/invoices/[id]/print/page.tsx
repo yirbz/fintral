@@ -90,7 +90,7 @@ export default function PrintInvoicePage() {
         </Link>
         <Button
           onClick={handlePrint}
-          className="h-7 text-[11px] bg-[#533afd] text-white hover:bg-[#533afd]/90 gap-1 px-2 rounded-md"
+          className="h-7 text-[11px] bg-primary text-primary-foreground hover:bg-primary/90 gap-1 px-2 rounded-md"
           size="xs"
         >
           <Printer className="size-3" /> Imprimir
@@ -205,7 +205,7 @@ export default function PrintInvoicePage() {
 
           <div className="space-y-0.5 text-left text-[8px] text-neutral-600 dark:text-neutral-400">
             <div>CÓDIGO SEGURIDAD: <span className="font-semibold text-neutral-800 dark:text-neutral-200">{securityCode}</span></div>
-            <div>TRACK ID ALANUBE: <span className="font-semibold text-neutral-800 dark:text-neutral-200">{trackId}</span></div>
+            <div>ID DE CERTIFICACIÓN (DGII): <span className="font-semibold text-neutral-800 dark:text-neutral-200">{trackId}</span></div>
           </div>
         </div>
 
