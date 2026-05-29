@@ -38,6 +38,8 @@ import {
   pushWebhook,
 } from "@/lib/api/invoices";
 import { getDgiiCategories, triggerBlobDownload } from "@/lib/api/dgii";
+import { getBankAccounts } from "@/lib/api/payments";
+import { useUserPreferences } from "@/hooks/use-user-preferences";
 import type { CreateInvoicePayload } from "@/lib/api/invoices";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -67,7 +69,7 @@ import { AdvancedInvoiceDialog } from "@/features/invoices/advanced-invoice-dial
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { formatDate } from "@/lib/utils/date";
+import { formatDate, formatCurrency } from "@/lib/utils/date";
 
 const EXPORT_FORMATS = [
   { id: "dgii_606" as const, label: "DGII 606 (Compras)" },
@@ -86,7 +88,7 @@ export function InvoicesPage() {
   const searchParams = useSearchParams();
   const [search, setSearch] = useState(searchParams.get("search") ?? "");
   const [transactionType, setTransactionType] = useState("all");
-  const [quality, setQuality] = useState("all");
+  const [quality, setQuality] = useState(searchParams.get("quality") ?? "all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [category, setCategory] = useState("all");
@@ -98,6 +100,20 @@ export function InvoicesPage() {
   const [selectedExportFormat, setSelectedExportFormat] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
+  const [paymentStatus, setPaymentStatus] = useState("all");
+  const [paymentCondition, setPaymentCondition] = useState("all");
+
+  const bankAccountsQuery = useQuery({
+    queryKey: ["bank-accounts"],
+    queryFn: getBankAccounts
+  });
+  const bankAccounts = bankAccountsQuery.data ?? [];
+  const bankMap = useMemo(() => {
+    const map = new Map<string, string>();
+    bankAccounts.forEach((b) => map.set(b.id, b.name));
+    return map;
+  }, [bankAccounts]);
+
   const categoriesQuery = useQuery({
     queryKey: ["invoice-categories"],
     queryFn: getDgiiCategories,
@@ -105,7 +121,7 @@ export function InvoicesPage() {
   });
 
   const invoicesQuery = useQuery({
-    queryKey: ["invoices", search, transactionType, quality, dateFrom, dateTo, category],
+    queryKey: ["invoices", search, transactionType, quality, dateFrom, dateTo, category, paymentStatus, paymentCondition],
     queryFn: () =>
       listInvoices({
         search: search || undefined,
@@ -114,6 +130,8 @@ export function InvoicesPage() {
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
         category: category === "all" ? undefined : category || undefined,
+        payment_status: paymentStatus === "all" ? undefined : paymentStatus || undefined,
+        payment_condition: paymentCondition === "all" ? undefined : paymentCondition || undefined,
       })
   });
 
@@ -223,7 +241,10 @@ export function InvoicesPage() {
       });
       return promise;
     },
-    onSuccess: () => setSelectedIds([])
+    onSuccess: async () => {
+      setSelectedIds([]);
+      await refresh();
+    }
   });
 
   const createMutation = useMutation({
@@ -279,7 +300,7 @@ export function InvoicesPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 px-4 lg:px-6 pb-10 w-full max-w-7xl mx-auto">
       <Card>
         <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -353,13 +374,40 @@ export function InvoicesPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                {(categoriesQuery.data ?? []).map((cat) => (
-                  <SelectItem key={cat} value={cat} className="text-xs">{cat}</SelectItem>
-                ))}
+                {(categoriesQuery.data ?? []).map((cat) => {
+                  const expenseLabel = CATEGORY_LABELS[`expense_${cat}`];
+                  const incomeLabel = CATEGORY_LABELS[`income_${cat}`];
+                  const label = expenseLabel || incomeLabel || cat;
+                  return (
+                    <SelectItem key={cat} value={cat} className="text-xs">{label}</SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
-            {(dateFrom || dateTo || category !== "all" || search || transactionType !== "all" || quality !== "all") && (
+            <Select value={paymentStatus} onValueChange={(v) => setPaymentStatus(v)}>
+              <SelectTrigger className="h-7 w-40 text-xs">
+                <SelectValue placeholder="Estado Pago" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todos los pagos</SelectItem>
+                <SelectItem value="pending" className="text-xs">Pendiente</SelectItem>
+                <SelectItem value="paid" className="text-xs">Pagado</SelectItem>
+                <SelectItem value="overdue" className="text-xs">Vencido</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={paymentCondition} onValueChange={(v) => setPaymentCondition(v)}>
+              <SelectTrigger className="h-7 w-40 text-xs">
+                <SelectValue placeholder="Condición Pago" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todas las condiciones</SelectItem>
+                <SelectItem value="contado" className="text-xs">Contado</SelectItem>
+                <SelectItem value="credito" className="text-xs">Crédito</SelectItem>
+              </SelectContent>
+            </Select>
+            {(dateFrom || dateTo || category !== "all" || search || transactionType !== "all" || quality !== "all" || paymentStatus !== "all" || paymentCondition !== "all") && (
               <button
+                type="button"
                 onClick={() => {
                   setDateFrom("");
                   setDateTo("");
@@ -367,6 +415,8 @@ export function InvoicesPage() {
                   setSearch("");
                   setTransactionType("all");
                   setQuality("all");
+                  setPaymentStatus("all");
+                  setPaymentCondition("all");
                 }}
                 className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
               >
@@ -397,6 +447,7 @@ export function InvoicesPage() {
             ] as { id: string; label: string; icon: React.ElementType | null; cls?: string }[]).map((q) => (
               <button
                 key={q.id}
+                type="button"
                 onClick={() => setQuality(q.id)}
                 className={cn(
                   "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-all duration-150",
@@ -484,6 +535,8 @@ export function InvoicesPage() {
                   <TableHead className="px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Proveedor</TableHead>
                   <TableHead className="px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Categoría</TableHead>
                   <TableHead className="px-3 py-3 text-right text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Importe</TableHead>
+                  <TableHead className="px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Vencimiento</TableHead>
+                  <TableHead className="px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Pago / Banco</TableHead>
                   <TableHead className="px-3 py-3 text-center text-[11px] uppercase tracking-wider font-medium text-muted-foreground">
                     <ArrowUpDown className="size-3 inline-block mr-1" />
                     Tipo
@@ -496,7 +549,7 @@ export function InvoicesPage() {
                 {invoicesQuery.isLoading ? (
                   Array.from({ length: 6 }).map((_, i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 9 }).map((_, j) => (
+                      {Array.from({ length: 11 }).map((_, j) => (
                         <TableCell key={j} className="px-3 py-3">
                           <Skeleton className={cn("h-4 rounded-md", j === 0 ? "size-4" : j === 5 ? "h-4 w-16 ml-auto" : j === 6 ? "h-5 w-16 mx-auto" : j === 7 ? "h-5 w-16 mx-auto" : j === 8 ? "h-5 w-16 ml-auto" : "h-4 w-full")} />
                         </TableCell>
@@ -505,7 +558,7 @@ export function InvoicesPage() {
                   ))
                 ) : invoices.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center">
+                    <TableCell colSpan={11} className="text-center">
                       <div className="flex flex-col items-center justify-center py-16">
                         <div className="mb-4 rounded-full bg-primary/10 p-4">
                           <FileText className="size-8 text-primary/40" />
@@ -528,6 +581,7 @@ export function InvoicesPage() {
                       onProcess={() => processMutation.mutate(invoice.id)}
                       isProcessing={processingIds.has(invoice.id)}
                       isEven={idx % 2 === 1}
+                      bankMap={bankMap}
                     />
                   ))
                 )}
@@ -566,6 +620,16 @@ export function InvoicesPage() {
 
 function invoiceHealth(invoice: Invoice): "duplicate" | "warning" | "low_confidence" | "high_confidence" | "pending" | "ok" {
   if (!invoice.processed) return "pending";
+  const raw = (() => {
+    try { return invoice.raw_extracted_data ? JSON.parse(invoice.raw_extracted_data) : {}; }
+    catch { return {}; }
+  })();
+  if (raw.warnings_reviewed === true) {
+    const conf = invoice.confidence_score ?? 1;
+    if (conf < 0.6) return "low_confidence";
+    if (conf >= 0.85) return "high_confidence";
+    return "ok";
+  }
   const flags: string[] = (() => {
     try { return JSON.parse(invoice.audit_flags ?? "[]") as string[]; }
     catch { return []; }
@@ -607,13 +671,13 @@ const CATEGORY_LABELS: Record<string, string> = {
   expense_03: "Arrendamientos (03)",
   expense_04: "Gastos de Activos Fijos (04)",
   expense_05: "Gastos de Representación (05)",
-  expense_06: "Gastos Financieros (06)",
-  expense_07: "Gastos de Seguros (07)",
-  expense_08: "Gastos por Pérdidas Extraordinarias (08)",
-  expense_09: "Compras que Forman Parte del Costo de Venta (09)",
-  expense_10: "Adquisiciones de Activos Fijos (10)",
-  expense_11: "Gastos de Seguros auxiliar (11)",
-  income_01: "Ingresos por Operaciones (01)",
+  expense_06: "Otras Deducciones Admitidas (06)",
+  expense_07: "Gastos Financieros (07)",
+  expense_08: "Gastos Extraordinarios (08)",
+  expense_09: "Costos y Gastos de Operación (09)",
+  expense_10: "Adquisiciones de Activos (10)",
+  expense_11: "Gastos de Seguros (11)",
+  income_01: "Ingresos por operaciones (No financieros) (01)",
   income_02: "Ingresos Financieros (02)",
   income_03: "Ingresos Extraordinarios (03)",
   income_04: "Ingresos por Arrendamientos (04)",
@@ -742,6 +806,41 @@ function DgiiStatusBadge({ invoice }: { invoice: Invoice }) {
   );
 }
 
+const ECF_TYPE_LABELS: Record<string, { label: string; short: string; cls: string }> = {
+  "01": { label: "Crédito Fiscal", short: "Créd. Fiscal", cls: "text-indigo-600 bg-indigo-50 border-indigo-200/60 dark:text-indigo-400 dark:bg-indigo-950/20" },
+  "31": { label: "Crédito Fiscal", short: "Créd. Fiscal", cls: "text-indigo-600 bg-indigo-50 border-indigo-200/60 dark:text-indigo-400 dark:bg-indigo-950/20" },
+  "02": { label: "Consumo", short: "Consumo", cls: "text-slate-600 bg-slate-50 border-slate-200/60 dark:text-slate-400 dark:bg-slate-900/20" },
+  "32": { label: "Consumo", short: "Consumo", cls: "text-slate-600 bg-slate-50 border-slate-200/60 dark:text-slate-400 dark:bg-slate-900/20" },
+  "03": { label: "Nota de Débito", short: "Nota Débito", cls: "text-amber-600 bg-amber-50 border-amber-200/60 dark:text-amber-400 dark:bg-amber-950/20" },
+  "33": { label: "Nota de Débito", short: "Nota Débito", cls: "text-amber-600 bg-amber-50 border-amber-200/60 dark:text-amber-400 dark:bg-amber-950/20" },
+  "04": { label: "Nota de Crédito", short: "Nota Crédito", cls: "text-rose-600 bg-rose-50 border-rose-200/60 dark:text-rose-400 dark:bg-rose-950/20" },
+  "34": { label: "Nota de Crédito", short: "Nota Crédito", cls: "text-rose-600 bg-rose-50 border-rose-200/60 dark:text-rose-400 dark:bg-rose-950/20" },
+  "11": { label: "Compras", short: "Comp. Compras", cls: "text-teal-600 bg-teal-50 border-teal-200/60 dark:text-teal-400 dark:bg-teal-950/20" },
+  "41": { label: "Compras", short: "Comp. Compras", cls: "text-teal-600 bg-teal-50 border-teal-200/60 dark:text-teal-400 dark:bg-teal-950/20" },
+  "12": { label: "RUI", short: "RUI", cls: "text-cyan-600 bg-cyan-50 border-cyan-200/60 dark:text-cyan-400 dark:bg-cyan-950/20" },
+  "42": { label: "RUI", short: "RUI", cls: "text-cyan-600 bg-cyan-50 border-cyan-200/60 dark:text-cyan-400 dark:bg-cyan-950/20" },
+  "13": { label: "Gastos Menores", short: "G. Menores", cls: "text-emerald-600 bg-emerald-50 border-emerald-200/60 dark:text-emerald-400 dark:bg-emerald-950/20" },
+  "43": { label: "Gastos Menores", short: "G. Menores", cls: "text-emerald-600 bg-emerald-50 border-emerald-200/60 dark:text-emerald-400 dark:bg-emerald-950/20" },
+  "14": { label: "Reg. Especial", short: "Reg. Esp.", cls: "text-purple-600 bg-purple-50 border-purple-200/60 dark:text-purple-400 dark:bg-purple-950/20" },
+  "44": { label: "Reg. Especial", short: "Reg. Esp.", cls: "text-purple-600 bg-purple-50 border-purple-200/60 dark:text-purple-400 dark:bg-purple-950/20" },
+  "15": { label: "Gubernamental", short: "Gubernam.", cls: "text-blue-600 bg-blue-50 border-blue-200/60 dark:text-blue-400 dark:bg-blue-950/20" },
+  "45": { label: "Gubernamental", short: "Gubernam.", cls: "text-blue-600 bg-blue-50 border-blue-200/60 dark:text-blue-400 dark:bg-blue-950/20" },
+  "16": { label: "Exportación", short: "Export.", cls: "text-orange-600 bg-orange-50 border-orange-200/60 dark:text-orange-400 dark:bg-orange-950/20" },
+  "46": { label: "Exportación", short: "Export.", cls: "text-orange-600 bg-orange-50 border-orange-200/60 dark:text-orange-400 dark:bg-orange-950/20" },
+  "17": { label: "Pago Exterior", short: "Pago Ext.", cls: "text-pink-600 bg-pink-50 border-pink-200/60 dark:text-pink-400 dark:bg-pink-950/20" },
+  "47": { label: "Pago Exterior", short: "Pago Ext.", cls: "text-pink-600 bg-pink-50 border-pink-200/60 dark:text-pink-400 dark:bg-pink-950/20" },
+};
+
+function getInvoiceTypeCode(invoice: Invoice): string | null {
+  if (invoice.ecf_type) return invoice.ecf_type;
+  const ncf = invoice.invoice_number?.trim().toUpperCase();
+  if (ncf && ncf.length >= 3 && (ncf.startsWith("B") || ncf.startsWith("E"))) {
+    const code = ncf.slice(1, 3);
+    if (/^\d+$/.test(code)) return code;
+  }
+  return null;
+}
+
 function InvoiceRow({
   invoice,
   selected,
@@ -749,7 +848,8 @@ function InvoiceRow({
   onOpen,
   onProcess,
   isProcessing,
-  isEven
+  isEven,
+  bankMap
 }: {
   invoice: Invoice;
   selected: boolean;
@@ -758,14 +858,12 @@ function InvoiceRow({
   onProcess: () => void;
   isProcessing: boolean;
   isEven: boolean;
+  bankMap: Map<string, string>;
 }) {
   const h = invoiceHealth(invoice);
+  const { formatDate, formatCurrency } = useUserPreferences();
   const date = formatDate(invoice.invoice_date);
-  const amount = new Intl.NumberFormat("es-DO", {
-    style: "currency",
-    currency: invoice.currency || "USD",
-    maximumFractionDigits: 2
-  }).format(invoice.total_amount ?? 0);
+  const amount = formatCurrency(invoice.total_amount, invoice.currency || "DOP");
 
   const isCancelled = !!invoice.cancelled_at;
   const typeStyle = invoice.transaction_type ? TYPE_STYLES[invoice.transaction_type] : null;
@@ -785,17 +883,73 @@ function InvoiceRow({
       </TableCell>
       <TableCell className={cn("px-3 py-3", isCancelled ? "text-red-400/50" : "text-muted-foreground")}>{date}</TableCell>
       <TableCell className="px-3 py-3 font-mono text-[11px] font-medium text-foreground">
-        {invoice.invoice_number
-          ? <span className={cn(isCancelled ? "line-through text-red-500/60" : h === "duplicate" && "text-destructive font-semibold")}>{invoice.invoice_number}</span>
-          : <span className="text-muted-foreground/50 italic">sin NCF</span>}
+        <div className="flex flex-col gap-1">
+          {invoice.invoice_number ? (
+            <span className={cn(isCancelled ? "line-through text-red-500/60" : h === "duplicate" && "text-destructive font-semibold")}>
+              {invoice.invoice_number}
+            </span>
+          ) : (
+            <span className="text-muted-foreground/50 italic">sin NCF</span>
+          )}
+          {(() => {
+            const typeCode = getInvoiceTypeCode(invoice);
+            const style = typeCode ? ECF_TYPE_LABELS[typeCode] : null;
+            if (!style) return null;
+            return (
+              <span className={cn("inline-flex w-fit items-center rounded-sm border px-1 py-0.5 text-[9px] font-medium tracking-tight", style.cls)}>
+                {style.short} ({invoice.invoice_number?.[0] || 'B'}{typeCode})
+              </span>
+            );
+          })()}
+        </div>
       </TableCell>
-      <TableCell className={cn("px-3 py-3 cursor-pointer", isCancelled ? "text-red-500/60 hover:text-red-500" : "text-foreground hover:text-primary")} onClick={onOpen}>
+      <TableCell 
+        className={cn("px-3 py-3 cursor-pointer max-w-[180px] truncate", isCancelled ? "text-red-500/60 hover:text-red-500" : "text-foreground hover:text-primary")} 
+        onClick={onOpen}
+        title={invoice.vendor_name || ""}
+      >
         {invoice.vendor_name || <span className="italic text-muted-foreground/60">Procesando...</span>}
       </TableCell>
-      <TableCell className="px-3 py-3">
-        <Badge variant={invoice.category ? "default" : "secondary"} className={cn(isCancelled && "opacity-50")}>{categoryLabel(invoice.category, invoice.transaction_type)}</Badge>
+
+      <TableCell className="px-3 py-3 max-w-[150px] truncate" title={categoryLabel(invoice.category, invoice.transaction_type)}>
+        <Badge 
+          variant={invoice.category ? "default" : "secondary"} 
+          className={cn("max-w-full truncate block text-center", isCancelled && "opacity-50")}
+        >
+          {categoryLabel(invoice.category, invoice.transaction_type)}
+        </Badge>
       </TableCell>
       <TableCell className={cn("px-3 py-3 text-right font-mono tabular-nums font-semibold", isCancelled ? "text-red-500/60 line-through" : "text-foreground")}>{amount}</TableCell>
+      <TableCell className="px-3 py-3 text-muted-foreground font-mono text-[11px]">
+        {invoice.due_date ? formatDate(invoice.due_date) : "—"}
+      </TableCell>
+      <TableCell className="px-3 py-3">
+        <div className="flex flex-col gap-1">
+          {invoice.payment_status ? (
+            <Badge
+              variant="outline"
+              className={cn(
+                "w-fit text-[9px] font-semibold py-px px-1.5 border",
+                invoice.payment_status === "paid" && "bg-emerald-500/10 text-emerald-700 border-emerald-500/20",
+                invoice.payment_status === "pending" && "bg-amber-500/10 text-amber-700 border-amber-500/20",
+                invoice.payment_status === "overdue" && "bg-red-500/10 text-red-700 border-red-500/20"
+              )}
+            >
+              {invoice.payment_status === "paid" && "Pagado"}
+              {invoice.payment_status === "pending" && "Pendiente"}
+              {invoice.payment_status === "overdue" && "Vencido"}
+            </Badge>
+          ) : (
+            <span className="text-[10px] text-muted-foreground/60">—</span>
+          )}
+          {invoice.bank_account_id && bankMap.has(invoice.bank_account_id) && (
+            <span className="text-[9px] text-muted-foreground flex items-center gap-1">
+              <span className="h-1 w-1 rounded-full bg-primary/60" />
+              {bankMap.get(invoice.bank_account_id)}
+            </span>
+          )}
+        </div>
+      </TableCell>
       <TableCell className="px-3 py-3 text-center">
         {typeStyle ? (
           <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium", typeStyle.cls)}>

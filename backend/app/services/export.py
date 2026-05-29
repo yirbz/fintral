@@ -849,7 +849,17 @@ class ExportService:
     def _parse_raw_data(self, raw):
         try:
             if raw:
-                return json.loads(raw)
+                data = json.loads(raw)
+                # Normalize retention key naming: total_* variant → short variant
+                if "total_itbis_retenido" in data and "itbis_retenido" not in data:
+                    data["itbis_retenido"] = data["total_itbis_retenido"]
+                if "total_isr_retencion" in data and "isr_retention_amount" not in data:
+                    data["isr_retention_amount"] = data["total_isr_retencion"]
+                if "total_itbis_percepcion" in data and "itbis_percibido" not in data:
+                    data["itbis_percibido"] = data["total_itbis_percepcion"]
+                if "total_isr_percepcion" in data and "isr_percibido" not in data:
+                    data["isr_percibido"] = data["total_isr_percepcion"]
+                return data
         except Exception:
             pass
         return {}

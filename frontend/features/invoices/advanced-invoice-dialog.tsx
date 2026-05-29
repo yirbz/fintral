@@ -90,6 +90,8 @@ export function AdvancedInvoiceDialog({
   const [transactionType, setTransactionType] = useState("expense");
   const [goodsType, setGoodsType] = useState("none");
   const [paymentMethod, setPaymentMethod] = useState("none");
+  const [paymentCondition, setPaymentCondition] = useState("contado");
+  const [dueDate, setDueDate] = useState("");
 
   const [description, setDescription] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
@@ -122,6 +124,8 @@ export function AdvancedInvoiceDialog({
       if (draft.description) setDescription(draft.description as string);
       if (draft.goodsType) setGoodsType(draft.goodsType as string);
       if (draft.paymentMethod) setPaymentMethod(draft.paymentMethod as string);
+      if (draft.paymentCondition) setPaymentCondition(draft.paymentCondition as string);
+      if (draft.dueDate) setDueDate(draft.dueDate as string);
       if (draft.ncfModified) setNcfModified(draft.ncfModified as string);
       if (draft.lineItems) setLineItems(draft.lineItems as LineItem[]);
       return; // draft takes priority over initial
@@ -132,11 +136,13 @@ export function AdvancedInvoiceDialog({
       if (initial.vendor_country) setVendorCountry(initial.vendor_country);
       if (initial.vendor_fiscal_address) setVendorFiscalAddress(initial.vendor_fiscal_address);
       if (initial.invoice_number) setInvoiceNumber(initial.invoice_number);
-      if (initial.invoice_date) setInvoiceDate(initial.invoice_date);
+      if (initial.invoice_date) setInvoiceDate(initial.invoice_date.split("T")[0]);
       if (initial.currency) setCurrency(initial.currency);
       if (initial.transaction_type) setTransactionType(initial.transaction_type);
       if (initial.category) setCategory(initial.category);
       if (initial.goods_services_type) setGoodsType(initial.goods_services_type);
+      if (initial.payment_condition) setPaymentCondition(initial.payment_condition);
+      if (initial.due_date) setDueDate(initial.due_date.split("T")[0]);
       if (initial.total_amount) setTotalAmount(String(initial.total_amount));
       if (initial.tax_amount) setTaxAmount(String(initial.tax_amount));
       if (initial.description) setDescription(initial.description);
@@ -150,13 +156,13 @@ export function AdvancedInvoiceDialog({
       vendorName, vendorTaxId, vendorCountry, vendorFiscalAddress,
       invoiceNumber, invoiceDate, ncfModified, category,
       totalAmount, taxAmount, currency, transactionType, description,
-      goodsType, paymentMethod, lineItems,
+      goodsType, paymentMethod, paymentCondition, dueDate, lineItems,
     });
   }, [
     open, vendorName, vendorTaxId, vendorCountry, vendorFiscalAddress,
     invoiceNumber, invoiceDate, ncfModified, category,
     totalAmount, taxAmount, currency, transactionType, description,
-    goodsType, paymentMethod, lineItems, saveDraftDebounced,
+    goodsType, paymentMethod, paymentCondition, dueDate, lineItems, saveDraftDebounced,
   ]);
 
   function addLineItem() {
@@ -207,6 +213,8 @@ export function AdvancedInvoiceDialog({
         transaction_type: transactionType,
         category: category || undefined,
         payment_method: paymentMethod === "none" ? undefined : paymentMethod,
+        payment_condition: paymentCondition,
+        due_date: paymentCondition === "credito" && dueDate ? dueDate : undefined,
         ncf_modified: ncfModified.trim() || undefined,
         goods_services_type: goodsType === "none" ? undefined : goodsType,
         total_amount: Number(totalAmount),
@@ -360,6 +368,30 @@ export function AdvancedInvoiceDialog({
                   noneLabel="Sin categoría"
                 />
               </div>
+              <div>
+                <Label>Condición de pago</Label>
+                <Select value={paymentCondition} onValueChange={setPaymentCondition}>
+                  <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="contado">Contado</SelectItem>
+                    <SelectItem value="credito">Crédito</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {paymentCondition === "credito" ? (
+                <div>
+                  <Label>Vence el</Label>
+                  <Input
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    className="h-7 text-xs"
+                  />
+                </div>
+              ) : (
+                <div className="hidden sm:block"></div>
+              )}
+              <div className="hidden sm:block"></div>
               <div className="sm:col-span-3">
                 <Label>NCF modificado</Label>
                 <Input
@@ -521,6 +553,7 @@ export function AdvancedInvoiceDialog({
                       </div>
                     </div>
                     <button
+                      type="button"
                       onClick={() => removeLineItem(idx)}
                       className="mt-1.5 shrink-0 text-muted-foreground hover:text-destructive"
                     >

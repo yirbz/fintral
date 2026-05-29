@@ -131,6 +131,13 @@ def update_organization(
     if body.name is not None:
         org.name = body.name
     if body.tax_id is not None:
+        old_rnc = (org.tax_id or "").strip()
+        new_rnc = (body.tax_id or "").strip()
+        if old_rnc and old_rnc != new_rnc:
+            raise HTTPException(
+                status_code=400,
+                detail="El RNC/Cédula no puede ser modificado una vez registrado."
+            )
         org.tax_id = body.tax_id
     if body.country is not None:
         org.country = body.country
