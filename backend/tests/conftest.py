@@ -8,7 +8,7 @@ import pytest
 os.environ.pop("DYNO", None)
 os.environ["DATABASE_URL"] = "sqlite:///./test_refactor.db"
 os.environ["SUPABASE_URL"] = ""
-os.environ["DISABLE_HEARTBEAT_TASK"] = "true"
+os.environ["FINTRAL_DISABLE_WS_HEARTBEAT"] = "true"
 
 # Remove stale test DB BEFORE the engine is created (which happens at first import)
 if os.path.exists("./test_refactor.db"):

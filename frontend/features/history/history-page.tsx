@@ -215,6 +215,7 @@ export function HistoryPage() {
           {FILTER_ACTIONS.map((tab) => (
             <button
               key={tab.id}
+              type="button"
               onClick={() => setActionFilter(tab.id)}
               className={cn(
                 "whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",

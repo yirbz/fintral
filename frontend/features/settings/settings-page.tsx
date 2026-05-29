@@ -1,5 +1,7 @@
 "use client";
 
+import Image from "next/image";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Check, User, Building2, Brain, MessageCircle, Webhook, Mail, Settings2, Bell, CreditCard, Eye, EyeOff, RefreshCw, Ban, Zap, Globe, KeyRound, ChevronDown, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -200,6 +202,7 @@ export function SettingsPage() {
                 return (
                   <button
                     key={section.id}
+                    type="button"
                     onClick={() => setActive(section.id)}
                     className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors text-left ${
                       active === section.id
@@ -652,13 +655,13 @@ function PasswordSection() {
         <p className="text-xs text-muted-foreground leading-relaxed">
           Para cambiar tu contraseña, serás redirigido a la página de restablecimiento donde podrás ingresar un código de verificación enviado a tu correo electrónico.
         </p>
-        <a
+        <Link
           href="/forgot-password"
           className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-500 px-4 py-2 text-sm font-medium text-white hover:bg-sky-400 transition-colors self-start"
         >
           <KeyRound className="size-4" />
           Cambiar contraseña
-        </a>
+        </Link>
       </CardContent>
     </Card>
   );
@@ -844,7 +847,7 @@ function WhatsAppSection({
           {waQr ? (
             <div className="mt-3">
               <p className="mb-2 text-[11px] text-muted-foreground">Escanea este código con WhatsApp para vincular:</p>
-              <img alt="WhatsApp QR" className="h-40 w-40 rounded-lg border p-1.5" src={waQr} />
+              <Image alt="WhatsApp QR" className="h-40 w-40 rounded-lg border p-1.5" src={waQr} width={160} height={160} unoptimized />
             </div>
           ) : null}
         </div>

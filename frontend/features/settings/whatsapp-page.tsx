@@ -7,6 +7,7 @@ import { useState } from "react";
 import { createEvolutionInstance, getEvolutionQr, getEvolutionStatus } from "@/lib/api/evolution";
 import { getSettings, saveSettings } from "@/lib/api/settings";
 import type { SettingValue, SettingsPayload } from "@/lib/types";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -188,7 +189,7 @@ export function WhatsAppPage() {
           {waQr ? (
             <div className="mt-3">
               <p className="mb-2 text-[11px] text-muted-foreground">Escanea este código con WhatsApp para vincular:</p>
-              <img alt="WhatsApp QR" className="h-40 w-40 rounded-lg border p-1.5" src={waQr} />
+              <Image alt="WhatsApp QR" className="h-40 w-40 rounded-lg border p-1.5" src={waQr} width={160} height={160} unoptimized />
             </div>
           ) : null}
         </div>

@@ -315,6 +315,7 @@ export function UploadPage() {
                 accept={FILE_ACCEPT}
                 onChange={onSelectFiles}
                 className="hidden"
+                aria-label="Seleccionar archivos"
               />
               <div className={cn("flex size-12 items-center justify-center rounded-xl transition-colors", dragOver ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground")}>
                 <Upload className={cn("size-5 transition-transform", dragOver && "scale-110")} />

@@ -217,6 +217,7 @@ export function ProfilePage() {
                 accept="image/*"
                 className="hidden"
                 onChange={handleAvatarUpload}
+                aria-label="Subir foto de perfil"
               />
             </div>
             <div className="flex flex-col gap-1">

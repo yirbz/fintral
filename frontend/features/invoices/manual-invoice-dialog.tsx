@@ -595,6 +595,7 @@ export function ManualInvoiceDialog({
                       </div>
                     </div>
                     <button
+                      type="button"
                       onClick={() => removeLineItem(idx)}
                       className="mt-1.5 shrink-0 text-muted-foreground hover:text-destructive"
                     >

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { Suspense, useState, useRef, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -197,7 +197,7 @@ function MemberRow({ member }: { member: OrgMember }) {
   );
 }
 
-export default function BillingSettingsPage() {
+function BillingSettingsPageInner() {
   const searchParams = useSearchParams();
   const initialTab = searchParams.get("tab") || "profile";
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -481,6 +481,7 @@ export default function BillingSettingsPage() {
               const isActive = activeTab === section.id;
               return (
                 <button
+                  type="button"
                   key={section.id}
                   onClick={() => setActiveTab(section.id)}
                   className={`group flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-all duration-150 ${
@@ -531,6 +532,7 @@ export default function BillingSettingsPage() {
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={uploadingAvatar}
+                      aria-label="Cambiar foto de perfil"
                       className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/50 opacity-0 group-hover:opacity-100 transition-all duration-200"
                     >
                       {uploadingAvatar ? (
@@ -1307,7 +1309,15 @@ export default function BillingSettingsPage() {
           )}
         </div>
       </div>
-    </div>
+     </div>
    );
  }
+
+export default function BillingSettingsPage() {
+  return (
+    <Suspense fallback={null}>
+      <BillingSettingsPageInner />
+    </Suspense>
+  );
+}
 

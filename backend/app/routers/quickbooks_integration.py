@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
-from app.config import FRONTEND_URL
+from app.config import PUBLIC_APP_URL as FRONTEND_URL
 from app.dependencies.tenant import TenantContext, require_tenant
 from app.models import IntegrationConnection, Invoice
 from app.services.quickbooks_connector import QuickBooksConnector

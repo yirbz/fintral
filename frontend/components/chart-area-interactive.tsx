@@ -42,11 +42,13 @@ interface VolumePoint {
   count: number
 }
 
+const EMPTY_VOLUME: VolumePoint[] = []
+
 interface ChartAreaInteractiveProps {
   volumeHistory?: VolumePoint[]
 }
 
-export function ChartAreaInteractive({ volumeHistory = [] }: ChartAreaInteractiveProps) {
+export function ChartAreaInteractive({ volumeHistory = EMPTY_VOLUME }: ChartAreaInteractiveProps) {
   const isMobile = useIsMobile()
   const [timeRange, setTimeRange] = React.useState("30d")
 

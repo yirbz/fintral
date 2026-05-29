@@ -241,7 +241,10 @@ export function InvoicesPage() {
       });
       return promise;
     },
-    onSuccess: () => setSelectedIds([])
+    onSuccess: async () => {
+      setSelectedIds([]);
+      await refresh();
+    }
   });
 
   const createMutation = useMutation({
@@ -404,6 +407,7 @@ export function InvoicesPage() {
             </Select>
             {(dateFrom || dateTo || category !== "all" || search || transactionType !== "all" || quality !== "all" || paymentStatus !== "all" || paymentCondition !== "all") && (
               <button
+                type="button"
                 onClick={() => {
                   setDateFrom("");
                   setDateTo("");
@@ -443,6 +447,7 @@ export function InvoicesPage() {
             ] as { id: string; label: string; icon: React.ElementType | null; cls?: string }[]).map((q) => (
               <button
                 key={q.id}
+                type="button"
                 onClick={() => setQuality(q.id)}
                 className={cn(
                   "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-all duration-150",

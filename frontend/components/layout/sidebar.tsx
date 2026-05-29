@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -55,7 +56,7 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
-export function Sidebar({ children }: { children: React.ReactNode }) {
+function SidebarInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const search = useSearchParams();
@@ -131,7 +132,7 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
               </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="rounded-md p-1.5 text-sidebar-foreground/40 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground">
+                  <button type="button" className="rounded-md p-1.5 text-sidebar-foreground/40 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground">
                     <LogOut className="size-3.5" />
                   </button>
                 </DropdownMenuTrigger>
@@ -211,6 +212,14 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
 
         <main className="flex-1 p-4 md:p-6">{children}</main>
       </ShadcnSidebar.SidebarInset>
-    </ShadcnSidebar.SidebarProvider>
+      </ShadcnSidebar.SidebarProvider>
+  );
+}
+
+export function Sidebar({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={null}>
+      <SidebarInner>{children}</SidebarInner>
+    </Suspense>
   );
 }

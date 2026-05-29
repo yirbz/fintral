@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
 
-from app.config import GEMINI_API_URL, GEMINI_MODEL, OPENAI_API_KEY
+from app.config import AI_MODEL_NAME, OPENAI_API_KEY
 from app.models import TenantVendorRule
 
 logger = logging.getLogger(__name__)
@@ -317,8 +317,16 @@ class Categorizer:
         line_items: list,
         transaction_type: Optional[str] = None,
     ) -> Optional[Dict[str, str]]:
-        if not OPENAI_API_KEY or not OPENAI_API_KEY.startswith("AIza"):
-            logger.debug("Layer 3 skipped: no Gemini API key configured")
+        # Resolve LLM Provider using factory
+        try:
+            from app.services.llm_providers import LLMProviderFactory
+            
+            provider = LLMProviderFactory.get_provider(
+                api_key=OPENAI_API_KEY,
+                configured_model=AI_MODEL_NAME
+            )
+        except Exception:
+            logger.debug("Layer 3 skipped: LLM API key not configured")
             return None
 
         items_text = "; ".join(
@@ -339,35 +347,21 @@ class Categorizer:
         system_prompt = INCOME_PROMPT if transaction_type == "income" else EXPENSE_PROMPT
         valid_codes = _valid_codes_for(transaction_type)
 
-        url = f"{GEMINI_API_URL}/{GEMINI_MODEL}:generateContent?key={OPENAI_API_KEY}"
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": system_prompt},
-                        {
-                            "text": f"Clasifica esta factura:\n{payload_text}\n\nResponde SOLO con JSON."
-                        },
-                    ]
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.1,
-                "responseMimeType": "application/json",
-            },
-        }
+        prompt = f"{system_prompt}\n\nClasifica esta factura:\n{payload_text}\n\nResponde estrictamente con JSON válido."
 
         try:
-            import requests
-
-            resp = requests.post(url, json=payload, timeout=15)
-            if resp.status_code != 200:
-                logger.warning("Gemini API error %s: %s", resp.status_code, resp.text[:200])
-                return None
-
-            data = resp.json()
-            text = data["candidates"][0]["content"]["parts"][0]["text"]
-            parsed = json.loads(text)
+            response = provider.process_text(prompt)
+            content = response.content
+            
+            # Buscar JSON en la respuesta
+            json_start = content.find('{')
+            json_end = content.rfind('}') + 1
+            if json_start == -1 or json_end == 0:
+                raise ValueError("No se encontró JSON válido en la respuesta")
+            
+            json_str = content[json_start:json_end]
+            parsed = json.loads(json_str)
+            
             code = str(parsed.get("dgii_category_code", "")).strip().zfill(2)
             admin_cat = parsed.get("admin_category")
             reason = parsed.get("reason", "")

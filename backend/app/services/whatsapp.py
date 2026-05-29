@@ -17,13 +17,13 @@ from app.repositories import InvoiceRepository
 from app.services.invoice_processing_service import InvoiceProcessingService
 from app.services.settings_service import SettingsService
 from app.services.supabase_storage import upload_invoice_file
-from app.config import (
-    SUPABASE_URL,
-    EVOLUTION_API_URL as _EVOLUTION_API_URL,
-    EVOLUTION_API_KEY as _EVOLUTION_API_KEY,
-    EVOLUTION_INSTANCE_NAME as _EVOLUTION_INSTANCE_NAME,
-    AUTHORIZED_WHATSAPP_NUMBER as _AUTHORIZED_WHATSAPP_NUMBER,
-)
+from app.config import SUPABASE_URL
+
+# Evolution/WhatsApp settings (not actively configured/used)
+_EVOLUTION_API_URL = ""
+_EVOLUTION_API_KEY = ""
+_EVOLUTION_INSTANCE_NAME = ""
+_AUTHORIZED_WHATSAPP_NUMBER = ""
 
 # Permitir cargar imágenes truncadas
 ImageFile.LOAD_TRUNCATED_IMAGES = True

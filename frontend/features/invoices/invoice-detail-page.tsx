@@ -1,7 +1,8 @@
 "use client";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Ban, Code2, Download, Expand, FileCode2, FileText, Flame, Lock, RotateCcw, Save, Sparkles, Trash2, X, XCircle, CheckCircle2 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -193,6 +194,7 @@ function getDirtyFields(original: Invoice, current: Partial<Invoice>): Partial<I
 
 export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["invoice", invoiceId],
     queryFn: () => getInvoice(invoiceId)
@@ -269,7 +271,10 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteInvoice(invoiceId),
-    onSuccess: () => router.push("/dashboard/invoices")
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      router.push("/dashboard/invoices");
+    }
   });
 
   const restoreMutation = useMutation({
@@ -283,8 +288,9 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
 
   const permanentDeleteMutation = useMutation({
     mutationFn: () => permanentDeleteApi([invoiceId]),
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       toast.success(`${data.count} factura eliminada permanentemente`);
+      await queryClient.invalidateQueries({ queryKey: ["invoices"] });
       router.push("/dashboard/invoices/trash");
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Error al eliminar"),
@@ -1199,14 +1205,15 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                         <Skeleton className="h-48 w-full rounded-b-md" />
                       </div>
                     ) : null}
-                    <img
+                    <button type="button" className="contents" onClick={() => setShowFullImage(true)}>
+                    <Image
                       alt="Factura"
                       className={`max-h-72 w-full cursor-zoom-in rounded-b-md border-t object-contain transition-opacity duration-300 ${imageLoaded ? "opacity-100" : "opacity-0"}`}
                       src={image.data.optimized_image}
-                      onClick={() => setShowFullImage(true)}
                       onLoad={() => setImageLoaded(true)}
                       onError={() => setImageLoaded(true)}
                     />
+                    </button>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center gap-3 py-8 text-muted-foreground">
@@ -1232,6 +1239,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                     style={{ minHeight: "280px" }}
                     title="Visor de PDF"
                     onLoad={() => setImageLoaded(true)}
+                    sandbox=""
                   />
                   <a
                     href={invoice.file_url}
@@ -1465,10 +1473,11 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
               Esto marcará la factura como anulada. Aparecerá en el formulario 608 de la DGII como factura anulada.
             </p>
             <div className="mb-4">
-              <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <label htmlFor="cancel-type" className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Tipo de anulación
               </label>
               <select
+                id="cancel-type"
                 className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                 value={cancelType}
                 onChange={(e) => setCancelType(e.target.value)}
@@ -1530,7 +1539,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-6"
           onClick={() => setShowFullImage(false)}
         >
-          <img alt="Factura completa" className="max-h-full max-w-full rounded-md" src={image.data.optimized_image} />
+          <Image alt="Factura completa" className="max-h-full max-w-full rounded-md" src={image.data.optimized_image} width={0} height={0} sizes="100vw" unoptimized />
         </div>
       ) : null}
     </div>

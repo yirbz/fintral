@@ -26,11 +26,14 @@ class Organization(Base):
     # Estado de certificación DGII/Alanube
     # Valores: "none" | "company_registered" | "certificate_uploaded" | "set_test_running" | "set_test_approved" | "certified" | "set_test_rejected"
     certification_status = Column(String, default="none", nullable=False)
-    alanube_company_id = Column(String, nullable=True)       # RNC/Cédula registrado en Alanube
+    alanube_company_id = Column(String, nullable=True)       # ID de empresa en Alanube (lockeado al iniciar certificación)
     alanube_environment = Column(String, nullable=True)       # "TesteCF" o "eCF"
     certificate_uploaded_at = Column(DateTime(timezone=True), nullable=True)
     economic_activity = Column(String, nullable=True)         # Actividad económica para DGII
+    certification_step = Column(String, default="0", nullable=False)  # Paso actual del wizard (0=inicio, 1=datos empresa, 2=certificado, 3=test)
+    is_certification_completed = Column(Boolean, default=False, nullable=False)  # ¿Terminó el proceso de certificación?
     
+    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), default=utc_now)
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 

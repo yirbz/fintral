@@ -112,6 +112,8 @@ htmlcov/
 AGENTS.md
 .codex
 .agents/
+.claude/
+.continue/
 
 # Frontend (Next.js)
 frontend/node_modules/

@@ -10,8 +10,12 @@ import PyPDF2
 from io import BytesIO
 from typing import Optional
 from app.services.cost_control import CostControlService
-from app.config import OPENAI_API_KEY, OLLAMA_HOST, OLLAMA_MODEL, GEMINI_API_URL, GEMINI_MODEL, SUPABASE_URL
+from app.config import OPENAI_API_KEY, AI_MODEL_NAME, SUPABASE_URL
 from app.database import SessionLocal
+
+# Ollama local development fallback values (not used globally anymore)
+OLLAMA_HOST = "http://localhost:11434"
+OLLAMA_MODEL = "gemma4:e2b-it-q4_K_M"
 from app.models import Setting, UserSetting
 from app.utils.dates import utc_now, utc_today
 
@@ -19,30 +23,8 @@ logger = logging.getLogger(__name__)
 
 class LLMInvoiceProcessor:
     def __init__(self):
-        self.api_key = self._get_api_key()
         self.ollama_host = OLLAMA_HOST
         self.ollama_model = OLLAMA_MODEL
-        
-        if not self.api_key:
-            self.client = None
-            logger.warning("API key not configured")
-        elif self.api_key.lower() in ("ollama", "local"):
-            self.client = None
-            logger.info("Using Ollama local LLM: model=%s host=%s", self.ollama_model, self.ollama_host)
-        elif self.api_key.startswith("AIza"):
-            self.client = None
-            logger.info("Using Google Gemini for AI processing")
-        elif self.api_key.startswith("demo"):
-            self.client = None
-            logger.warning("Demo API key detected — limited functionality")
-        else:
-            try:
-                self.client = openai.OpenAI(api_key=self.api_key)
-                logger.info("OpenAI API key configured successfully")
-            except Exception as e:
-                self.client = None
-                logger.error("Failed to configure OpenAI API key: %s", e)
-        
         self.cost_control = CostControlService()
 
     @staticmethod
@@ -52,18 +34,23 @@ class LLMInvoiceProcessor:
 
         last_resp = None
         for attempt in range(max_retries):
-            resp = requests.post(url, json=payload, timeout=timeout)
-            if resp.status_code == 200:
-                return resp
-            last_resp = resp
-            if resp.status_code in (429, 500, 502, 503):
-                if attempt < max_retries - 1:
-                    wait = 2 ** attempt
-                    print(f"⚠️ Gemini API error {resp.status_code}, retrying in {wait}s (attempt {attempt + 1}/{max_retries})")
-                    time.sleep(wait)
-                    continue
-            else:
+            try:
+                resp = requests.post(url, json=payload, timeout=timeout)
+                if resp.status_code == 200:
+                    return resp
+                last_resp = resp
+                if resp.status_code in (429, 500, 502, 503):
+                    if attempt < max_retries - 1:
+                        wait = 2 ** attempt
+                        print(f"⚠️ Gemini API error {resp.status_code}, retrying in {wait}s (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(wait)
+                        continue
                 break
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise e
         return last_resp
     
     def _get_api_key(self, org_id: Optional[int] = None, user_id: Optional[int] = None):
@@ -101,17 +88,7 @@ class LLMInvoiceProcessor:
 
         return api_key
 
-    def _get_client(self, org_id: Optional[int] = None, user_id: Optional[int] = None):
-        """Crea un cliente de OpenAI con la API Key actual (BD o Env)"""
-        api_key = self._get_api_key(org_id=org_id, user_id=user_id)
-            
-        if not api_key or api_key.startswith("demo"):
-            return None
-            
-        try:
-            return openai.OpenAI(api_key=api_key)
-        except:
-            return None
+
 
     def encode_image(self, image_path):
         """Codifica una imagen en base64 para enviar a OpenAI"""
@@ -149,19 +126,12 @@ class LLMInvoiceProcessor:
             return ""
 
     def process_image_invoice(self, image_path, invoice=None, db=None, user_id: Optional[int] = None):
-        """Procesa una factura en formato imagen usando GPT-4 Vision"""
+        """Procesa una factura en formato imagen"""
         org_id = invoice.organization_id if invoice else None
         api_key = self._get_api_key(org_id=org_id, user_id=user_id)
         if not api_key:
             print("❌ API key missing - returning error")
             return {"error": "API key not configured. Please set it in Settings."}
-        
-        is_ollama = api_key.lower() in ("ollama", "local")
-        is_gemini = api_key.startswith("AIza")
-        if not is_gemini and not is_ollama:
-            client = self._get_client(org_id=org_id, user_id=user_id)
-            if not client:
-                return {"error": "OpenAI client failed to initialize."}
         
         # Verificar límites antes de procesar
         if db and invoice:
@@ -303,88 +273,31 @@ class LLMInvoiceProcessor:
             - NO inventes datos.
             """
             
-            if is_ollama:
-                import requests as req
-                print(f"🦙 Enviando imagen a Ollama ({self.ollama_model})...")
-                ollama_url = f"{self.ollama_host}/api/chat"
-                ollama_payload = {
-                    "model": self.ollama_model,
-                    "messages": [{
-                        "role": "user",
-                        "content": prompt + "\n\nResponde SOLO con JSON válido, sin texto adicional.",
-                        "images": [base64_image]
-                    }],
-                    "stream": False,
-                    "options": {"temperature": 0.1}
-                }
-                resp = req.post(ollama_url, json=ollama_payload, timeout=300.0)
-                if resp.status_code == 200:
-                    content = resp.json()["message"]["content"].strip()
-                    print(f"✅ Ollama respondió ({len(content)} chars)")
-                else:
-                    return self._create_error_response(f"Ollama Error: {resp.text}")
-            elif is_gemini:
-                url = f"{GEMINI_API_URL}/{GEMINI_MODEL}:generateContent?key={api_key}"
-                payload = {
-                    "contents": [{
-                        "parts": [
-                            {"text": prompt + "\n\nResponde estrictamente con JSON válido."},
-                            {"inlineData": {"mimeType": mime_type, "data": base64_image}}
-                        ]
-                    }],
-                    "generationConfig": {
-                        "temperature": 0.1,
-                        "responseMimeType": "application/json"
-                    }
-                }
-                resp = self._call_gemini_with_retry(url, payload)
-                if resp.status_code == 200:
-                    resp_json = resp.json()
-                    content = resp_json["candidates"][0]["content"]["parts"][0]["text"]
-                    if db and invoice:
-                        usage = resp_json.get("usageMetadata", {})
-                        self.cost_control.record_openai_usage(
-                            invoice=invoice,
-                            model=GEMINI_MODEL,
-                            input_tokens=usage.get("promptTokenCount", 0),
-                            output_tokens=usage.get("candidatesTokenCount", 0),
-                            start_time=start_time,
-                            db=db,
-                        )
-                else:
-                    return self._create_error_response(f"Gemini API Error: {resp.text}")
-            else:
-                response = client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:{mime_type};base64,{base64_image}"
-                                    }
-                                }
-                            ]
-                        }
-                    ],
-                    max_tokens=2000,
-                    temperature=0.1
+            # Resolve LLM Provider using factory
+            from app.services.llm_providers import LLMProviderFactory
+            
+            provider = LLMProviderFactory.get_provider(
+                api_key=api_key,
+                configured_model=AI_MODEL_NAME,
+                ollama_host=self.ollama_host,
+                ollama_model=self.ollama_model
+            )
+
+            print(f"🔮 Procesando imagen con {provider.__class__.__name__} usando modelo: {provider.model_name}")
+            response = provider.process_image(prompt, base64_image, mime_type)
+
+            # Registrar uso de tokens y costos si el provider los reporta
+            if db and invoice and response.input_tokens > 0:
+                self.cost_control.record_openai_usage(
+                    invoice=invoice,
+                    model=provider.model_name,
+                    input_tokens=response.input_tokens,
+                    output_tokens=response.output_tokens,
+                    start_time=start_time,
+                    db=db
                 )
-                
-                # Registrar uso de tokens y costos
-                if db and invoice and response.usage:
-                    self.cost_control.record_openai_usage(
-                        invoice=invoice,
-                        model="gpt-4o",
-                        input_tokens=response.usage.prompt_tokens,
-                        output_tokens=response.usage.completion_tokens,
-                        start_time=start_time,
-                        db=db
-                    )
-                content = response.choices[0].message.content.strip()
+
+            content = response.content
             
             # Buscar JSON en la respuesta
             json_start = content.find('{')
@@ -828,13 +741,6 @@ class LLMInvoiceProcessor:
             print("❌ API key missing - returning error")
             return {"error": "API key not configured. Please set it in Settings."}
         
-        is_ollama = api_key.lower() in ("ollama", "local")
-        is_gemini = api_key.startswith("AIza")
-        if not is_gemini and not is_ollama:
-            client = self._get_client(org_id=org_id, user_id=user_id)
-            if not client:
-                return {"error": "OpenAI client failed to initialize."}
-        
         try:
             if db and invoice:
                 can_process = self.cost_control.can_process_request(db, org_id=org_id)
@@ -978,62 +884,31 @@ class LLMInvoiceProcessor:
             - NO inventes datos.
             """
 
-            if is_ollama:
-                import requests as req
-                print(f"🦙 Enviando PDF texto a Ollama ({self.ollama_model})...")
-                ollama_url = f"{self.ollama_host}/api/chat"
-                ollama_payload = {
-                    "model": self.ollama_model,
-                    "messages": [{
-                        "role": "user",
-                        "content": prompt + "\n\nResponde SOLO con JSON válido, sin texto adicional."
-                    }],
-                    "stream": False,
-                    "options": {"temperature": 0.1}
-                }
-                resp = req.post(ollama_url, json=ollama_payload, timeout=300.0)
-                if resp.status_code == 200:
-                    content = resp.json()["message"]["content"].strip()
-                    print(f"✅ Ollama respondió ({len(content)} chars)")
-                else:
-                    return self._create_error_response(f"Ollama Error: {resp.text}")
-            elif is_gemini:
-                url = f"{GEMINI_API_URL}/{GEMINI_MODEL}:generateContent?key={api_key}"
-                payload = {
-                    "contents": [{
-                        "parts": [
-                            {"text": prompt + "\n\nResponde estrictamente con JSON válido."}
-                        ]
-                    }],
-                    "generationConfig": {
-                        "temperature": 0.1,
-                        "responseMimeType": "application/json"
-                    }
-                }
-                resp = self._call_gemini_with_retry(url, payload)
-                if resp.status_code == 200:
-                    resp_json = resp.json()
-                    content = resp_json["candidates"][0]["content"]["parts"][0]["text"]
-                    if db and invoice:
-                        usage = resp_json.get("usageMetadata", {})
-                        self.cost_control.record_openai_usage(
-                            invoice=invoice,
-                            model=GEMINI_MODEL,
-                            input_tokens=usage.get("promptTokenCount", 0),
-                            output_tokens=usage.get("candidatesTokenCount", 0),
-                            start_time=start_time,
-                            db=db,
-                        )
-                else:
-                    return self._create_error_response(f"Gemini API Error: {resp.text}")
-            else:
-                response = client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=2000,
-                    temperature=0.1
+            # Resolve LLM Provider using factory
+            from app.services.llm_providers import LLMProviderFactory
+            
+            provider = LLMProviderFactory.get_provider(
+                api_key=api_key,
+                configured_model=AI_MODEL_NAME,
+                ollama_host=self.ollama_host,
+                ollama_model=self.ollama_model
+            )
+
+            print(f"🔮 Procesando PDF con {provider.__class__.__name__} usando modelo: {provider.model_name}")
+            response = provider.process_text(prompt)
+
+            # Registrar uso de tokens y costos si el provider los reporta
+            if db and invoice and response.input_tokens > 0:
+                self.cost_control.record_openai_usage(
+                    invoice=invoice,
+                    model=provider.model_name,
+                    input_tokens=response.input_tokens,
+                    output_tokens=response.output_tokens,
+                    start_time=start_time,
+                    db=db
                 )
-                content = response.choices[0].message.content.strip()
+
+            content = response.content
             
             # Buscar JSON en la respuesta
             json_start = content.find('{')
@@ -1090,17 +965,23 @@ class LLMInvoiceProcessor:
         Retorna:
             - Respuesta en texto del asistente
         """
-        client = self._get_client(org_id=org_id, user_id=user_id)
-        if not client:
-            return "Lo siento, la API Key de OpenAI no está configurada."
+        api_key = self._get_api_key(org_id=org_id, user_id=user_id)
+        if not api_key:
+            return "Lo siento, la API Key no está configurada."
 
         try:
-            # Preparar el contexto de datos (limitar tamaño si es necesario)
-            # Convertir a JSON string para el prompt
-            data_context = json.dumps(context_data, ensure_ascii=False)
+            # Resolve LLM Provider using factory
+            from app.services.llm_providers import LLMProviderFactory
             
-            # Si el contexto es muy grande, deberíamos truncarlo, pero por ahora asumimos < 50-100 facturas
-            # Un MVP seguro limita a las últimas 50 facturas relevantes
+            provider = LLMProviderFactory.get_provider(
+                api_key=api_key,
+                configured_model=AI_MODEL_NAME,
+                ollama_host=self.ollama_host,
+                ollama_model=self.ollama_model
+            )
+
+            # Preparar el contexto de datos (limitar tamaño si es necesario)
+            data_context = json.dumps(context_data, ensure_ascii=False)
             
             system_prompt = """
             Eres el CFO (Chief Financial Officer) Inteligente de una empresa. 
@@ -1118,17 +999,13 @@ class LLMInvoiceProcessor:
             6. Si te preguntan por totales, suma los montos cuidadosamente.
             """.format(data=data_context)
 
-            response = client.chat.completions.create(
-                model="gpt-4o", # Modelo rápido y capaz
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": query}
-                ],
-                max_tokens=500,
-                temperature=0.3 
-            )
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": query}
+            ]
 
-            return response.choices[0].message.content.strip()
+            response = provider.chat(messages, temperature=0.3, max_tokens=500)
+            return response.content
 
         except Exception as e:
             print(f"Error en chat financiero: {e}")

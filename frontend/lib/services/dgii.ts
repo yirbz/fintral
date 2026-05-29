@@ -18,11 +18,48 @@ export interface IDgiiService {
   consultTaxpayer(rnc: string): Promise<TaxpayerDetails | null>;
 }
 
+function validateCedula(cedula: string): boolean {
+  const cleanCedula = cedula.replace(/[^0-9]/g, '');
+  if (cleanCedula.length !== 11) return false;
+
+  let sum = 0;
+  for (let i = 0; i < 10; i++) {
+    const digit = parseInt(cleanCedula[i], 10);
+    const weight = (i % 2 === 0) ? 2 : 1;
+    const product = digit * weight;
+    sum += (product > 9) ? (Math.floor(product / 10) + (product % 10)) : product;
+  }
+
+  const checksum = (10 - (sum % 10)) % 10;
+  return checksum === parseInt(cleanCedula[10], 10);
+}
+
 class DgiiService implements IDgiiService {
   isValidRNC(value: string): boolean {
-    if (!value) return false;
-    const clean = this.cleanRNC(value);
-    return RNC.valid(clean);
+    console.log("[isValidRNC] Input value:", value);
+    if (!value) {
+      console.log("[isValidRNC] Rejected: value is empty");
+      return false;
+    }
+    try {
+      const clean = this.cleanRNC(value);
+      console.log("[isValidRNC] Clean value:", clean, "length:", clean.length);
+      if (clean.length === 9) {
+        const isValid = RNC.valid(clean);
+        console.log("[isValidRNC] RNC.valid check result:", isValid);
+        return isValid;
+      }
+      if (clean.length === 11) {
+        const isValid = validateCedula(clean);
+        console.log("[isValidRNC] validateCedula check result:", isValid);
+        return isValid;
+      }
+      console.log("[isValidRNC] Rejected: length is neither 9 nor 11");
+      return false;
+    } catch (err) {
+      console.error("[isValidRNC] Exception during validation:", err);
+      return false;
+    }
   }
 
   formatRNC(value: string): string {

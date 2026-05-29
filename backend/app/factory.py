@@ -1,4 +1,5 @@
 import logging
+import os
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -7,7 +8,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.database import get_db
 
-from app.config import IS_PRODUCTION, SUPABASE_URL
+from app.config import FINTRAL_DATA_DIR, IS_PRODUCTION, SUPABASE_URL
 from app.core.bootstrap import run_startup
 from app.core.ui import ensure_runtime_dirs
 from app.routers import admin, auth_pages, dgii, evolution, history, integrations, invoices, notifications, odoo_integration, organizations, pending_uploads, quickbooks_integration, settings, statistics, websocket, webhooks, xero_integration, bank_accounts, billing
@@ -26,7 +27,8 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Sistema de Gestión de Facturas", version="1.0.0")
 
-    app.mount("/static", StaticFiles(directory="static"), name="static")
+    static_dir = os.path.join(FINTRAL_DATA_DIR, "static")
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
     @app.exception_handler(404)
     async def not_found_exception_handler(request: Request, exc: StarletteHTTPException):
