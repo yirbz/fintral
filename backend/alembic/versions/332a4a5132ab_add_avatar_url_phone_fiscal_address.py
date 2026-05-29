@@ -20,16 +20,16 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    op.add_column('organizations', sa.Column('phone', sa.String(), nullable=True))
-    op.add_column('organizations', sa.Column('fiscal_address', sa.String(), nullable=True))
-    op.add_column('users', sa.Column('avatar_url', sa.String(), nullable=True))
+    op.execute("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS phone VARCHAR")
+    op.execute("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS fiscal_address VARCHAR")
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR")
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    op.drop_column('users', 'avatar_url')
-    op.drop_column('organizations', 'fiscal_address')
-    op.drop_column('organizations', 'phone')
+    op.execute("ALTER TABLE users DROP COLUMN IF EXISTS avatar_url")
+    op.execute("ALTER TABLE organizations DROP COLUMN IF EXISTS fiscal_address")
+    op.execute("ALTER TABLE organizations DROP COLUMN IF EXISTS phone")
     op.create_index(op.f('buckets_analytics_unique_name_idx'), 'buckets_analytics', ['name'], unique=True, schema='storage', postgresql_where='(deleted_at IS NULL)')
     op.create_table('oauth_client_states',
     sa.Column('id', sa.UUID(), autoincrement=False, nullable=False),

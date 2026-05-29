@@ -18,30 +18,19 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "audit_logs",
-        sa.Column("visibility", sa.String(10), server_default="'client'", nullable=False),
-    )
-    op.add_column(
-        "audit_logs",
-        sa.Column("snapshot_before", sa.JSON(), nullable=True),
-    )
-    op.add_column(
-        "audit_logs",
-        sa.Column("snapshot_after", sa.JSON(), nullable=True),
-    )
-    op.add_column(
-        "audit_logs",
-        sa.Column("request_id", sa.String(36), nullable=True),
-    )
-    op.create_index(op.f("ix_audit_logs_visibility"), "audit_logs", ["visibility"], unique=False)
-    op.create_index(op.f("ix_audit_logs_request_id"), "audit_logs", ["request_id"], unique=False)
+    # IF NOT EXISTS: columns may already exist if initial_schema was regenerated
+    op.execute("ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS visibility VARCHAR(10) NOT NULL DEFAULT 'client'")
+    op.execute("ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS snapshot_before JSON")
+    op.execute("ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS snapshot_after JSON")
+    op.execute("ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS request_id VARCHAR(36)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_audit_logs_visibility ON audit_logs (visibility)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_audit_logs_request_id ON audit_logs (request_id)")
 
 
 def downgrade() -> None:
-    op.drop_index(op.f("ix_audit_logs_request_id"), table_name="audit_logs")
-    op.drop_index(op.f("ix_audit_logs_visibility"), table_name="audit_logs")
-    op.drop_column("audit_logs", "request_id")
-    op.drop_column("audit_logs", "snapshot_after")
-    op.drop_column("audit_logs", "snapshot_before")
-    op.drop_column("audit_logs", "visibility")
+    op.execute("DROP INDEX IF EXISTS ix_audit_logs_request_id")
+    op.execute("DROP INDEX IF EXISTS ix_audit_logs_visibility")
+    op.execute("ALTER TABLE audit_logs DROP COLUMN IF EXISTS request_id")
+    op.execute("ALTER TABLE audit_logs DROP COLUMN IF EXISTS snapshot_after")
+    op.execute("ALTER TABLE audit_logs DROP COLUMN IF EXISTS snapshot_before")
+    op.execute("ALTER TABLE audit_logs DROP COLUMN IF EXISTS visibility")
