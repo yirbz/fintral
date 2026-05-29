@@ -130,3 +130,8 @@ frontend/tsconfig.tsbuildinfo
 
 #Docs
 docs/plans/
+
+# Project artifacts (not useful for dev or prod)
+architecture_diagram.png
+supabase/.branches/
+supabase/.temp/
