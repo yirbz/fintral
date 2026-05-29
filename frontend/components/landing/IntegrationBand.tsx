@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { FileDown, Share2 } from "lucide-react";
 
 export function IntegrationBand() {
@@ -20,12 +21,12 @@ export function IntegrationBand() {
               Los datos limpios y organizados, siempre a un clic.
             </p>
             <div className="flex gap-4">
-              <a
+              <Link
                 href="/login"
                 className="inline-flex items-center rounded-full bg-[#0d253d] text-white hover:bg-[#1c1e54] font-normal px-6 py-2.5 h-auto text-[15px] transition-all duration-200"
               >
                 Probar gratis
-              </a>
+              </Link>
             </div>
           </div>
 

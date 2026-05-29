@@ -17,6 +17,7 @@ from app.services.audit_logger import record as audit_record
 from app.dependencies.tenancy import get_company_context
 from app.models import Invoice, Organization, User, UserOrganization
 from app.schemas import ChatRequest, ForgotPasswordRequest, RegisterRequest, ResetPasswordRequest, VerifyCodeRequest
+from app.utils.validation import validate_email, validate_full_name, validate_password
 from app.services.auth_service import provision_local_user, sign_in, sign_up_user, verify_and_login, verify_email_code, verify_user
 from app.services.email_service import send_password_changed_email, send_reset_password_email, send_verification_email
 
@@ -48,6 +49,9 @@ async def login_for_access_token(
             if user and not user.is_active:
                 user.is_active = True
                 db.commit()
+            if not user:
+                raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
+            _assert_not_deleted(user)
             expire = timedelta(days=REMEMBER_ME_EXPIRE_DAYS) if remember else timedelta(minutes=_SESSION_EXPIRE_MINUTES)
             token = create_access_token(data={"sub": form_data.username}, expires_delta=expire)
             audit_record(
@@ -64,6 +68,7 @@ async def login_for_access_token(
         if user and verify_password(form_data.password, user.hashed_password):
             if not user.is_active:
                 raise HTTPException(status_code=400, detail="Usuario inactivo")
+            _assert_not_deleted(user)
             expire = timedelta(days=REMEMBER_ME_EXPIRE_DAYS) if remember else timedelta(minutes=_SESSION_EXPIRE_MINUTES)
             token = create_access_token(data={"sub": form_data.username}, expires_delta=expire)
             audit_record(
@@ -105,8 +110,15 @@ async def register(
 ):
     if not body.email or not body.password:
         raise HTTPException(status_code=400, detail="Email y contraseña son requeridos")
-    if len(body.password) < 6:
-        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 6 caracteres")
+    email_err = validate_email(body.email)
+    if email_err:
+        raise HTTPException(status_code=400, detail=email_err)
+    name_err = validate_full_name(body.full_name)
+    if name_err:
+        raise HTTPException(status_code=400, detail=name_err)
+    pwd_err = validate_password(body.password)
+    if pwd_err:
+        raise HTTPException(status_code=400, detail=pwd_err)
 
     existing = db.query(User).filter(User.email == body.email).first()
     if existing:
@@ -265,8 +277,9 @@ async def reset_password(
 ):
     if not body.email or not body.code or not body.password:
         raise HTTPException(status_code=400, detail="Todos los campos son requeridos")
-    if len(body.password) < 6:
-        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 6 caracteres")
+    pwd_err = validate_password(body.password)
+    if pwd_err:
+        raise HTTPException(status_code=400, detail=pwd_err)
 
     user = db.query(User).filter(User.email == body.email).first()
     if not user:
@@ -296,6 +309,13 @@ async def verify(token: str, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=400, detail="Enlace inválido o expirado")
     return {"message": "Cuenta verificada correctamente. Ya puedes iniciar sesión."}
+
+
+def _assert_not_deleted(user: User) -> None:
+    if user.deleted_at:
+        raise HTTPException(status_code=401, detail="No disponible")
+    if user.tenant and user.tenant.deleted_at:
+        raise HTTPException(status_code=401, detail="No disponible")
 
 
 def _create_token_response(token: str, *, persist: bool = False):
@@ -352,8 +372,12 @@ async def get_current_session(ctx: TenantContext = Depends(require_tenant)):
             "id": str(ctx.user.id),
             "email": ctx.user.email,
             "full_name": ctx.user.full_name,
+            "job_title": ctx.user.job_title,
+            "phone": ctx.user.phone,
+            "avatar_url": ctx.user.avatar_url,
             "is_active": ctx.user.is_active,
             "is_superuser": ctx.user.is_superuser,
+            "created_at": ctx.user.created_at.isoformat() if ctx.user.created_at else None,
         },
         "tenant": {
             "id": str(ctx.tenant_id),
@@ -363,7 +387,9 @@ async def get_current_session(ctx: TenantContext = Depends(require_tenant)):
             "id": str(ctx.org_id),
             "name": ctx.organization.name,
             "tax_id": ctx.organization.tax_id,
+            "phone": ctx.organization.phone,
             "country": ctx.organization.country,
+            "fiscal_address": ctx.organization.fiscal_address,
         },
         "role": ctx.role,
         **get_company_context(ctx.organization),

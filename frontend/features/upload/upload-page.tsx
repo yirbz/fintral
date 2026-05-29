@@ -5,6 +5,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { createPendingUpload, deletePendingUpload, listPendingUploads, processPendingUpload, type PendingUpload } from "@/lib/api/invoices";
+import { ReviewInvoiceDialog } from "./review-invoice-dialog";
+import type { Invoice } from "@/lib/types";
 import { ApiError } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -70,7 +72,8 @@ export function UploadPage() {
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deletingAll, setDeletingAll] = useState(false);
-  const [processingResults, setProcessingResults] = useState<{ filename: string; success: boolean; errorMsg?: string }[] | null>(null);
+  const [processingResults, setProcessingResults] = useState<Record<string, { success: boolean; errorMsg?: string }>>({});
+  const [reviewInvoice, setReviewInvoice] = useState<Invoice | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
@@ -180,28 +183,26 @@ export function UploadPage() {
   async function processAllPending() {
     if (!pendingQuery.data?.pending_uploads.length) return;
     const items = pendingQuery.data.pending_uploads;
-    setProcessingResults(null);
+    setProcessingResults({});
     setProcessingIds(new Set(items.map((p) => p.id)));
-    const results: { filename: string; success: boolean; errorMsg?: string }[] = [];
     let success = 0;
     let fail = 0;
     for (const item of items) {
       try {
         await processPendingUpload(item.id);
         success++;
-        results.push({ filename: item.filename, success: true });
+        setProcessingResults((prev) => ({ ...prev, [item.id]: { success: true } }));
+        setProcessingIds((prev) => { const n = new Set(prev); n.delete(item.id); return n; });
       } catch (err) {
         fail++;
-        results.push({
-          filename: item.filename,
-          success: false,
-          errorMsg: err instanceof Error ? err.message : "Error desconocido",
-        });
+        setProcessingResults((prev) => ({
+          ...prev,
+          [item.id]: { success: false, errorMsg: err instanceof Error ? err.message : "Error desconocido" },
+        }));
+        setProcessingIds((prev) => { const n = new Set(prev); n.delete(item.id); return n; });
       }
     }
-    setProcessingIds(new Set());
     setSelectedIds(new Set());
-    setProcessingResults(results);
     invalidateAll();
     if (fail === 0) {
       toast.success(`${success} factura${success !== 1 ? "s" : ""} procesada${success !== 1 ? "s" : ""} exitosamente`);
@@ -215,14 +216,21 @@ export function UploadPage() {
   async function processOne(id: string) {
     setProcessingIds((prev) => new Set(prev).add(id));
     try {
-      await processPendingUpload(id);
+      const res = await processPendingUpload(id);
       setProcessingIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+      setProcessingResults((prev) => ({ ...prev, [id]: { success: true } }));
       invalidateAll();
       toast.success("Factura procesada exitosamente");
+      if (res.invoice) {
+        setReviewInvoice(res.invoice);
+      }
     } catch (err) {
       setProcessingIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+      setProcessingResults((prev) => ({
+        ...prev,
+        [id]: { success: false, errorMsg: err instanceof Error ? err.message : "Error al procesar factura" },
+      }));
       invalidateAll();
-      toast.error(err instanceof Error ? err.message : "Error al procesar factura");
     }
   }
 
@@ -307,6 +315,7 @@ export function UploadPage() {
                 accept={FILE_ACCEPT}
                 onChange={onSelectFiles}
                 className="hidden"
+                aria-label="Seleccionar archivos"
               />
               <div className={cn("flex size-12 items-center justify-center rounded-xl transition-colors", dragOver ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground")}>
                 <Upload className={cn("size-5 transition-transform", dragOver && "scale-110")} />
@@ -427,7 +436,7 @@ export function UploadPage() {
           </CardHeader>
           <CardContent>
             {/* Processing results summary */}
-            {processingResults && (
+            {Object.keys(processingResults).length > 0 && (
               <div className="mb-4 rounded-lg border border-border/60 bg-muted/30 p-3">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-medium text-foreground">Resultado del procesamiento</span>
@@ -435,7 +444,7 @@ export function UploadPage() {
                     size="sm"
                     variant="ghost"
                     className="h-auto p-1 text-muted-foreground hover:text-foreground"
-                    onClick={() => setProcessingResults(null)}
+                    onClick={() => setProcessingResults({})}
                   >
                     <XCircle className="size-3" />
                   </Button>
@@ -443,24 +452,24 @@ export function UploadPage() {
                 <div className="flex items-center gap-3 mb-2 text-xs">
                   <span className="flex items-center gap-1 text-emerald-600">
                     <CheckCircle2 className="size-3" />
-                    {processingResults.filter((r) => r.success).length} exitosas
+                    {Object.values(processingResults).filter((r) => r.success).length} exitosas
                   </span>
-                  {processingResults.filter((r) => !r.success).length > 0 && (
+                  {Object.values(processingResults).filter((r) => !r.success).length > 0 && (
                     <span className="flex items-center gap-1 text-destructive">
                       <XCircle className="size-3" />
-                      {processingResults.filter((r) => !r.success).length} fallaron
+                      {Object.values(processingResults).filter((r) => !r.success).length} fallaron
                     </span>
                   )}
                 </div>
                 <div className="space-y-1">
-                  {processingResults.map((r, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs">
+                  {Object.entries(processingResults).map(([id, r]) => (
+                    <div key={id} className="flex items-center gap-2 text-xs">
                       {r.success ? (
                         <CheckCircle2 className="size-3 text-emerald-500 shrink-0" />
                       ) : (
                         <XCircle className="size-3 text-destructive shrink-0" />
                       )}
-                      <span className="truncate text-foreground">{r.filename}</span>
+                      <span className="truncate text-foreground">{pendings.find((p) => p.id === id)?.filename ?? id.slice(0, 8)}</span>
                       {!r.success && r.errorMsg && (
                         <span className="shrink-0 text-destructive ml-auto truncate max-w-[200px]">{r.errorMsg}</span>
                       )}
@@ -498,13 +507,15 @@ export function UploadPage() {
                       const expiresAt = new Date(pu.expires_at);
                       const expiresSoon = expiresAt.getTime() - Date.now() < 3600_000;
                       const isProcessing = processingIds.has(pu.id);
+                      const result = processingResults[pu.id];
                       const isSelected = selectedIds.has(pu.id);
                       return (
                         <TableRow
                           key={pu.id}
                           className={cn(
                             "group hover:bg-primary/[0.02]",
-                            isSelected && "bg-primary/[0.03]"
+                            isSelected && "bg-primary/[0.03]",
+                            result && !result.success && "bg-destructive/[0.03]"
                           )}
                         >
                           <TableCell className="w-10 px-2 py-2">
@@ -512,14 +523,30 @@ export function UploadPage() {
                               checked={isSelected}
                               onCheckedChange={() => toggleSelect(pu.id)}
                               aria-label={`Seleccionar ${pu.filename}`}
+                              disabled={isProcessing}
                             />
                           </TableCell>
                           <TableCell className="px-3 py-2">
                             <div className="flex items-center gap-2">
-                              <FileText className="size-3.5 text-muted-foreground shrink-0" />
+                              {isProcessing ? (
+                                <Loader2 className="size-3.5 animate-spin text-primary shrink-0" />
+                              ) : result ? (
+                                result.success ? (
+                                  <CheckCircle2 className="size-3.5 text-emerald-500 shrink-0" />
+                                ) : (
+                                  <XCircle className="size-3.5 text-destructive shrink-0" />
+                                )
+                              ) : (
+                                <FileText className="size-3.5 text-muted-foreground shrink-0" />
+                              )}
                               <span className="text-xs text-foreground truncate max-w-[200px]">
                                 {pu.filename || pu.id.slice(0, 8)}
                               </span>
+                              {result && !result.success && result.errorMsg && (
+                                <span className="text-[10px] text-destructive truncate max-w-[160px]" title={result.errorMsg}>
+                                  {result.errorMsg}
+                                </span>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell className="px-3 py-2 text-xs text-muted-foreground">
@@ -586,6 +613,18 @@ export function UploadPage() {
           </CardContent>
         </Card>
       </div>
+      {reviewInvoice && (
+        <ReviewInvoiceDialog
+          invoice={reviewInvoice}
+          open={!!reviewInvoice}
+          onOpenChange={(open) => !open && setReviewInvoice(null)}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ["pending-uploads"] });
+            queryClient.invalidateQueries({ queryKey: ["pending-upload-count"] });
+            queryClient.invalidateQueries({ queryKey: ["invoices"] });
+          }}
+        />
+      )}
     </div>
   );
 }

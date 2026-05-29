@@ -39,13 +39,14 @@ export function NavBar() {
           Iniciar sesión
         </Link>
         <Link href="/login">
-          <button className="rounded-full bg-[#533afd] text-white hover:bg-[#4434d4] font-normal px-4 py-2 h-auto text-[15px] shadow-sm transition-all duration-200 hover:shadow-md active:bg-[#2e2b8c]">
+          <button type="button" className="rounded-full bg-[#533afd] text-white hover:bg-[#4434d4] font-normal px-4 py-2 h-auto text-[15px] shadow-sm transition-all duration-200 hover:shadow-md active:bg-[#2e2b8c]">
             Comenzar <ArrowRight className="ml-1.5 inline size-4" />
           </button>
         </Link>
       </div>
 
       <button
+        type="button"
         onClick={() => setMobileOpen(!mobileOpen)}
         className="md:hidden p-2 text-[#0d253d]"
         aria-label={mobileOpen ? "Cerrar menú" : "Abrir menú"}

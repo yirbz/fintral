@@ -74,6 +74,11 @@
     --brand-magenta: #f96bee;
     --brand-lemon: #9b6829;
     --brand-shadow-blue: #003770;
+
+    /* ── Logo Colors ── */
+    --logo-primary: #38bdf8; /* sky-400 */
+    --logo-secondary: #7dd3fc; /* sky-300 */
+    --logo-light-primary: #0ea5e9; /* sky-500 */
   }
 
   .dark {
@@ -134,6 +139,19 @@
   .brand-selection ::selection {
     background-color: rgb(83 58 253 / 0.15);
     color: #0d253d;
+  }
+
+  /* Billing Satellite Layout styling override */
+  .billing-theme {
+    --primary: 142.1 76.2% 36.3%; /* #059669 - emerald-600 */
+    --ring: 142.1 76.2% 36.3%;
+    --sidebar-primary: 142.1 76.2% 36.3%;
+    --sidebar-ring: 142.1 76.2% 36.3%;
+
+    /* ── Logo Colors Override (Business Green) ── */
+    --logo-primary: #34d399; /* emerald-400 */
+    --logo-secondary: #6ee7b7; /* emerald-300 */
+    --logo-light-primary: #10b981; /* emerald-500 */
   }
 }
 

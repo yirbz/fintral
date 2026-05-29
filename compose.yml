@@ -30,7 +30,7 @@ services:
       - .env
     environment:
       - ENVIRONMENT=PROD
-      - PORT=8000
+      - BACKEND_PORT=8000
       - DATABASE_URL=postgresql://${POSTGRES_USER:-invoice}:${POSTGRES_PASSWORD:-invoice_password}@db:5432/${POSTGRES_DB:-invoice}
       - REDIS_URL=redis://redis:6379/0
     depends_on:
@@ -50,7 +50,7 @@ services:
       dockerfile: Dockerfile
     container_name: invoice_frontend
     environment:
-      - BACKEND_URL=http://app:${PORT:-8000}
+      - BACKEND_URL=http://app:${BACKEND_PORT:-8000}
       - HOSTNAME=0.0.0.0
     depends_on:
       - app

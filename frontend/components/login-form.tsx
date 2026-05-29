@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -23,10 +24,14 @@ export function LoginForm({
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [emailTouched, setEmailTouched] = useState(false);
+
+  const emailError = emailTouched && email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? "Formato inválido" : null;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
+    if (emailError) return;
     setLoading(true);
 
     try {
@@ -58,22 +63,24 @@ export function LoginForm({
           <Input
             id="email"
             type="email"
-            placeholder="usuario@fintral.com"
+            placeholder="usuario@dominio.com"
             required
-            className="border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:border-sky-500/50"
+            className={`border ${emailError ? "border-red-500/60" : "border-white/10"} bg-white/5 text-white placeholder:text-zinc-500 focus-visible:border-sky-500/50`}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            onBlur={() => setEmailTouched(true)}
           />
+          {emailError && <p className="mt-1 text-[11px] text-red-400">{emailError}</p>}
         </Field>
         <Field>
           <div className="flex items-center">
             <FieldLabel htmlFor="password" className="text-zinc-300">Contraseña</FieldLabel>
-            <a
+            <Link
               href="/forgot-password"
               className="ml-auto text-sm text-zinc-500 underline-offset-4 hover:text-zinc-300 hover:underline"
             >
               ¿Olvidaste tu contraseña?
-            </a>
+            </Link>
           </div>
           <div className="relative">
             <Input
@@ -118,6 +125,7 @@ export function LoginForm({
               checked={remember}
               onChange={(e) => setRemember(e.target.checked)}
               className="peer sr-only"
+              aria-label="Recordar sesión"
             />
             {/* Custom checkbox visual */}
             <div
@@ -184,9 +192,9 @@ export function LoginForm({
       {/* Register link */}
       <p className="text-center text-sm text-zinc-500">
         ¿No tienes una cuenta?{" "}
-        <a href="/signup" className="font-medium text-white/70 underline-offset-4 hover:text-white hover:underline">
+        <Link href="/signup" className="font-medium text-white/70 underline-offset-4 hover:text-white hover:underline">
           Regístrate
-        </a>
+        </Link>
       </p>
 
       {/* Terms */}

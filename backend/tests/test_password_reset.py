@@ -107,7 +107,7 @@ class TestResetPassword:
         db.commit()
 
         monkeypatch.setattr("app.routers.auth_pages.send_password_changed_email", lambda e, n: None)
-        body = ResetPasswordRequest(email=user.email, code=code, password="newpass123")
+        body = ResetPasswordRequest(email=user.email, code=code, password="Newpass123")
 
         from starlette.responses import JSONResponse
         import json
@@ -117,7 +117,7 @@ class TestResetPassword:
         body_resp = json.loads(resp.body.decode())
         assert body_resp["message"] == "Contraseña actualizada correctamente."
         db.refresh(user)
-        assert verify_password("newpass123", user.hashed_password)
+        assert verify_password("Newpass123", user.hashed_password)
         assert user.verification_code is None
 
     def test_resets_password_sends_notification(self, clean_db, monkeypatch):
@@ -129,7 +129,7 @@ class TestResetPassword:
 
         sent = []
         monkeypatch.setattr("app.routers.auth_pages.send_password_changed_email", lambda e, n: sent.append((e, n)))
-        body = ResetPasswordRequest(email=user.email, code=code, password="newpass123")
+        body = ResetPasswordRequest(email=user.email, code=code, password="Newpass123")
         _run(reset_password(body, db))
 
         assert len(sent) == 1
@@ -142,7 +142,7 @@ class TestResetPassword:
         db.commit()
 
         from fastapi import HTTPException
-        body = ResetPasswordRequest(email=user.email, code="000000", password="newpass123")
+        body = ResetPasswordRequest(email=user.email, code="000000", password="Newpass123")
         with pytest.raises(HTTPException) as exc:
             _run(reset_password(body, db))
         assert exc.value.status_code == 400
@@ -154,7 +154,7 @@ class TestResetPassword:
         db.commit()
 
         from fastapi import HTTPException
-        body = ResetPasswordRequest(email=user.email, code="482031", password="newpass123")
+        body = ResetPasswordRequest(email=user.email, code="482031", password="Newpass123")
         with pytest.raises(HTTPException) as exc:
             _run(reset_password(body, db))
         assert exc.value.status_code == 400
@@ -162,7 +162,7 @@ class TestResetPassword:
     def test_rejects_nonexistent_user(self, clean_db):
         db = clean_db
         from fastapi import HTTPException
-        body = ResetPasswordRequest(email="ghost@test.com", code="482031", password="newpass123")
+        body = ResetPasswordRequest(email="ghost@test.com", code="482031", password="Newpass123")
         with pytest.raises(HTTPException) as exc:
             _run(reset_password(body, db))
         assert exc.value.status_code == 400
