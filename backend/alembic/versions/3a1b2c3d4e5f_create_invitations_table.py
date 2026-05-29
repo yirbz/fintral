@@ -10,6 +10,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 import app
 
 
@@ -20,6 +21,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    if inspect(bind).has_table("invitations"):
+        return
     op.create_table(
         "invitations",
         sa.Column("id", app.database.GUID(length=32), nullable=False),

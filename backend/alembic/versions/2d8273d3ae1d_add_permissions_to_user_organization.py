@@ -19,8 +19,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("user_organizations", sa.Column("permissions", sa.Text(), nullable=True))
+    op.execute("ALTER TABLE user_organizations ADD COLUMN IF NOT EXISTS permissions TEXT")
 
 
 def downgrade() -> None:
-    op.drop_column("user_organizations", "permissions")
+    op.execute("ALTER TABLE user_organizations DROP COLUMN IF EXISTS permissions")
