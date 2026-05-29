@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import func
+from sqlalchemy import func, or_, not_
 from sqlalchemy.orm import Session
 
 from app.config import IS_POSTGRES
@@ -259,6 +259,11 @@ class StatisticsService:
                 Invoice.processed.is_(True),
                 Invoice.audit_flags != "[]",
                 Invoice.audit_flags.isnot(None),
+                Invoice.audit_flags != "null",
+                or_(
+                    Invoice.raw_extracted_data.is_(None),
+                    not_(Invoice.raw_extracted_data.like('%"warnings_reviewed": true%'))
+                )
             )
             .count()
         )
@@ -270,6 +275,11 @@ class StatisticsService:
                 Invoice.processed.is_(True),
                 Invoice.audit_flags != "[]",
                 Invoice.audit_flags.isnot(None),
+                Invoice.audit_flags != "null",
+                or_(
+                    Invoice.raw_extracted_data.is_(None),
+                    not_(Invoice.raw_extracted_data.like('%"warnings_reviewed": true%'))
+                )
             )
             .all()
         )
@@ -293,6 +303,11 @@ class StatisticsService:
                 Invoice.processed.is_(True),
                 Invoice.audit_flags != "[]",
                 Invoice.audit_flags.isnot(None),
+                Invoice.audit_flags != "null",
+                or_(
+                    Invoice.raw_extracted_data.is_(None),
+                    not_(Invoice.raw_extracted_data.like('%"warnings_reviewed": true%'))
+                )
             )
             .order_by(Invoice.updated_at.desc())
             .limit(10)
@@ -300,6 +315,7 @@ class StatisticsService:
         )
 
         recent_alerts = [inv.to_dict() for inv in recent_alerts_query]
+
 
         stats_data = {
             "queue": {

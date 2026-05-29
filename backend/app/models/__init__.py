@@ -22,11 +22,18 @@ from .integration_connection import IntegrationConnection
 from .invitation import Invitation
 from .tenant_vendor_rule import TenantVendorRule
 from .webhook import WebhookEndpoint
+from .bank_account import BankAccount
+from .client import Client
+from .product import Product
+from .ecf_sequence import EcfSequence
 
 __all__ = [
     "AccountMapping",
     "AuditLog",
+    "BankAccount",
+    "Client",
     "DgiiSubmission",
+    "EcfSequence",
     "ExportProfile",
     "InvoiceDgiiStatus",
     "Invoice",
@@ -35,6 +42,7 @@ __all__ = [
     "Notification",
     "Organization",
     "PendingUpload",
+    "Product",
     "ReferenceData",
     "Setting",
     "Tenant",

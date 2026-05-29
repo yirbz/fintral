@@ -285,53 +285,33 @@ def _ncf_errors(ncf: Optional[str]) -> Optional[str]:
     return None
 
 
-def _rnc_calc_check_digit(number: str) -> str:
-    """Calcula dígito de control RNC (algoritmo de python-stdnum/stdnum/do/rnc.py)."""
-    weights = (7, 9, 8, 6, 5, 4, 3, 2)
-    check = sum(w * int(n) for w, n in zip(weights, number)) % 11
-    return str((10 - check) % 9 + 1)
-
-
-# RNC whitelisted (from python-stdnum — known valid RNCs with non-standard checksums)
-_RNC_WHITELIST = {
-    '101581601', '101582245', '101595422', '101595785', '10233317',
-    '131188691', '401007374', '501341601', '501378067', '501620371',
-    '501651319', '501651823', '501651845', '501651926', '501656006',
-    '501658167', '501670785', '501676936', '501680158', '504654542',
-    '504680029', '504681442', '505038691',
-}
-
-
 def _is_valid_rnc(rnc: Optional[str]) -> bool:
-    """Valida RNC/Cédula dominicano.
-    RNC = 9 dígitos con checksum. Cédula = 11 dígitos.
-    """
-    if not rnc:
-        return False
-    digits = re.sub(r"\D", "", str(rnc))
-    if len(digits) == 9:
-        if digits in _RNC_WHITELIST:
-            return True
-        return _rnc_calc_check_digit(digits[:8]) == digits[8]
-    elif len(digits) == 11:
-        return True  # Cédula — no tiene checksum público
-    return False
+    """Valida RNC/Cédula dominicano usando la utilidad centralizada."""
+    from app.utils.validation import is_valid_rnc_or_cedula
+    return is_valid_rnc_or_cedula(rnc)
 
 
-def _rnc_errors(rnc: Optional[str]) -> Optional[str]:
-    """Retorna mensaje de error específico para un RNC inválido, o None si es válido."""
-    if not rnc:
+def _rnc_errors(rnc_val: Optional[str]) -> Optional[str]:
+    """Retorna mensaje de error específico para un RNC/Cédula inválido, o None si es válido."""
+    if not rnc_val:
         return "Falta RNC/Cédula"
-    digits = re.sub(r"\D", "", str(rnc))
+    digits = re.sub(r"\D", "", str(rnc_val))
     if not digits:
-        return f"RNC '{rnc}' no contiene dígitos"
+        return f"RNC/Cédula '{rnc_val}' no contiene dígitos"
     if len(digits) not in (9, 11):
-        return f"RNC '{digits}' longitud inválida ({len(digits)} dígitos, debe ser 9 o 11)"
-    if len(digits) == 9 and digits not in _RNC_WHITELIST:
-        expected = _rnc_calc_check_digit(digits[:8])
-        if expected != digits[8]:
+        return f"RNC/Cédula '{digits}' longitud inválida ({len(digits)} dígitos, debe ser 9 o 11)"
+    
+    from app.utils.validation import validate_rnc_checksum, validate_cedula_checksum
+    if len(digits) == 9:
+        if not validate_rnc_checksum(digits):
+            from app.utils.validation import rnc_calc_check_digit
+            expected = rnc_calc_check_digit(digits[:8])
             return f"RNC '{digits}' dígito verificador inválido (esperado '{expected}', encontrado '{digits[8]}')"
+    elif len(digits) == 11:
+        if not validate_cedula_checksum(digits):
+            return f"Cédula '{digits}' dígito verificador (Luhn) inválido"
     return None
+
 
 
 def _only_digits(value: Optional[str]) -> str:
@@ -2050,6 +2030,7 @@ def _compute_pending_summary(ctx: TenantContext) -> dict:
         query = ctx.db.query(Invoice).filter(
             Invoice.tenant_id == ctx.tenant_id,
             Invoice.organization_id == ctx.org_id,
+            Invoice.is_electronic.is_(False),
         )
 
         if trans_type:
@@ -2124,6 +2105,7 @@ def _query_voided_invoices(ctx, date_from, date_to, body: DgiiExportRequest):
         Invoice.organization_id == ctx.org_id,
         Invoice.cancelled_at.isnot(None),
         Invoice.transaction_type == "income",
+        Invoice.is_electronic.is_(False),
     )
     if date_from:
         query = query.filter(Invoice.cancelled_at >= date_from)

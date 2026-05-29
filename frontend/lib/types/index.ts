@@ -5,8 +5,12 @@ export interface SessionPayload {
     id: string;
     email: string;
     full_name: string;
+    job_title: string | null;
+    phone: string | null;
+    avatar_url: string | null;
     is_active: boolean;
     is_superuser: boolean;
+    created_at: string | null;
   };
   tenant: {
     id: string;
@@ -16,7 +20,11 @@ export interface SessionPayload {
     id: string;
     name: string;
     tax_id: string | null;
+    phone: string | null;
+    email_contact: string | null;
+    website: string | null;
     country: string | null;
+    fiscal_address: string | null;
   };
   role: string;
   company_name: string;
@@ -54,17 +62,23 @@ export interface Invoice {
   goods_services_type: string | null;
   source_type: string | null;
   original_xml_data: string | null;
+  raw_extracted_data: string | null;
   ecf_type: string | null;
   rnc_comprador: string | null;
   is_electronic: boolean;
   ingestion_source: string | null;
   status: string; // draft | verified | voided
   parent_invoice_id: string | null;
-  accounting_account_id: string | null;
-  cost_center_id: string | null;
+
   tags: string[];
   internal_notes: string | null;
   payment_status: string | null;
+  payment_condition: string | null;
+  payment_method?: string | null;
+  warnings_reviewed?: boolean;
+  due_date: string | null;
+  payment_date: string | null;
+  bank_account_id: string | null;
   created_at: string | null;
   deleted_at: string | null;
   cancelled_at: string | null;
@@ -107,6 +121,15 @@ export interface WebhookEndpoint {
   created_at: string;
 }
 
+export interface BankAccount {
+  id: string;
+  name: string;
+  balance: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+
 export interface SettingValue {
   key: string;
   value: string | number | boolean;
@@ -132,6 +155,7 @@ export interface StatisticsPayload {
   audit: {
     alerts_count: number;
     clean_count: number;
+    recent_alerts: Invoice[];
     distribution: {
       labels: string[];
       data: number[];
@@ -154,6 +178,11 @@ export interface StatisticsPayload {
   };
   categories: Array<{ category: string; count: number; total: number }>;
   monthly_stats: Array<{ month: string; count: number }>;
+  totals: {
+    income: { amount: number; count: number };
+    expense: { amount: number; count: number };
+    net: number;
+  };
 }
 
 export interface RealtimeEvent {

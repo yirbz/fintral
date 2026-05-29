@@ -2,10 +2,9 @@ import logging
 import re
 from typing import Any, Dict, Optional, Tuple
 
-logger = logging.getLogger(__name__)
+from app.utils.validation import validate_rnc_checksum, validate_cedula_checksum
 
-RNC_WEIGHTS = [7, 9, 8, 6, 5, 4, 3, 2]
-CEDULA_WEIGHTS = [1, 2, 1, 2, 1, 2, 1, 2, 1, 2]
+logger = logging.getLogger(__name__)
 
 NCF_PREFIX_MAP = {
     "B": "expense",
@@ -19,51 +18,35 @@ PAYMENT_METHOD_DEFAULT_GUESS = {
 }
 
 
-def _validate_rnc_checksum(rnc: str) -> bool:
-    """DGII módulo-11 checksum for 9-digit RNC."""
-    if len(rnc) != 9 or not rnc.isdigit():
-        return False
-    digits = [int(d) for d in rnc]
-    s = sum(d * w for d, w in zip(digits[:8], RNC_WEIGHTS))
-    remainder = s % 11
-    check = 11 - remainder
-    if check == 11:
-        check = 0
-    return check == digits[8]
-
-
-def _validate_cedula_checksum(cedula: str) -> bool:
-    """Luhn mod-10 for 11-digit Dominican cédula."""
-    if len(cedula) != 11 or not cedula.isdigit():
-        return False
-    digits = [int(d) for d in cedula]
-    s = 0
-    for d, w in zip(digits[:10], CEDULA_WEIGHTS):
-        p = d * w
-        if p >= 10:
-            p = p // 10 + p % 10
-        s += p
-    remainder = s % 10
-    check = (10 - remainder) % 10
-    return check == digits[10]
-
-
 class PostExtractionValidator:
     """Validates extracted invoice data after normalization, before DB save.
 
     Runs structural audits against DGII fiscal rules:
-    - RNC checksum (módulo-11) / cédula checksum (Luhn)
-    - NCF prefix vs transaction_type consistency
-    - ITBIS ≈ 18/118 of total
-    - Country + currency consistency
-    - Default payment_method inference when missing
+    - RNC checksum / cédula checksum using centralized standard do validation.
+    - NCF prefix vs transaction_type consistency.
+    - ITBIS validation depending on e-CF / NCF types (exemptions, deductibility).
+    - Match between buyer RNC / issuer RNC and the current organization.
+    - Mandatory NCF modified for Debit/Credit notes.
+    - Withholding audits for informal purchases (Tipo 11/41) and payments abroad (Tipo 17/47).
     """
 
-    def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def validate(self, data: Dict[str, Any], org_rnc: Optional[str] = None) -> Dict[str, Any]:
         """Run all validations on normalized data. Mutates and returns data."""
         warnings: list = data.get("audit_warnings", [])
         if not isinstance(warnings, list):
             warnings = []
+
+        # Ensure ecf_type is inferred if missing but invoice_number matches e-NCF pattern
+        ncf = data.get("invoice_number")
+        ecf_type = data.get("ecf_type")
+        if ncf:
+            ncf = ncf.strip().upper()
+            if not ecf_type and len(ncf) == 13 and ncf[0] == 'E' and ncf[1:3].isdigit():
+                ecf_type = ncf[1:3]
+                data["ecf_type"] = ecf_type
+            elif not ecf_type and len(ncf) == 11 and ncf[0] == 'B' and ncf[1:3].isdigit():
+                ecf_type = ncf[1:3]
+                data["ecf_type"] = ecf_type
 
         vendor_tax_id = data.get("vendor_tax_id")
         if vendor_tax_id:
@@ -71,19 +54,47 @@ class PostExtractionValidator:
             if tax_warning:
                 warnings.append(tax_warning)
 
-        ncf = data.get("invoice_number")
         transaction_type = data.get("transaction_type")
         if ncf and transaction_type:
             ncf_warning = self._check_ncf_type(ncf, transaction_type, data)
             if ncf_warning:
                 warnings.append(ncf_warning)
 
-        total = data.get("total_amount")
-        tax = data.get("tax_amount")
-        if total is not None and tax is not None:
-            itbis_warning = self._check_itbis(float(total), float(tax))
-            if itbis_warning:
-                warnings.append(itbis_warning)
+        # Smart ITBIS checking
+        itbis_warning = self._check_itbis_rules(data, ecf_type)
+        if itbis_warning:
+            warnings.append(itbis_warning)
+
+        # Match RNC with Organization RNC
+        if org_rnc:
+            org_warning = self._check_organization_rnc_match(data, org_rnc)
+            if org_warning:
+                warnings.append(org_warning)
+
+        # Modification checks for Notes
+        ncf_code = ncf[1:3] if (ncf and len(ncf) >= 3 and ncf[1:3].isdigit()) else None
+        if ecf_type in ("33", "34") or ncf_code in ("03", "04"):
+            ncf_modified = data.get("ncf_modified")
+            if not ncf_modified:
+                warnings.append("Las Notas de Crédito y Débito deben especificar el comprobante original modificado (NCF Modificado).")
+            else:
+                ncf_modified_clean = ncf_modified.strip().upper()
+                if not re.match(r"^[BE]\d{2}\d{8,10}$", ncf_modified_clean) and len(ncf_modified_clean) != 19:
+                    warnings.append(f"El NCF Modificado '{ncf_modified}' tiene un formato inválido.")
+
+        # Withholdings checks
+        if transaction_type == "expense":
+            if ecf_type == "41" or ncf_code == "11":
+                itbis_ret = data.get("total_itbis_retenido")
+                isr_ret = data.get("total_isr_retencion")
+                if itbis_ret is None or float(itbis_ret) <= 0:
+                    warnings.append("Los comprobantes de compras a proveedores informales (B11/E41) usualmente requieren retención del 100% del ITBIS facturado.")
+                if isr_ret is None or float(isr_ret) <= 0:
+                    warnings.append("Los comprobantes de compras a proveedores informales (B11/E41) requieren la retención del ISR (habitualmente 2% para bienes o 10% para servicios).")
+            elif ecf_type == "47" or ncf_code == "17":
+                isr_ret = data.get("total_isr_retencion")
+                if isr_ret is None or float(isr_ret) <= 0:
+                    warnings.append("Los pagos al exterior (B17/E47) requieren retención obligatoria del Impuesto Sobre la Renta (ISR).")
 
         country = data.get("vendor_country")
         currency = data.get("currency", "DOP")
@@ -111,21 +122,21 @@ class PostExtractionValidator:
         return data
 
     def _check_tax_id(self, tax_id: str) -> Optional[str]:
-        """Validate RNC (módulo-11) or cédula (Luhn) checksum."""
+        """Validate RNC or cédula using centralized check digit logic."""
         digits_only = re.sub(r"[^0-9]", "", tax_id)
-        if len(digits_only) == 9 and _validate_rnc_checksum(digits_only):
-            return None
-        if len(digits_only) == 11 and _validate_cedula_checksum(digits_only):
-            return None
         if len(digits_only) == 9:
-            return f"El RNC {tax_id} no pasó la validación de dígito verificador (módulo-11). Verifica que esté correcto."
-        if len(digits_only) == 11:
-            return f"La cédula {tax_id} no pasó la validación de dígito verificador (Luhn). Verifica que esté correcta."
+            if not validate_rnc_checksum(digits_only):
+                return f"El RNC {tax_id} no pasó la validación de dígito verificador (módulo-11). Verifica que esté correcto."
+        elif len(digits_only) == 11:
+            if not validate_cedula_checksum(digits_only):
+                return f"La cédula {tax_id} no pasó la validación de dígito verificador (Luhn). Verifica que esté correcta."
+        else:
+            return f"El RNC/Cédula {tax_id} tiene una longitud inválida ({len(digits_only)} dígitos, debe ser 9 o 11)."
         return None
 
     def _check_ncf_type(self, ncf: str, transaction_type: str, data: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """Cross-check NCF prefix letter against transaction_type.
-        
+
         For e-CF NCFs (E prefix + ecf_type present), the E means "Electronic"
         not "Income" — skip the traditional prefix check.
         """
@@ -148,20 +159,129 @@ class PostExtractionValidator:
             )
         return None
 
-    def _check_itbis(self, total: float, tax: float) -> Optional[str]:
-        """Cross-check ITBIS ≈ 18/118 of total (Dominican ITBIS included)."""
-        if total <= 0 or tax <= 0:
+    def _check_itbis_rules(self, data: Dict[str, Any], ecf_type: Optional[str] = None) -> Optional[str]:
+        """Cross-check ITBIS depending on e-CF / NCF type and deductibility rules.
+
+        For e-CF invoices with detailed per-rate breakdown (monto_gravado_i1,
+        itbis1, total_itbis1), verifies each bracket independently.
+        For simple invoices, falls back to the flat rate check.
+        """
+        total = data.get("total_amount")
+        tax = data.get("tax_amount")
+        transaction_type = data.get("transaction_type")
+
+        if total is None or tax is None:
             return None
-        expected_tax = total * 18.0 / 118.0
-        if expected_tax <= 0:
+        total = float(total)
+        tax = float(tax)
+
+        if total <= 0:
             return None
-        diff_pct = abs(tax - expected_tax) / expected_tax
-        if diff_pct > 0.05:
+
+        # Exemption checks
+        if ecf_type in ("14", "44", "16", "46"):
+            if tax > 0:
+                return "Para comprobantes de Regímenes Especiales (B14/E44) o Exportaciones (B16/E46), el ITBIS debe ser 0% (exento/tasa cero)."
+            return None
+
+        # Non-deductible checks for expenses
+        if transaction_type == "expense" and ecf_type in ("02", "32", "17", "47"):
+            if tax > 0:
+                return "Las facturas de consumo (B02/E32) o pagos al exterior (B17/E47) no generan crédito fiscal de ITBIS por adelantar."
+            return None
+
+        if tax <= 0:
+            return None
+
+        # Sanity check: ITBIS cannot meaningfully exceed 18% of total (tax-inclusive)
+        max_possible_tax = total * 18.0 / 118.0
+        if tax > max_possible_tax + 0.05 * total:
+            return f"El ITBIS ({tax:.2f}) es mayor al 18% máximo permitido. Verifica el monto del impuesto."
+
+        # For e-CF with detailed per-rate breakdown, verify bracket by bracket
+        has_detailed = all(
+            data.get(f) is not None
+            for f in ("monto_gravado_i1", "itbis1", "total_itbis1")
+        )
+        if has_detailed:
+            expected_tax = 0.0
+            for bracket in ("1", "2", "3"):
+                gravado = data.get(f"monto_gravado_i{bracket}")
+                rate = data.get(f"itbis{bracket}")
+                total_bracket = data.get(f"total_itbis{bracket}")
+                if gravado is not None and rate is not None and total_bracket is not None:
+                    gravado = float(gravado)
+                    rate = int(rate)
+                    total_bracket = float(total_bracket)
+                    expected = gravado * rate / 100.0
+                    if abs(total_bracket - expected) > 0.05 * max(gravado, 1.0):
+                        return (
+                            f"El ITBIS del bracket {bracket} ({total_bracket:.2f}) "
+                            f"no coincide con la tasa {rate}% sobre {gravado:.2f} "
+                            f"(esperado {expected:.2f}). Verifica el monto."
+                        )
+                    expected_tax += total_bracket
+
+            if abs(tax - expected_tax) > 0.01:
+                return (
+                    f"El TotalITBIS ({tax:.2f}) no coincide con la suma de los brackets "
+                    f"({expected_tax:.2f}). Verifica el monto."
+                )
+            return None
+
+        # Simple invoice: verify against standard rates (18% or 16% of total)
+        expected_18 = total * 18.0 / 118.0
+        expected_16 = total * 16.0 / 116.0
+
+        diff_18 = abs(tax - expected_18) / expected_18 if expected_18 > 0 else 1.0
+        diff_16 = abs(tax - expected_16) / expected_16 if expected_16 > 0 else 1.0
+
+        if diff_18 > 0.05 and diff_16 > 0.05:
             return (
-                f"El ITBIS ({tax:.2f}) no coincide con el 18% incluido del total "
-                f"({total:.2f}, esperado ≈ {expected_tax:.2f}). "
-                "Diferencia del {:.1f}%. Verifica el monto.".format(diff_pct * 100)
+                f"El ITBIS ({tax:.2f}) no coincide con el 18% o 16% del total "
+                f"(esperado ≈ {expected_18:.2f} o {expected_16:.2f}). Verifica el monto."
             )
+        return None
+
+    def _check_organization_rnc_match(self, data: Dict[str, Any], org_rnc: str) -> Optional[str]:
+        """Verify that organization RNC matches buyer RNC (for expenses) or vendor RNC (for incomes)."""
+        clean_org = re.sub(r"\D", "", org_rnc)
+        if not clean_org:
+            return None
+
+        transaction_type = data.get("transaction_type")
+        ecf_type = data.get("ecf_type")
+
+        if transaction_type == "expense":
+            # For e-CF 41/43 (Compras/Gastos Menores), the org is the EMISOR
+            # and the Comprador section holds the informal supplier. Skip RNC match.
+            if ecf_type in ("41", "43"):
+                return None
+            # For e-CF only: verify rnc_comprador matches org (buyer must be the org)
+            # NCF types (01, 11, etc.) don't have rnc_comprador field, so skip for them
+            if ecf_type and ecf_type not in ("41", "43"):
+                # Only check match for e-CF tax-deductible types (31, 44, 45)
+                is_deductible_ecf = ecf_type in ("31", "44", "45")
+                if is_deductible_ecf:
+                    rnc_comprador = data.get("rnc_comprador")
+                    if not rnc_comprador:
+                        return "Para comprobantes de Crédito Fiscal, Gubernamentales o de Compras, el RNC del comprador es obligatorio."
+                    
+                    clean_comprador = re.sub(r"\D", "", str(rnc_comprador))
+                    if clean_comprador != clean_org:
+                        return (
+                            f"El RNC del comprador ({rnc_comprador}) no coincide con el RNC de tu organización ({org_rnc}). "
+                            "Este comprobante no es deducible para esta empresa."
+                        )
+        elif transaction_type == "income":
+            vendor_tax_id = data.get("vendor_tax_id")
+            if vendor_tax_id:
+                clean_vendor = re.sub(r"\D", "", str(vendor_tax_id))
+                if clean_vendor != clean_org:
+                    return (
+                        f"El RNC del emisor ({vendor_tax_id}) no coincide con el RNC de tu organización ({org_rnc}). "
+                        "Verifica si ingresaste el emisor de forma correcta."
+                    )
         return None
 
     def _check_country_currency(self, country: Optional[str], currency: str) -> Optional[str]:

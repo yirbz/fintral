@@ -65,7 +65,7 @@ class XMLProcessor(BaseProcessor):
         return ns
 
     def _extract_fields(self, root: etree._Element, ns: Dict) -> Dict[str, Any]:
-        """Extract fields from e-CF XML structure."""
+        """Extract fields from DGII XML structure."""
         data = {}
 
         find = root.findall
@@ -82,22 +82,67 @@ class XMLProcessor(BaseProcessor):
             data["vendor_name"] = self._get_text(emisor, "RazonSocialEmisor")
             data["vendor_tax_id"] = self._get_text(emisor, "RNCEmisor")
             data["vendor_fiscal_address"] = self._get_text(emisor, "DireccionEmisor")
+            data["correo_emisor"] = self._get_text(emisor, "CorreoEmisor")
+            data["nombre_comercial"] = self._get_text(emisor, "NombreComercial")
+            data["sucursal"] = self._get_text(emisor, "Sucursal")
+            data["municipio_emisor"] = self._get_text(emisor, "Municipio")
+            data["provincia_emisor"] = self._get_text(emisor, "Provincia")
+            fecha_emision = self._get_text(emisor, "FechaEmision")
+            if fecha_emision:
+                data["fecha_emision"] = fecha_emision
+                data["invoice_date"] = fecha_emision
+
+        comprador = find(".//Comprador")
+        if comprador:
+            data["rnc_comprador"] = self._get_text(comprador, "RNCComprador")
+            data["razon_social_comprador"] = self._get_text(comprador, "RazonSocialComprador")
+            data["direccion_comprador"] = self._get_text(comprador, "DireccionComprador")
+            data["correo_comprador"] = self._get_text(comprador, "CorreoComprador")
+            data["municipio_comprador"] = self._get_text(comprador, "Municipio")
+            data["provincia_comprador"] = self._get_text(comprador, "Provincia")
+            data["contacto_comprador"] = self._get_text(comprador, "ContactoComprador")
+            data["numero_orden_compra"] = self._get_text(comprador, "NumeroOrdenCompra")
+            data["identificador_extranjero"] = self._get_text(comprador, "IdentificadorExtranjero")
+            data["vendor_country"] = "DOM"
+            data["country_detection_method"] = "dgii_ecf"
+            data["country_confidence"] = 1.0
 
         id_doc = find(".//IdDoc")
         if id_doc:
             data["invoice_number"] = self._get_text(id_doc, "eNCF")
-            data["invoice_date"] = self._get_text(id_doc, "FechaEmision")
+            data["due_date"] = self._get_text(id_doc, "FechaLimitePago")
+            data["fecha_vencimiento_secuencia"] = self._get_text(id_doc, "FechaVencimientoSecuencia")
             tipo_ncf = self._get_text(id_doc, "TipoeCF")
             if tipo_ncf:
                 data["goods_services_type"] = tipo_ncf
             data["payment_method"] = self._get_text(id_doc, "TipoPago")
+            # FormaPago maps to payment_condition: 1=contado, 2=credito
+            forma_pago = self._get_text(id_doc, "FormaPago")
+            if forma_pago:
+                data["payment_condition"] = "contado" if forma_pago == "1" else "credito"
 
         totales = find(".//Totales")
         if totales:
             data["total_amount"] = self._get_float(totales, "MontoTotal")
             data["tax_amount"] = self._get_float(totales, "TotalITBIS")
+            data["monto_gravado_total"] = self._get_float(totales, "MontoGravadoTotal")
+            data["monto_exento"] = self._get_float(totales, "MontoExento")
             data["itbis_retenido"] = self._get_float(totales, "TotalITBISRetenido")
             data["isr_retention_amount"] = self._get_float(totales, "TotalISRRetencion")
+            data["total_itbis_retenido"] = self._get_float(totales, "TotalITBISRetenido")
+            data["total_isr_retencion"] = self._get_float(totales, "TotalISRRetencion")
+            data["total_itbis_percepcion"] = self._get_float(totales, "TotalITBISPercepcion")
+            data["total_isr_percepcion"] = self._get_float(totales, "TotalISRPercepcion")
+            # Per-bracket ITBIS for validation
+            data["monto_gravado_i1"] = self._get_float(totales, "MontoGravadoI1")
+            data["monto_gravado_i2"] = self._get_float(totales, "MontoGravadoI2")
+            data["monto_gravado_i3"] = self._get_float(totales, "MontoGravadoI3")
+            data["itbis1"] = self._get_int(totales, "ITBIS1")
+            data["itbis2"] = self._get_int(totales, "ITBIS2")
+            data["itbis3"] = self._get_int(totales, "ITBIS3")
+            data["total_itbis1"] = self._get_float(totales, "TotalITBIS1")
+            data["total_itbis2"] = self._get_float(totales, "TotalITBIS2")
+            data["total_itbis3"] = self._get_float(totales, "TotalITBIS3")
 
         otra_moneda = find(".//OtraMoneda")
         if otra_moneda:
@@ -132,6 +177,16 @@ class XMLProcessor(BaseProcessor):
             try:
                 clean = re.sub(r"[^0-9.]", "", text)
                 return float(clean)
+            except Exception:
+                pass
+        return None
+
+    def _get_int(self, parent: etree._Element, tag: str) -> Optional[int]:
+        text = self._get_text(parent, tag)
+        if text:
+            try:
+                clean = re.sub(r"[^0-9]", "", text)
+                return int(clean)
             except Exception:
                 pass
         return None

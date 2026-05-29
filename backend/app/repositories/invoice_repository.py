@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import desc, or_
+from sqlalchemy import desc, or_, not_
 from sqlalchemy.orm import Session
 
 from app.models import Invoice
@@ -56,6 +56,8 @@ class InvoiceRepository:
         search: Optional[str] = None,
         processed: Optional[bool] = None,
         quality: Optional[str] = None,
+        payment_status: Optional[str] = None,
+        payment_condition: Optional[str] = None,
     ) -> tuple[list[Invoice], int]:
         query = db.query(Invoice).filter(
             Invoice.tenant_id == tenant_id,
@@ -69,6 +71,10 @@ class InvoiceRepository:
             query = query.filter(Invoice.category == category)
         if processed is not None:
             query = query.filter(Invoice.processed == processed)
+        if payment_status:
+            query = query.filter(Invoice.payment_status == payment_status)
+        if payment_condition:
+            query = query.filter(Invoice.payment_condition == payment_condition)
         if search:
             pattern = f"%{search}%"
             query = query.filter(
@@ -81,12 +87,16 @@ class InvoiceRepository:
 
         # Quality / health filters
         if quality == "with_warnings":
-            # Any invoice that has at least one entry in audit_flags JSON array
+            # Any invoice that has at least one entry in audit_flags JSON array and hasn't been reviewed
             query = query.filter(
                 Invoice.processed.is_(True),
                 Invoice.audit_flags.isnot(None),
                 Invoice.audit_flags != "[]",
                 Invoice.audit_flags != "null",
+                or_(
+                    Invoice.raw_extracted_data.is_(None),
+                    not_(Invoice.raw_extracted_data.like('%"warnings_reviewed": true%'))
+                )
             )
         elif quality == "has_duplicates":
             query = query.filter(
@@ -259,6 +269,7 @@ class InvoiceRepository:
             Invoice.organization_id == org_id,
             Invoice.deleted_at.is_(None),
             Invoice.cancelled_at.is_(None),
+            Invoice.is_electronic.is_(False),
         )
 
         # Override: IDs explícitos tienen prioridad máxima
@@ -293,7 +304,12 @@ class InvoiceRepository:
             )
 
         if source_types:
-            query = query.filter(Invoice.source_type.in_(source_types))
+            resolved_sources = []
+            for st in source_types:
+                resolved_sources.append(st)
+                if st == "xml":
+                    resolved_sources.append("ecf")
+            query = query.filter(Invoice.source_type.in_(resolved_sources))
 
         if processed_only:
             query = query.filter(Invoice.processed.is_(True))

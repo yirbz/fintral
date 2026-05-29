@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Optional, Union
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -26,6 +27,10 @@ class ManualInvoiceCreate(BaseModel):
     goods_services_type: str | None = None
     payment_method: str | None = None  # Código DGII 01-10
     ncf_modified: str | None = None
+    payment_condition: str | None = "contado"
+    due_date: str | None = None
+    payment_date: str | None = None
+    bank_account_id: Optional[UUID] = None
     line_items: list[LineItem] = []
 
 
@@ -132,3 +137,13 @@ class EvolutionWebhookEntry(BaseModel):
 class EvolutionWebhook(BaseModel):
     object: str = "whatsapp_business_account"
     entry: List[EvolutionWebhookEntry]
+
+
+class BankAccountSyncItem(BaseModel):
+    id: Optional[UUID] = None
+    name: str
+    balance: float
+
+
+class BankAccountBulkSyncRequest(BaseModel):
+    accounts: List[BankAccountSyncItem]

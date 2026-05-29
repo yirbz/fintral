@@ -81,6 +81,11 @@ class Invoice(Base):
     tags = Column(Text, nullable=True)  # JSON array of tags
     internal_notes = Column(Text, nullable=True)
     payment_status = Column(String(20), nullable=True)  # pending, paid, overdue
+    payment_condition = Column(String(20), default="contado", nullable=True)  # contado, credito
+    due_date = Column(DateTime(timezone=True), nullable=True)
+    payment_date = Column(DateTime(timezone=True), nullable=True)
+    bank_account_id = Column(GUID, ForeignKey("bank_accounts.id", ondelete="SET NULL"), nullable=True)
+
 
     # Metadatos
     created_at = Column(DateTime(timezone=True), default=utc_now)
@@ -98,6 +103,7 @@ class Invoice(Base):
     # Relationships
     organization = relationship("Organization", back_populates="invoices")
     parent_invoice = relationship("Invoice", remote_side="Invoice.id", backref="child_invoices")
+    bank_account = relationship("BankAccount", lazy="select")
 
     def to_dict(self):
         file_url = None
@@ -140,6 +146,7 @@ class Invoice(Base):
             "goods_services_type": self.goods_services_type,
             "source_type": self.source_type,
             "original_xml_data": self.original_xml_data,
+            "raw_extracted_data": self.raw_extracted_data,
             "ecf_type": self.ecf_type,
             "rnc_comprador": self.rnc_comprador,
             "is_electronic": self.is_electronic,
@@ -151,6 +158,10 @@ class Invoice(Base):
             "tags": json.loads(self.tags) if self.tags else [],
             "internal_notes": self.internal_notes,
             "payment_status": self.payment_status,
+            "payment_condition": self.payment_condition,
+            "due_date": self.due_date.isoformat() if self.due_date else None,
+            "payment_date": self.payment_date.isoformat() if self.payment_date else None,
+            "bank_account_id": str(self.bank_account_id) if self.bank_account_id else None,
             "batch_id": str(self.batch_id) if self.batch_id else None,
             "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
             "cancelled_at": self.cancelled_at.isoformat() if self.cancelled_at else None,

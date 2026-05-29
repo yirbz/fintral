@@ -10,6 +10,8 @@ export interface InvoiceFilters {
   date_to?: string;
   vendor_search?: string;
   category?: string;
+  payment_status?: string;
+  payment_condition?: string;
 }
 
 export async function listInvoices(filters: InvoiceFilters = {}) {
@@ -22,6 +24,8 @@ export async function listInvoices(filters: InvoiceFilters = {}) {
   if (filters.date_to) params.set("date_to", filters.date_to);
   if (filters.vendor_search) params.set("vendor_search", filters.vendor_search);
   if (filters.category) params.set("category", filters.category);
+  if (filters.payment_status) params.set("payment_status", filters.payment_status);
+  if (filters.payment_condition) params.set("payment_condition", filters.payment_condition);
   const query = params.toString();
   return apiFetch<{ invoices: Invoice[]; total: number }>(`/invoices${query ? `?${query}` : ""}`);
 }
@@ -129,6 +133,8 @@ export interface CreateInvoicePayload {
   vendor_fiscal_address?: string;
   goods_services_type?: string;
   payment_method?: string;  // Código DGII 01-10
+  payment_condition?: string;
+  due_date?: string;
   ncf_modified?: string;
   line_items: Array<{
     description: string;
@@ -314,5 +320,11 @@ export async function bulkProcessPendingUploads() {
 export async function deletePendingUpload(pendingId: string) {
   return apiFetch<{ message: string }>(`/pending-uploads/${pendingId}`, {
     method: "DELETE",
+  });
+}
+
+export async function verifyInvoice(invoiceId: string) {
+  return apiFetch<{ message: string; invoice: Invoice }>(`/invoices/${invoiceId}/verify`, {
+    method: "POST",
   });
 }
