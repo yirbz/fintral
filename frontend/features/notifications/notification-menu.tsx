@@ -45,7 +45,7 @@ export function NotificationMenu() {
         <div className="absolute right-0 z-50 mt-2 w-80 rounded-md border border-border bg-card">
           <div className="flex items-center justify-between border-b px-3 py-2">
             <p className="text-xs font-semibold uppercase tracking-wide">Notificaciones</p>
-            <button className="text-xs text-muted-foreground hover:text-foreground" onClick={clearAll}>
+            <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={clearAll}>
               Limpiar
             </button>
           </div>

@@ -674,6 +674,7 @@ export function DgiiPage() {
         {REPORTS.map(r => (
           <button
             key={r.id}
+            type="button"
             onClick={() => setSelectedFormat(r.id)}
             className={cn(
               "flex flex-col gap-1.5 rounded-xl border-2 p-4 text-left transition-all",
@@ -719,6 +720,7 @@ export function DgiiPage() {
                   {categories.map(cat => (
                     <button
                       key={cat}
+                      type="button"
                       onClick={() => setSelectedCategories(prev =>
                         prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
                       )}
@@ -776,6 +778,7 @@ export function DgiiPage() {
                 {SOURCE_TYPES.map(st => (
                   <button
                     key={st.value}
+                    type="button"
                     onClick={() => setSelectedSources(prev =>
                       prev.includes(st.value) ? prev.filter(s => s !== st.value) : [...prev, st.value]
                     )}
@@ -821,14 +824,14 @@ export function DgiiPage() {
             </div>
 
             {/* Include no-NCF */}
-            <label className="flex items-center gap-2 cursor-pointer text-xs">
-              <Checkbox checked={includeNoNcf} onCheckedChange={v => setIncludeNoNcf(!!v)} className="size-3.5" />
+            <label htmlFor="include-no-ncf" className="flex items-center gap-2 cursor-pointer text-xs">
+              <Checkbox id="include-no-ncf" checked={includeNoNcf} onCheckedChange={v => setIncludeNoNcf(!!v)} className="size-3.5" />
               <span className="text-muted-foreground">Incluir facturas sin NCF</span>
             </label>
 
             {/* Exclude reported toggle */}
-            <label className="flex items-center gap-2 cursor-pointer text-xs">
-              <Checkbox checked={excludeReported} onCheckedChange={v => setExcludeReported(!!v)} className="size-3.5" />
+            <label htmlFor="exclude-reported" className="flex items-center gap-2 cursor-pointer text-xs">
+              <Checkbox id="exclude-reported" checked={excludeReported} onCheckedChange={v => setExcludeReported(!!v)} className="size-3.5" />
               <span className="text-muted-foreground">Ocultar facturas ya enviadas</span>
             </label>
 

@@ -263,7 +263,6 @@ function SpreadsheetCell({ col, value, isEditing, onChange, onCommit, onStartEdi
           onKeyDown={(e) => {
             if (e.key === "Escape") onCommit(value);
           }}
-          autoFocus
         >
           <option value="">— Sin valor —</option>
           {resolvedOptions.map((option) => (
@@ -278,12 +277,12 @@ function SpreadsheetCell({ col, value, isEditing, onChange, onCommit, onStartEdi
     return (
       <input
         type={col.type === "number" ? "number" : col.type === "date" ? "date" : "text"}
+        aria-label="Editar celda"
         className="w-full h-full px-1.5 py-0 text-[11px] font-mono border-0 bg-primary/5 outline-none ring-1 ring-primary/30 rounded-none"
         value={value}
         onChange={e => onChange(e.target.value)}
         onBlur={() => onCommit()}
         onKeyDown={e => { if (e.key === "Enter") onCommit(); if (e.key === "Escape") onCommit(); }}
-        autoFocus
       />
     );
   }

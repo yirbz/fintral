@@ -3,9 +3,10 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.config import ADMIN_EMAIL, ADMIN_FULL_NAME, ADMIN_PASSWORD, DISABLE_HEARTBEAT_TASK, IS_PRODUCTION
+from app.config import ADMIN_EMAIL, ADMIN_FULL_NAME, ADMIN_PASSWORD, FINTRAL_DISABLE_WS_HEARTBEAT, IS_PRODUCTION
 from app.core.auth import get_password_hash
 from app.core.logging import setup_logging
+from app.core.reference_data import seed_reference_data
 from app.dependencies.tenancy import get_default_org, get_default_tenant
 from app.models import User, UserOrganization
 from app.services.auth_service import create_admin_user
@@ -33,8 +34,19 @@ def init_database() -> None:
         logger.warning("init_database — engine not available, skipping")
         return
 
+    if engine.dialect.name == "sqlite":
+        logger.info("init_database — SQLite detected, creating all tables directly via metadata")
+        try:
+            Base.metadata.create_all(bind=engine)
+            logger.info("init_database — SQLite tables created successfully")
+        except Exception as e:
+            logger.error("init_database — SQLite create_all failed: %s", e)
+            raise
+        return
+
     t0 = time.time()
     alembic_cfg = Config("alembic.ini")
+    alembic_cfg.attributes['skip_logging_config'] = True
     inspector = inspect(engine)
     tables = inspector.get_table_names()
     has_alembic_version = "alembic_version" in tables
@@ -236,15 +248,22 @@ async def run_startup(db: Session) -> None:
         db.rollback()
 
     logger.info("")
-    logger.info("--- Phase 3/4: Admin User ---")
+    logger.info("--- Phase 3/4: Reference Data ---")
+    try:
+        seed_reference_data(db)
+    except Exception as exc:
+        logger.error("Reference data seeding failed: %s", exc)
+
+    logger.info("")
+    logger.info("--- Phase 4/4: Admin User ---")
     try:
         ensure_default_admin(db)
     except Exception as exc:
         logger.error("Admin user creation failed: %s", exc)
 
     logger.info("")
-    logger.info("--- Phase 4/4: Services ---")
-    disable_heartbeat = DISABLE_HEARTBEAT_TASK
+    logger.info("--- Phase 5/5: Services ---")
+    disable_heartbeat = FINTRAL_DISABLE_WS_HEARTBEAT
     if not disable_heartbeat:
         asyncio.create_task(start_heartbeat_task())
         logger.info("Heartbeat task started for WebSocket connections")

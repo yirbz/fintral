@@ -306,6 +306,7 @@ export function ExportsPage() {
         {TABS.map((tab) => (
           <button
             key={tab.id}
+            type="button"
             onClick={() => setActiveTab(tab.id)}
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
@@ -328,6 +329,7 @@ export function ExportsPage() {
             {FORMATS.map((fmt) => (
               <button
                 key={fmt.id}
+                type="button"
                 onClick={() => setSelectedFormat(fmt.id)}
                 className={cn(
                   "flex flex-col items-center gap-1.5 p-3 rounded-lg border text-center transition-all",
@@ -421,6 +423,7 @@ export function ExportsPage() {
                 {COLUMNS.map((col) => (
                   <button
                     key={col.id}
+                    type="button"
                     onClick={() => toggleColumn(col.id)}
                     className={cn(
                       "px-2 py-0.5 rounded text-[10px] border transition-colors",
@@ -460,7 +463,7 @@ export function ExportsPage() {
                 </CardHeader>
                 <CardContent className="pt-0 overflow-x-auto">
                   {loadingPreview ? (
-                    <table className="w-full text-xs">
+                    <table className="w-full text-xs" aria-label="Vista previa de exportación">
                       <thead>
                         <tr className="border-b text-muted-foreground">
                           <th className="text-left font-medium py-2 pr-2 w-8" />

@@ -7,8 +7,8 @@ from alembic import context
 config = context.config
 
 # Logging from alembic.ini
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+if config.config_file_name is not None and not config.attributes.get('skip_logging_config', False):
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # ── App metadata ──────────────────────────────────────────────────────────
 from app.config import DATABASE_URL  # noqa: E402

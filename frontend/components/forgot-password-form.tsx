@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -40,9 +41,9 @@ function StepEmail({
         </Field>
       </FieldGroup>
       <p className="text-center text-sm text-zinc-500">
-        <a href="/login" className="font-medium text-white/70 underline-offset-4 hover:text-white hover:underline">
+        <Link href="/login" className="font-medium text-white/70 underline-offset-4 hover:text-white hover:underline">
           Volver al inicio de sesión
-        </a>
+        </Link>
       </p>
     </form>
   );
@@ -208,10 +209,10 @@ export function ForgotPasswordForm({
         <p className="text-sm text-zinc-400">
           Tu contraseña se ha restablecido correctamente. Ahora puedes iniciar sesión con tu nueva contraseña.
         </p>
-        <a href="/logout"
+        <Link href="/logout"
           className="inline-flex items-center justify-center rounded-lg bg-sky-500 px-4 py-2 text-sm font-medium text-white hover:bg-sky-400 transition-colors">
           Iniciar sesión
-        </a>
+        </Link>
       </div>
     );
   }

@@ -199,3 +199,14 @@ def get_cache_stats() -> dict:
     except Exception as e:
         logger.error("Error obteniendo stats de Redis: %s", e)
         return {"status": "error", "error": str(e)}
+
+
+def invalidate_stats_cache(tenant_id: Any, org_id: Any) -> None:
+    """
+    Invalida el caché de estadísticas del dashboard para un tenant y organización
+    """
+    try:
+        invalidate_cache_pattern(f"stats:dashboard:{tenant_id}:{org_id}:*")
+    except Exception as e:
+        logger.error("Error invalidando stats cache: %s", e)
+
