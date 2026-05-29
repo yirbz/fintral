@@ -1,6 +1,11 @@
 import re
 from typing import Optional
+
 from stdnum.do import rnc, cedula
+
+_PASSWORD_MIN = 8
+
+_EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 # RNC whitelisted (from python-stdnum — known valid RNCs with non-standard checksums)
 _RNC_WHITELIST = {
@@ -12,7 +17,6 @@ _RNC_WHITELIST = {
 }
 
 def validate_rnc_checksum(rnc_val: str) -> bool:
-    """Valida si un RNC dominicano de 9 dígitos es válido usando stdnum o la lista blanca."""
     digits = re.sub(r"\D", "", rnc_val)
     if len(digits) != 9:
         return False
@@ -37,3 +41,41 @@ def is_valid_rnc_or_cedula(tax_id: Optional[str]) -> bool:
     elif len(digits) == 11:
         return validate_cedula_checksum(digits)
     return False
+
+
+def validate_email(email: str, field: str = "Correo electrónico") -> Optional[str]:
+    if not email or not email.strip():
+        return f"{field} es requerido"
+    if not _EMAIL_RE.match(email.strip()):
+        return f"{field} debe tener un formato válido (ej: usuario@dominio.com)"
+    return None
+
+
+def validate_full_name(name: str, field: str = "Nombre completo") -> Optional[str]:
+    if not name or not name.strip():
+        return f"{field} es requerido"
+    parts = name.strip().split()
+    if len(parts) < 2:
+        return f"{field} debe incluir al menos nombre y apellido"
+    for part in parts:
+        if not re.search(r"[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]", part):
+            return f"{field} no puede contener solo números o símbolos"
+    return None
+
+
+_password_errors: list[tuple[str, str]] = [
+    (r"[A-Z]", "debe contener al menos una mayúscula"),
+    (r"[a-z]", "debe contener al menos una minúscula"),
+    (r"\d", "debe contener al menos un número"),
+]
+
+
+def validate_password(password: str, field: str = "Contraseña") -> Optional[str]:
+    if not password:
+        return f"{field} es requerida"
+    if len(password) < _PASSWORD_MIN:
+        return f"{field} debe tener al menos {_PASSWORD_MIN} caracteres"
+    for pattern, msg in _password_errors:
+        if not re.search(pattern, password):
+            return f"{field} {msg}"
+    return None

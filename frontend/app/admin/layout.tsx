@@ -1,15 +1,29 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { useSession } from "@/hooks/use-session";
-import { ArrowLeftIcon } from "lucide-react";
+import { 
+  ArrowLeftIcon, 
+  LayoutDashboard, 
+  Users, 
+  FileText, 
+  Activity,
+  Database,
+  ShieldCheck,
+} from "lucide-react";
 import Link from "next/link";
 import { LogoMark } from "@/components/ui/logo";
 import { Skeleton } from "@/components/ui/skeleton";
 
+const NAV_ITEMS = [
+  { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin/reference", label: "Datos de Referencia", icon: Database },
+];
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const { data: session, isLoading } = useSession();
 
   useEffect(() => {
@@ -51,11 +65,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <div className="flex items-center gap-3">
             <Link href="/dashboard" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
               <ArrowLeftIcon className="size-4" />
-              Volver al dashboard
+              Volver
             </Link>
             <div className="h-4 w-px bg-border" />
-            <Link href="/admin/reference" className="flex items-center gap-2">
-              <LogoMark className="size-5" />
+            <Link href="/admin" className="flex items-center gap-2">
+              <ShieldCheck className="size-5 text-primary" />
               <span className="text-sm font-semibold">Admin</span>
             </Link>
           </div>
@@ -64,9 +78,30 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </span>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl px-4 py-6 lg:px-6">
+
+      <div className="mx-auto max-w-7xl px-4 py-4 lg:px-6">
+        <nav className="flex items-center gap-1 mb-4 border-b border-border pb-3">
+          {NAV_ITEMS.map((item) => {
+            const isActive = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex items-center gap-1.5 px-3 h-8 rounded text-[11px] font-medium transition-colors ${
+                  isActive
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                <item.icon className="size-3.5" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+
         {children}
-      </main>
+      </div>
     </div>
   );
 }

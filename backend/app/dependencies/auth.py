@@ -32,7 +32,11 @@ def _resolve_user_from_token(token: str, db: Session) -> Optional[User]:
         return None
 
     try:
-        return db.query(User).filter(User.email == email, User.is_active.is_(True)).first()
+        return db.query(User).filter(
+            User.email == email,
+            User.is_active.is_(True),
+            User.deleted_at.is_(None),
+        ).first()
     except OperationalError:
         if email == ADMIN_EMAIL:
             return FallbackUser()

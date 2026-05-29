@@ -36,12 +36,13 @@ class AlanubeService:
                 logger.error(f"Unexpected error creating company: {e}")
                 raise e
 
-    async def patch_company(self, company_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def patch_company(self, company_id: str, company_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Actualizar datos de una empresa (ej. certificado digital) en Alanube
-        PATCH /company
+        Actualizar datos de una empresa en Alanube
+        PATCH /company/{id}
+        Solo envía los campos que se necesitan actualizar (PATCH parcial).
         """
-        url = f"{self.api_url}/company"
+        url = f"{self.api_url}/company/{company_id}"
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.patch(url, json=company_data, headers=self._get_headers(), timeout=30.0)
@@ -54,12 +55,16 @@ class AlanubeService:
                 logger.error(f"Unexpected error patching company: {e}")
                 raise e
 
-    async def sign_document(self, xml_content: bytes) -> Dict[str, Any]:
+    async def sign_document(self, xml_content: bytes, company_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Firmar un XML con el certificado de la empresa configurado en Alanube
-        POST /sign-document
+        POST /sign-document o POST /sign-document/idCompany/{company_id}
         """
-        url = f"{self.api_url}/sign-document"
+        if company_id:
+            url = f"{self.api_url}/sign-document/idCompany/{company_id}"
+        else:
+            url = f"{self.api_url}/sign-document"
+            
         files = {"xml": ("document.xml", xml_content, "application/xml")}
         headers = {
             "Authorization": f"Bearer {self.jwt_token}",

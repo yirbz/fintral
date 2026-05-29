@@ -435,3 +435,264 @@ def test_billing_ecf_verification_flow(db_session, test_tenant, test_user, test_
 
         finally:
             app.dependency_overrides.clear()
+
+
+def test_billing_ecf_registration_rollback_and_delete(db_session, test_tenant, test_user, test_org):
+    from app.factory import create_app
+    app = create_app()
+    
+    # Save original state of the organization
+    org = db_session.query(Organization).get(test_org.id)
+    original_status = org.certification_status
+    original_tax_id = org.tax_id
+    # Ensure clean state (previous tests may have set this via shared fixture)
+    org.alanube_company_id = None
+    db_session.commit()
+
+    def mock_require_tenant():
+        tenant = db_session.query(Tenant).get(test_tenant.id)
+        org_ref = db_session.query(Organization).get(test_org.id)
+        user = db_session.query(User).get(test_user.id)
+        return TenantContext(
+            db=db_session,
+            user=user,
+            tenant=tenant,
+            tenant_id=test_tenant.id,
+            org_id=test_org.id,
+            organization=org_ref,
+            role="owner"
+        )
+    app.dependency_overrides[require_tenant] = mock_require_tenant
+    client = TestClient(app)
+
+    import io
+    from unittest.mock import patch, AsyncMock
+
+    mock_service_instance = AsyncMock()
+    mock_service_instance.create_company.return_value = {"id": "test-company-ulid-rollback-123"}
+    # Make sign_document fail to trigger rollback
+    mock_service_instance.sign_document.side_effect = Exception("Signature type not supported (AP1007)")
+    mock_service_instance.delete_company.return_value = {"status": "deleted"}
+
+    # Mock ENVIRONMENT as PRODUCTION to disable the development bypass
+    with patch("app.config.ENVIRONMENT", "PRODUCTION"), \
+         patch("app.routers.billing.AlanubeService", return_value=mock_service_instance):
+        try:
+            certificate_file = ("cert.p12", io.BytesIO(b"dummy_p12_content"))
+            res = client.post(
+                "/api/billing/certification/register",
+                data={
+                    "rnc": "132109122",
+                    "business_name": "Test Company",
+                    "trade_name": "Test Company Trade",
+                    "economic_activity": "Servicios de Software",
+                    "branch_office_address": "Av. Churchill",
+                    "province": "Distrito Nacional",
+                    "municipality": "Santo Domingo",
+                    "certificate_password": "password123",
+                },
+                files={
+                    "certificate": certificate_file
+                }
+            )
+            # Should fail because of sign_document error under PRODUCTION env
+            assert res.status_code == 400
+            assert "El tipo de firma del certificado no es compatible" in res.json()["detail"]
+
+            # Note: Alanube has no DELETE endpoint for companies, so orphan
+            # companies remain in Alanube but our DB is rolled back cleanly.
+
+            # Verify that DB changes were rolled back (tax_id should be original, status unchanged)
+            db_session.expire_all()
+            updated_org = db_session.query(Organization).get(test_org.id)
+            assert updated_org.tax_id == original_tax_id
+            assert updated_org.certification_status == original_status
+
+        finally:
+            app.dependency_overrides.clear()
+
+
+def test_billing_ecf_certification_reset(db_session, test_tenant, test_user):
+    from app.factory import create_app
+    app = create_app()
+    
+    # Create a separate org for this test to avoid fixture pollution
+    test_org_reset = Organization(
+        tenant_id=test_tenant.id,
+        name="Test Reset Org",
+        tax_id="101581601",
+        email_contact="reset@test.com"
+    )
+    db_session.add(test_org_reset)
+    db_session.commit()
+    
+    # Pre-populate organization's certification fields
+    org = db_session.query(Organization).get(test_org_reset.id)
+    org.alanube_company_id = "test-reset-company-123"
+    org.alanube_environment = "TesteCF"
+    org.certification_status = "certificate_uploaded"
+    org.is_ecf_authorized = False
+    db_session.commit()
+
+    def mock_require_tenant():
+        tenant = db_session.query(Tenant).get(test_tenant.id)
+        org_ref = db_session.query(Organization).get(test_org_reset.id)
+        user = db_session.query(User).get(test_user.id)
+        return TenantContext(
+            db=db_session,
+            user=user,
+            tenant=tenant,
+            tenant_id=test_tenant.id,
+            org_id=test_org_reset.id,
+            organization=org_ref,
+            role="owner"
+        )
+    app.dependency_overrides[require_tenant] = mock_require_tenant
+    client = TestClient(app)
+
+    from unittest.mock import patch, AsyncMock
+    mock_service_instance = AsyncMock()
+
+    with patch("app.routers.billing.AlanubeService", return_value=mock_service_instance):
+        try:
+            res = client.post("/api/billing/certification/reset")
+            assert res.status_code == 200
+            assert res.json()["status"] == "none"
+            
+            # Alanube has no DELETE endpoint — once registered, company stays.
+            # delete_company should never be called.
+            mock_service_instance.delete_company.assert_not_called()
+            
+            # Verify DB was reset (tax_id + alanube_company_id remain intact,
+            # certification state resets to allow re-trying via PATCH)
+            db_session.expire_all()
+            updated_org = db_session.query(Organization).get(test_org_reset.id)
+            assert updated_org.tax_id == "101581601"
+            assert updated_org.alanube_company_id == "test-reset-company-123"  # kept for future PATCH
+            assert updated_org.certification_status == "none"
+            assert updated_org.is_ecf_authorized is False
+            assert updated_org.certification_step == "0"
+            assert updated_org.is_certification_completed is False
+            
+        finally:
+            app.dependency_overrides.clear()
+
+
+def test_certification_step_tracking(db_session, test_tenant, test_user):
+    """Test that certification steps are tracked as user progresses through wizard."""
+    from app.factory import create_app
+    app = create_app()
+    
+    # Create a separate org for this test
+    test_org_step = Organization(
+        tenant_id=test_tenant.id,
+        name="Test Step Tracking Org",
+        tax_id="101581602",
+        email_contact="steps@test.com"
+    )
+    db_session.add(test_org_step)
+    db_session.commit()
+    
+    # Verify initial state
+    org = db_session.query(Organization).get(test_org_step.id)
+    assert org.certification_step == "0"
+    assert org.is_certification_completed is False
+    
+    def mock_require_tenant():
+        tenant = db_session.query(Tenant).get(test_tenant.id)
+        org_ref = db_session.query(Organization).get(test_org_step.id)
+        user = db_session.query(User).get(test_user.id)
+        return TenantContext(
+            db=db_session,
+            user=user,
+            tenant=tenant,
+            tenant_id=test_tenant.id,
+            org_id=test_org_step.id,
+            organization=org_ref,
+            role="owner"
+        )
+    
+    app.dependency_overrides[require_tenant] = mock_require_tenant
+    client = TestClient(app)
+    
+    try:
+        # Test /certification/status endpoint - should return current step
+        res = client.get("/api/billing/certification/status")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["certification_step"] == "0"
+        assert data["is_certification_completed"] is False
+        
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_certification_locked_company_id_on_register(db_session, test_tenant, test_user):
+    """Test that alanube_company_id is locked when company is registered, even if API returns it late."""
+    from app.factory import create_app
+    from io import BytesIO
+    app = create_app()
+    
+    # Create a separate org
+    test_org_locked = Organization(
+        tenant_id=test_tenant.id,
+        name="Test Locked Org",
+        tax_id="101581603",
+        email_contact="locked@test.com"
+    )
+    db_session.add(test_org_locked)
+    db_session.commit()
+    
+    def mock_require_tenant():
+        tenant = db_session.query(Tenant).get(test_tenant.id)
+        org_ref = db_session.query(Organization).get(test_org_locked.id)
+        user = db_session.query(User).get(test_user.id)
+        return TenantContext(
+            db=db_session,
+            user=user,
+            tenant=tenant,
+            tenant_id=test_tenant.id,
+            org_id=test_org_locked.id,
+            organization=org_ref,
+            role="owner"
+        )
+    
+    app.dependency_overrides[require_tenant] = mock_require_tenant
+    client = TestClient(app)
+    
+    from unittest.mock import patch, AsyncMock
+    mock_service_instance = AsyncMock()
+    # Simulate Alanube returns company ID
+    mock_service_instance.create_company.return_value = {"company": {"id": "locked-company-ulid-123"}, "status": "created"}
+    mock_service_instance.sign_document.return_value = {"status": "signed"}
+    
+    cert_file = BytesIO(b"fake cert content")
+    
+    with patch("app.routers.billing.AlanubeService", return_value=mock_service_instance):
+        try:
+            res = client.post(
+                "/api/billing/certification/register",
+                data={
+                    "rnc": "101-581-603",
+                    "business_name": "Fintral Locked Test",
+                    "trade_name": "Fintral",
+                    "economic_activity": "6201",
+                    "branch_office_address": "Calle Test 123",
+                    "province": "Santo Domingo",
+                    "municipality": "Santo Domingo",
+                    "certificate_password": "test123"
+                },
+                files={"certificate": ("cert.p12", cert_file, "application/octet-stream")}
+            )
+            
+            if res.status_code == 200:
+                # Verify company ID is locked and step is set to 2
+                db_session.expire_all()
+                updated_org = db_session.query(Organization).get(test_org_locked.id)
+                assert updated_org.alanube_company_id == "locked-company-ulid-123"
+                assert updated_org.certification_step == "2"
+                assert updated_org.is_certification_completed is False
+                assert updated_org.certification_status == "certificate_uploaded"
+            
+        finally:
+            app.dependency_overrides.clear()

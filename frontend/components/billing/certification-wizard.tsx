@@ -27,7 +27,6 @@ import {
   type Municipalities 
 } from "geo-rd";
 import { dgiiService } from "@/lib/services/dgii";
-import { consultRncAction } from "@/app/actions/dgii";
 
 interface CertificationWizardProps {
   initialStatus: VerificationStatus;
@@ -91,47 +90,22 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
       setMunicipalitiesList([]);
     }
   }, [provinceCode]);
-
-  const [verifyingRnc, setVerifyingRnc] = useState<boolean>(false);
-
+  // Sync parent async loaded state to local inputs
   useEffect(() => {
-    const clean = dgiiService.cleanRNC(rnc);
-    if (dgiiService.isValidRNC(clean)) {
-      const fetchDgiiData = async () => {
-        setVerifyingRnc(true);
-        try {
-          const data = await consultRncAction(clean);
-          if (data) {
-            if (data.name && !businessName) {
-              setBusinessName(data.name);
-            }
-            if (data.tradeName && !tradeName) {
-              setTradeName(data.tradeName);
-            }
-            if (data.economicActivity && !economicActivity) {
-              const activityVal = data.economicActivity;
-              const matches = ECONOMIC_ACTIVITIES.some(act => act.value === activityVal);
-              if (matches) {
-                setEconomicActivity(activityVal);
-              } else {
-                setEconomicActivity("Otra");
-                setCustomActivity(activityVal);
-              }
-            }
-            toast.success("Datos de la empresa auto-completados desde DGII");
-          }
-        } catch (err) {
-          console.error("Error auto-completing DGII data:", err);
-        } finally {
-          setVerifyingRnc(false);
-        }
-      };
-      if (!businessName) {
-        fetchDgiiData();
-      }
+    if (initialStatus.tax_id && !rnc) {
+      setRnc(initialStatus.tax_id);
     }
-  }, [rnc, businessName, tradeName, economicActivity]);
-
+    if (initialStatus.name && !businessName) {
+      setBusinessName(initialStatus.name);
+    }
+    if (initialStatus.economic_activity && !economicActivity) {
+      setEconomicActivity(initialStatus.economic_activity);
+    }
+    if (initialStatus.fiscal_address && !fiscalAddress) {
+      setFiscalAddress(initialStatus.fiscal_address);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialStatus.tax_id, initialStatus.name, initialStatus.economic_activity, initialStatus.fiscal_address]);
   // Step 2: Certificate state
   const [certificateFile, setCertificateFile] = useState<File | null>(null);
   const [certificatePassword, setCertificatePassword] = useState<string>("");
@@ -172,8 +146,8 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
             setTestDetails(res.details);
             toast.error("El set de pruebas falló. Revisa los detalles.");
           }
-        } catch (err) {
-          console.error("Polling error:", err);
+        } catch (err: any) {
+          toast.error(err.message || "Error al consultar el estado de las pruebas. Esperando...");
         }
       };
 
@@ -188,8 +162,12 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
 
   // Form validations for Step 1
   const validateStep1 = () => {
+    console.log("[validateStep1] Starting step 1 validation. RNC state value:", rnc);
     const cleanRnc = dgiiService.cleanRNC(rnc);
-    if (!dgiiService.isValidRNC(cleanRnc)) {
+    console.log("[validateStep1] Clean RNC value:", cleanRnc);
+    const isValid = dgiiService.isValidRNC(cleanRnc);
+    console.log("[validateStep1] isValidRNC result:", isValid);
+    if (!isValid) {
       toast.error("El RNC / Cédula ingresado es inválido.");
       return false;
     }
@@ -279,9 +257,10 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
 
     setLoading(true);
     try {
+      const cleanRnc = rnc.replace(/[^0-9]/g, "");
       const finalActivity = economicActivity === "Otra" ? customActivity : economicActivity;
       const formData = new FormData();
-      formData.append("rnc", rnc.replace(/[^0-9]/g, ""));
+      formData.append("rnc", cleanRnc);
       formData.append("business_name", businessName);
       formData.append("trade_name", tradeName || businessName);
       formData.append("economic_activity", finalActivity);
@@ -292,10 +271,10 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
       formData.append("certificate_password", certificatePassword);
 
       await billingApi.registerCompany(formData);
-      toast.success("Empresa y certificado digital registrados exitosamente.");
+      toast.success("Empresa y certificado registrados exitosamente.");
       setStep(3);
     } catch (err: any) {
-      toast.error("Error al registrar la empresa: " + (err.message || "Verifica el archivo o la contraseña"));
+      toast.error(err.message || "No se pudo completar el registro. Verifica los datos e intenta de nuevo.");
     } finally {
       setLoading(false);
     }
@@ -310,7 +289,36 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
       setTestStatus("PROCESSING");
       toast.success("Set de pruebas iniciado ante la DGII.");
     } catch (err: any) {
-      toast.error("Error al iniciar pruebas: " + (err.message || "Error del servidor"));
+      toast.error(err.message || "No se pudo iniciar el set de pruebas. Intenta de nuevo.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetCertification = async () => {
+    if (!window.confirm("¿Estás seguro de que deseas cancelar el proceso actual y comenzar de nuevo? Esto eliminará el registro de empresa creado en Alanube y limpiará el certificado.")) {
+      return;
+    }
+    setLoading(true);
+    try {
+      await billingApi.resetCertification();
+      toast.success("Certificación reiniciada correctamente.");
+      // Reset all local form states
+      setRnc("");
+      setBusinessName("");
+      setTradeName("");
+      setEconomicActivity("");
+      setCustomActivity("");
+      setFiscalAddress("");
+      setProvince("");
+      setMunicipality("");
+      setCertificateFile(null);
+      setCertificatePassword("");
+      setTestStatus("IDLE");
+      setTestTrackId("");
+      setStep(1);
+    } catch (err: any) {
+      toast.error(err.message || "No se pudo reiniciar la certificación. Intenta de nuevo.");
     } finally {
       setLoading(false);
     }
@@ -370,13 +378,15 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5 relative">
-                <label className="text-[11px] font-medium text-foreground flex items-center gap-1">
+                <label htmlFor="wizard-rnc" className="text-[11px] font-medium text-foreground flex items-center gap-1">
                   RNC / Cédula (sin guiones)
                   {initialStatus.tax_id && (
                     <Lock className="size-2.5 text-muted-foreground" />
                   )}
                 </label>
                 <input 
+                  id="wizard-rnc"
+                  aria-label="RNC o cédula"
                   type="text" 
                   value={rnc}
                   onChange={(e) => setRnc(e.target.value.replace(/[^0-9]/g, ""))}
@@ -386,17 +396,14 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
                     initialStatus.tax_id ? "bg-muted cursor-not-allowed opacity-80" : ""
                   }`}
                 />
-                {verifyingRnc && (
-                  <p className="text-[9px] text-sky-500 flex items-center gap-1 animate-pulse absolute -bottom-4">
-                    <Loader2 className="size-2.5 animate-spin" />
-                    Consultando DGII...
-                  </p>
-                )}
+
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[11px] font-medium text-foreground">Razón Social</label>
+                <label htmlFor="wizard-business-name" className="text-[11px] font-medium text-foreground">Razón Social</label>
                 <input 
+                  id="wizard-business-name"
+                  aria-label="Razón social"
                   type="text" 
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
@@ -406,8 +413,10 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[11px] font-medium text-foreground">Nombre Comercial (Opcional)</label>
+                <label htmlFor="wizard-trade-name" className="text-[11px] font-medium text-foreground">Nombre Comercial (Opcional)</label>
                 <input 
+                  id="wizard-trade-name"
+                  aria-label="Nombre comercial"
                   type="text" 
                   value={tradeName}
                   onChange={(e) => setTradeName(e.target.value)}
@@ -417,8 +426,9 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[11px] font-medium text-foreground">Actividad Económica DGII</label>
+                <label htmlFor="wizard-economic-activity" className="text-[11px] font-medium text-foreground">Actividad Económica DGII</label>
                 <select
+                  id="wizard-economic-activity"
                   value={economicActivity}
                   onChange={(e) => setEconomicActivity(e.target.value)}
                   className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-xs shadow-xs transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
@@ -432,8 +442,10 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
 
               {economicActivity === "Otra" && (
                 <div className="col-span-1 md:col-span-2 space-y-1.5">
-                  <label className="text-[11px] font-medium text-foreground">Especificar Actividad Económica</label>
+                  <label htmlFor="wizard-custom-activity" className="text-[11px] font-medium text-foreground">Especificar Actividad Económica</label>
                   <input 
+                    id="wizard-custom-activity"
+                    aria-label="Especificar actividad económica"
                     type="text" 
                     value={customActivity}
                     onChange={(e) => setCustomActivity(e.target.value)}
@@ -444,8 +456,10 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
               )}
 
               <div className="col-span-1 md:col-span-2 space-y-1.5">
-                <label className="text-[11px] font-medium text-foreground">Dirección Fiscal del Establecimiento</label>
+                <label htmlFor="wizard-fiscal-address" className="text-[11px] font-medium text-foreground">Dirección Fiscal del Establecimiento</label>
                 <input 
+                  id="wizard-fiscal-address"
+                  aria-label="Dirección fiscal del establecimiento"
                   type="text" 
                   value={fiscalAddress}
                   onChange={(e) => setFiscalAddress(e.target.value)}
@@ -455,8 +469,9 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[11px] font-medium text-foreground">Provincia</label>
+                <label htmlFor="wizard-province" className="text-[11px] font-medium text-foreground">Provincia</label>
                 <select
+                  id="wizard-province"
                   value={provinceCode}
                   onChange={(e) => {
                     const code = e.target.value;
@@ -475,8 +490,9 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[11px] font-medium text-foreground">Municipio</label>
+                <label htmlFor="wizard-municipality" className="text-[11px] font-medium text-foreground">Municipio</label>
                 <select
+                  id="wizard-municipality"
                   value={municipality}
                   onChange={(e) => setMunicipality(e.target.value)}
                   disabled={!provinceCode}
@@ -491,7 +507,7 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
             </div>
 
             <div className="flex justify-end pt-3 border-t border-border/50">
-              <button 
+              <button type="button"
                 onClick={handleRegisterCompany}
                 disabled={loading}
                 className="flex items-center gap-1 bg-primary text-primary-foreground font-medium px-4 h-8 rounded text-[11px] transition-colors disabled:opacity-50 hover:bg-primary/90"
@@ -536,7 +552,8 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
                 type="file" 
                 accept=".p12,.pfx"
                 onChange={handleFileChange}
-                className="hidden" 
+                className="hidden"
+                aria-label="Seleccionar certificado digital"
               />
               {certificateFile ? (
                 <>
@@ -559,16 +576,18 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
 
             {/* Password input */}
             <div className="space-y-1.5 max-w-sm">
-              <label className="text-[11px] font-medium text-foreground">Contraseña del Certificado</label>
+              <label htmlFor="wizard-cert-password" className="text-[11px] font-medium text-foreground">Contraseña del Certificado</label>
               <div className="relative">
                 <input 
+                  id="wizard-cert-password"
+                  aria-label="Contraseña del certificado"
                   type={showPassword ? "text" : "password"}
                   value={certificatePassword}
                   onChange={(e) => setCertificatePassword(e.target.value)}
                   placeholder="Introduce la contraseña"
                   className="flex h-8 w-full rounded-md border border-input bg-background pl-3 pr-8 py-1 text-xs shadow-xs transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
                 />
-                <button 
+                <button type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
@@ -586,15 +605,24 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
             </div>
 
             <div className="flex justify-between pt-3 border-t border-border/50">
-              <button 
-                onClick={() => setStep(1)}
-                disabled={loading}
-                className="flex items-center gap-1 text-muted-foreground hover:text-foreground font-medium px-3 h-8 rounded text-[11px] transition-colors"
-              >
-                <ChevronLeft className="size-3.5" />
-                Atrás
-              </button>
-              <button 
+              <div className="flex gap-2">
+                <button type="button"
+                  onClick={() => setStep(1)}
+                  disabled={loading}
+                  className="flex items-center gap-1 text-muted-foreground hover:text-foreground font-medium px-3 h-8 rounded text-[11px] transition-colors"
+                >
+                  <ChevronLeft className="size-3.5" />
+                  Atrás
+                </button>
+                <button type="button"
+                  onClick={handleResetCertification}
+                  disabled={loading}
+                  className="text-red-500 hover:text-red-600 font-medium px-3 h-8 rounded text-[11px] transition-colors"
+                >
+                  Cancelar y Reiniciar
+                </button>
+              </div>
+              <button type="button"
                 onClick={handleUploadCertificate}
                 disabled={loading || !certificateFile || !certificatePassword}
                 className="flex items-center gap-1 bg-primary text-primary-foreground font-medium px-4 h-8 rounded text-[11px] transition-colors disabled:opacity-50 hover:bg-primary/90"
@@ -624,7 +652,7 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
                 <p className="text-xs text-foreground max-w-md mx-auto">
                   Tu certificado está listo. Presiona el botón para iniciar el set de pruebas automáticas. Alanube simulará la emisión de e-CF ante la DGII en ambiente de pruebas (TesteCF).
                 </p>
-                <button 
+                <button type="button"
                   onClick={handleStartSetTest}
                   disabled={loading}
                   className="flex items-center gap-1.5 bg-primary text-primary-foreground font-medium px-5 h-9 rounded text-xs transition-colors mx-auto hover:bg-primary/90"
@@ -688,8 +716,15 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
 
                 {/* Logs / Details if failed */}
                 {(testStatus === "COMPLETED" && testResult === "REJECTED" || testStatus === "FAILED") && (
-                  <div className="flex justify-end pt-2">
-                    <button 
+                  <div className="flex justify-between pt-2">
+                    <button type="button"
+                      onClick={handleResetCertification}
+                      disabled={loading}
+                      className="text-red-500 hover:text-red-600 font-medium h-7 rounded text-[11px] transition-colors"
+                    >
+                      Cancelar y Reiniciar
+                    </button>
+                    <button type="button"
                       onClick={() => setTestStatus("IDLE")}
                       className="bg-red-500 hover:bg-red-600 text-white font-medium px-4 h-7 rounded text-[11px] transition-colors"
                     >
@@ -701,15 +736,24 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
             )}
 
             {testStatus === "IDLE" && (
-              <div className="flex justify-start pt-3 border-t border-border/50">
-                <button 
-                  onClick={() => setStep(2)}
-                  disabled={loading}
-                  className="flex items-center gap-1 text-muted-foreground hover:text-foreground font-medium px-3 h-8 rounded text-[11px] transition-colors"
-                >
-                  <ChevronLeft className="size-3.5" />
-                  Atrás
-                </button>
+              <div className="flex justify-between pt-3 border-t border-border/50">
+                <div className="flex gap-2">
+                  <button type="button"
+                    onClick={() => setStep(2)}
+                    disabled={loading}
+                    className="flex items-center gap-1 text-muted-foreground hover:text-foreground font-medium px-3 h-8 rounded text-[11px] transition-colors"
+                  >
+                    <ChevronLeft className="size-3.5" />
+                    Atrás
+                  </button>
+                  <button type="button"
+                    onClick={handleResetCertification}
+                    disabled={loading}
+                    className="text-red-500 hover:text-red-600 font-medium px-3 h-8 rounded text-[11px] transition-colors"
+                  >
+                    Cancelar y Reiniciar
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -758,7 +802,7 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
             </div>
 
             <div className="pt-2">
-              <button 
+              <button type="button"
                 onClick={onComplete}
                 className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-5 h-9 rounded text-xs transition-colors shadow-sm"
               >

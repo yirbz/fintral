@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -102,6 +103,59 @@ function StepIndicator({ current, goTo }: { current: number; goTo: (s: number) =
   );
 }
 
+function _validateEmail(v: string): string | null {
+  if (!v.trim()) return null;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) ? null : "Formato inválido (ej: usuario@dominio.com)";
+}
+
+function _validateName(v: string): string | null {
+  const parts = v.trim().split(/\s+/);
+  if (parts.length < 2) return "Debe incluir nombre y apellido";
+  for (const p of parts) {
+    if (!/[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]/.test(p)) return "No puede contener solo números o símbolos";
+  }
+  return null;
+}
+
+function _passwordScore(pw: string): number {
+  let s = 0;
+  if (pw.length >= 8) s++;
+  if (pw.length >= 12) s++;
+  if (/[A-Z]/.test(pw)) s++;
+  if (/[a-z]/.test(pw)) s++;
+  if (/\d/.test(pw)) s++;
+  if (/[^A-Za-z0-9]/.test(pw)) s++;
+  return s;
+}
+
+function _strengthLabel(score: number): { label: string; color: string; bars: number } {
+  if (score <= 1) return { label: "Débil", color: "bg-red-500", bars: 1 };
+  if (score <= 3) return { label: "Media", color: "bg-amber-500", bars: 2 };
+  if (score <= 4) return { label: "Buena", color: "bg-lime-500", bars: 3 };
+  return { label: "Fuerte", color: "bg-emerald-500", bars: 4 };
+}
+
+function PasswordStrength({ password }: { password: string }) {
+  if (!password) return null;
+  const score = _passwordScore(password);
+  const { label, color, bars } = _strengthLabel(score);
+  return (
+    <div className="mt-2 space-y-1">
+      <div className="flex gap-1">
+        {[1, 2, 3, 4].map((i) => (
+          <div
+            key={i}
+            className={`h-1 flex-1 rounded-full transition-colors ${i <= bars ? color : "bg-white/10"}`}
+          />
+        ))}
+      </div>
+      <p className={`text-[10px] ${score <= 1 ? "text-red-400" : score <= 3 ? "text-amber-400" : "text-emerald-400"}`}>
+        {label}
+      </p>
+    </div>
+  );
+}
+
 function StepAccount({
   fullName,
   setFullName,
@@ -123,7 +177,21 @@ function StepAccount({
   showPassword: boolean; showConfirmPassword: boolean;
   setShowPassword: (v: boolean) => void; setShowConfirmPassword: (v: boolean) => void;
 }) {
-  const valid = fullName.trim().length > 0 && email.trim().length > 0 && password.length >= 6 && password === confirmPassword;
+  const [nameTouched, setNameTouched] = useState(false);
+  const [emailTouched, setEmailTouched] = useState(false);
+  const nameError = nameTouched ? _validateName(fullName) : null;
+  const emailError = emailTouched ? _validateEmail(email) : null;
+  const passwordMismatch = confirmPassword.length > 0 && password !== confirmPassword;
+  const valid =
+    fullName.trim().length > 0 &&
+    !_validateName(fullName) &&
+    email.trim().length > 0 &&
+    !_validateEmail(email) &&
+    password.length >= 8 &&
+    /[A-Z]/.test(password) &&
+    /[a-z]/.test(password) &&
+    /\d/.test(password) &&
+    password === confirmPassword;
   return (
     <FieldGroup>
       <div className="flex flex-col items-center gap-1 text-center">
@@ -133,20 +201,22 @@ function StepAccount({
       <Field>
         <FieldLabel htmlFor="fullName" className="text-zinc-300">Nombre completo</FieldLabel>
         <Input id="fullName" type="text" placeholder="Juan Pérez" required autoFocus
-          className="border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:border-sky-500/50"
-          value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          className={`border ${nameError ? "border-red-500/60" : "border-white/10"} bg-white/5 text-white placeholder:text-zinc-500 focus-visible:border-sky-500/50`}
+          value={fullName} onChange={(e) => setFullName(e.target.value)} onBlur={() => setNameTouched(true)} />
+        {nameError && <p className="mt-1 text-[11px] text-red-400">{nameError}</p>}
       </Field>
       <Field>
         <FieldLabel htmlFor="email" className="text-zinc-300">Correo electrónico</FieldLabel>
-        <Input id="email" type="email" placeholder="usuario@fintral.com" required
-          className="border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:border-sky-500/50"
-          value={email} onChange={(e) => setEmail(e.target.value)} />
+        <Input id="email" type="email" placeholder="usuario@dominio.com" required
+          className={`border ${emailError ? "border-red-500/60" : "border-white/10"} bg-white/5 text-white placeholder:text-zinc-500 focus-visible:border-sky-500/50`}
+          value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => setEmailTouched(true)} />
+        {emailError && <p className="mt-1 text-[11px] text-red-400">{emailError}</p>}
       </Field>
       <Field>
         <FieldLabel htmlFor="password" className="text-zinc-300">Contraseña</FieldLabel>
         <div className="relative">
-          <Input id="password" type={showPassword ? "text" : "password"} placeholder="Mínimo 6 caracteres" required minLength={6}
-            className="border-white/10 bg-white/5 pr-10 text-white placeholder:text-zinc-500 focus-visible:border-sky-500/50"
+          <Input id="password" type={showPassword ? "text" : "password"} placeholder="Mín. 8 caracteres" required
+            className="border border-white/10 bg-white/5 pr-10 text-white placeholder:text-zinc-500 focus-visible:border-sky-500/50"
             value={password} onChange={(e) => setPassword(e.target.value)} />
           <button type="button" onClick={() => setShowPassword(!showPassword)}
             className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300" tabIndex={-1}>
@@ -164,12 +234,13 @@ function StepAccount({
             )}
           </button>
         </div>
+        <PasswordStrength password={password} />
       </Field>
       <Field>
         <FieldLabel htmlFor="confirmPassword" className="text-zinc-300">Confirmar contraseña</FieldLabel>
         <div className="relative">
           <Input id="confirmPassword" type={showConfirmPassword ? "text" : "password"} placeholder="Repite tu contraseña" required
-            className="border-white/10 bg-white/5 pr-10 text-white placeholder:text-zinc-500 focus-visible:border-sky-500/50"
+            className={`border ${passwordMismatch ? "border-red-500/60" : "border-white/10"} bg-white/5 pr-10 text-white placeholder:text-zinc-500 focus-visible:border-sky-500/50`}
             value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
           <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)}
             className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300" tabIndex={-1}>
@@ -187,6 +258,7 @@ function StepAccount({
             )}
           </button>
         </div>
+        {passwordMismatch && <p className="mt-1 text-[11px] text-red-400">Las contraseñas no coinciden</p>}
       </Field>
       <Field>
         <Button type="submit" className="w-full" disabled={!valid}>Continuar</Button>
@@ -386,7 +458,7 @@ export function SignUpForm({
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | React.ReactNode>("");
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [resuming, setResuming] = useState(false);
@@ -422,8 +494,8 @@ export function SignUpForm({
       setError("Las contraseñas no coinciden");
       return;
     }
-    if (password.length < 6) {
-      setError("La contraseña debe tener al menos 6 caracteres");
+    if (password.length < 8 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/\d/.test(password)) {
+      setError("La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un número");
       return;
     }
 
@@ -441,7 +513,7 @@ export function SignUpForm({
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Error al crear la cuenta";
       if (msg.includes("ya está registrado")) {
-        setError("Este email ya está registrado. <a href='/login' class='underline text-zinc-300'>Inicia sesión</a>");
+        setError(<>Este email ya está registrado. <a href="/login" className="underline text-zinc-300">Inicia sesión</a></>);
       } else {
         setError(msg);
       }
@@ -493,9 +565,9 @@ export function SignUpForm({
       <StepIndicator current={step} goTo={goToStep} />
 
       {error && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive [&_a]:underline [&_a]:text-zinc-300"
-          dangerouslySetInnerHTML={{ __html: error }}
-        />
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive [&_a]:underline [&_a]:text-zinc-300">
+          {error}
+        </div>
       )}
 
       {resuming && (
@@ -538,9 +610,9 @@ export function SignUpForm({
 
       <p className="text-center text-sm text-zinc-500">
         ¿Ya tienes una cuenta?{" "}
-        <a href="/login" className="font-medium text-white/70 underline-offset-4 hover:text-white hover:underline">
+        <Link href="/login" className="font-medium text-white/70 underline-offset-4 hover:text-white hover:underline">
           Inicia sesión
-        </a>
+        </Link>
       </p>
 
       <p className="text-center text-xs leading-relaxed text-zinc-600">

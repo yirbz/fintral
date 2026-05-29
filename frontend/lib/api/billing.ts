@@ -89,6 +89,8 @@ export interface BillingInvoice {
 export interface VerificationStatus {
   is_ecf_authorized: boolean;
   certification_status: "none" | "company_registered" | "certificate_uploaded" | "set_test_running" | "set_test_approved" | "certified" | "set_test_rejected";
+  certification_step: "0" | "1" | "2" | "3" | "4";
+  is_certification_completed: boolean;
   alanube_company_id?: string;
   alanube_environment?: string;
   certificate_uploaded_at?: string;
@@ -96,6 +98,12 @@ export interface VerificationStatus {
   name?: string;
   economic_activity?: string;
   fiscal_address?: string;
+}
+
+export interface CertificationError {
+  error_code: string;
+  user_message: string;
+  technical_details?: string;
 }
 
 export async function testAlanubeConnection(data: { api_url: string; jwt_token: string }) {
@@ -196,6 +204,10 @@ export const billingApi = {
       result?: "APPROVED" | "REJECTED";
       details?: any;
     }>("/api/billing/certification/set-test-status"),
+  resetCertification: () =>
+    apiFetch<{ message: string; status: string }>("/api/billing/certification/reset", {
+      method: "POST",
+    }),
 
   updateProfile: (data: { full_name: string; job_title?: string; phone?: string }) =>
     apiFetch<any>("/api/settings/profile", {

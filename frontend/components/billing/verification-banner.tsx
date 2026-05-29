@@ -78,7 +78,7 @@ export function VerificationBanner() {
         </div>
       </div>
       <Link href="/billing/settings?tab=dgii" className="shrink-0">
-        <button className={`flex items-center gap-1 text-white font-medium px-3 h-7 rounded text-[11px] transition-colors ${buttonClass}`}>
+        <button type="button" className={`flex items-center gap-1 text-white font-medium px-3 h-7 rounded text-[11px] transition-colors ${buttonClass}`}>
           {buttonText}
           <ArrowRight className="size-3" />
         </button>
