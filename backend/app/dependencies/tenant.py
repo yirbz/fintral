@@ -77,6 +77,10 @@ async def require_tenant(
             role="owner",
         )
 
+    # Check if tenant is deleted
+    if user.tenant and user.tenant.deleted_at:
+        raise HTTPException(status_code=401, detail="No disponible")
+
     import json
 
     # Determine which org the user wants to work with
@@ -177,6 +181,10 @@ async def optional_tenant(
             organization=fake_org,
             role="owner",
         )
+
+    # Check if tenant is deleted (account frozen)
+    if user.tenant and user.tenant.deleted_at:
+        return None
 
     import json
 
