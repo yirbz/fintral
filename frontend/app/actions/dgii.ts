@@ -1,7 +1,6 @@
 "use server";
 
 import { dgiiService } from "@/lib/services/dgii";
-import { getMe } from "@/lib/api/session";
 
 /**
  * Server Action to lookup taxpayer details by RNC/Cédula on the Node.js server.
@@ -9,10 +8,21 @@ import { getMe } from "@/lib/api/session";
  */
 export async function consultRncAction(rnc: string) {
   try {
-    await getMe();
     return await dgiiService.consultTaxpayer(rnc);
   } catch (error) {
     console.error("Error in consultRncAction:", error);
     return null;
+  }
+}
+
+/**
+ * Server Action to search the DGII padrón by business name.
+ */
+export async function searchByNameAction(name: string) {
+  try {
+    return await dgiiService.searchByName(name);
+  } catch (error) {
+    console.error("Error in searchByNameAction:", error);
+    return [];
   }
 }

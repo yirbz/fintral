@@ -62,7 +62,7 @@ async def get_bank_accounts_summary(ctx: TenantContext = Depends(require_tenant)
             Invoice.organization_id == ctx.org_id,
             Invoice.transaction_type == "income",
             Invoice.payment_status != "paid",
-            Invoice.deleted_at.is_(None),
+            Invoice.is_deleted.is_(False),
         )
         .all()
     )
@@ -76,7 +76,7 @@ async def get_bank_accounts_summary(ctx: TenantContext = Depends(require_tenant)
             Invoice.organization_id == ctx.org_id,
             Invoice.transaction_type == "expense",
             Invoice.payment_status != "paid",
-            Invoice.deleted_at.is_(None),
+            Invoice.is_deleted.is_(False),
         )
         .all()
     )

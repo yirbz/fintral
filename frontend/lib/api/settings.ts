@@ -20,6 +20,8 @@ export interface OrganizationData {
   website: string | null;
   country: string | null;
   fiscal_address: string | null;
+  municipality: string | null;
+  province: string | null;
   created_at: string | null;
   updated_at: string | null;
   member_count: number;
@@ -115,6 +117,8 @@ export async function updateOrganization(data: {
   website?: string | null;
   country?: string | null;
   fiscal_address?: string | null;
+  municipality?: string | null;
+  province?: string | null;
 }) {
   return apiFetch<{
     id: string;
@@ -125,6 +129,8 @@ export async function updateOrganization(data: {
     website: string | null;
     country: string | null;
     fiscal_address: string | null;
+    municipality: string | null;
+    province: string | null;
   }>("/api/settings/organization", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

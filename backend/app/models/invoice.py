@@ -93,6 +93,7 @@ class Invoice(Base):
     processed = Column(Boolean, default=False)
 
     # Soft delete
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
     deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
     deleted_by = Column(GUID, nullable=True)
 
@@ -163,6 +164,7 @@ class Invoice(Base):
             "payment_date": self.payment_date.isoformat() if self.payment_date else None,
             "bank_account_id": str(self.bank_account_id) if self.bank_account_id else None,
             "batch_id": str(self.batch_id) if self.batch_id else None,
+            "is_deleted": self.is_deleted,
             "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
             "cancelled_at": self.cancelled_at.isoformat() if self.cancelled_at else None,
             "cancellation_type": self.cancellation_type,

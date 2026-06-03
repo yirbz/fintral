@@ -12,6 +12,7 @@ from app.core.redis import redis_client
 from app.core.reference_data import get_cached_domain, invalidate_domain_cache
 from app.database import get_db
 from app.dependencies.tenant import require_admin, TenantContext
+from app.services.dgii_health import check_dgii_health
 from app.models import (
     AuditLog,
     Invoice,
@@ -40,16 +41,30 @@ async def admin_stats(
     ctx: TenantContext = Depends(require_admin),
 ):
     total_users = db.query(func.count(User.id)).filter(User.deleted_at.is_(None)).scalar() or 0
-    active_users = db.query(func.count(User.id)).filter(User.is_active.is_(True), User.deleted_at.is_(None)).scalar() or 0
+    active_users = (
+        db.query(func.count(User.id)).filter(User.is_active.is_(True), User.deleted_at.is_(None)).scalar() or 0
+    )
     total_orgs = db.query(func.count(Organization.id)).filter(Organization.deleted_at.is_(None)).scalar() or 0
-    active_orgs = db.query(func.count(Organization.id)).filter(Organization.is_active.is_(True), Organization.deleted_at.is_(None)).scalar() or 0
+    active_orgs = (
+        db.query(func.count(Organization.id))
+        .filter(Organization.is_active.is_(True), Organization.deleted_at.is_(None))
+        .scalar()
+        or 0
+    )
     total_tenants = db.query(func.count(Tenant.id)).filter(Tenant.deleted_at.is_(None)).scalar() or 0
     total_invoices = db.query(func.count(Invoice.id)).scalar() or 0
 
     last_24h = utc_now() - timedelta(hours=24)
 
-    new_users_24h = db.query(func.count(User.id)).filter(User.created_at >= last_24h, User.deleted_at.is_(None)).scalar() or 0
-    new_orgs_24h = db.query(func.count(Organization.id)).filter(Organization.created_at >= last_24h, Organization.deleted_at.is_(None)).scalar() or 0
+    new_users_24h = (
+        db.query(func.count(User.id)).filter(User.created_at >= last_24h, User.deleted_at.is_(None)).scalar() or 0
+    )
+    new_orgs_24h = (
+        db.query(func.count(Organization.id))
+        .filter(Organization.created_at >= last_24h, Organization.deleted_at.is_(None))
+        .scalar()
+        or 0
+    )
     audit_24h = db.query(func.count(AuditLog.id)).filter(AuditLog.created_at >= last_24h).scalar() or 0
 
     return {
@@ -82,9 +97,7 @@ async def list_users(
         q = q.filter(User.deleted_at.is_(None))
     if search:
         pattern = f"%{search}%"
-        q = q.filter(
-            User.email.ilike(pattern) | User.full_name.ilike(pattern)
-        )
+        q = q.filter(User.email.ilike(pattern) | User.full_name.ilike(pattern))
     if is_active is not None:
         q = q.filter(User.is_active.is_(is_active))
     if is_superuser is not None:
@@ -95,30 +108,27 @@ async def list_users(
 
     result = []
     for u in users:
-        org_count = (
-            db.query(func.count(UserOrganization.id))
-            .filter(UserOrganization.user_id == u.id)
-            .scalar()
-            or 0
-        )
+        org_count = db.query(func.count(UserOrganization.id)).filter(UserOrganization.user_id == u.id).scalar() or 0
         tenant_name = None
         if u.tenant_id:
             t = db.query(Tenant).filter(Tenant.id == u.tenant_id).first()
             tenant_name = t.name if t else None
 
-        result.append({
-            "id": str(u.id),
-            "email": u.email,
-            "full_name": u.full_name,
-            "is_active": u.is_active,
-            "is_superuser": u.is_superuser,
-            "tenant_id": str(u.tenant_id) if u.tenant_id else None,
-            "tenant_name": tenant_name,
-            "organization_count": org_count,
-            "deleted_at": u.deleted_at.isoformat() if u.deleted_at else None,
-            "created_at": u.created_at.isoformat() if u.created_at else None,
-            "last_seen": None,
-        })
+        result.append(
+            {
+                "id": str(u.id),
+                "email": u.email,
+                "full_name": u.full_name,
+                "is_active": u.is_active,
+                "is_superuser": u.is_superuser,
+                "tenant_id": str(u.tenant_id) if u.tenant_id else None,
+                "tenant_name": tenant_name,
+                "organization_count": org_count,
+                "deleted_at": u.deleted_at.isoformat() if u.deleted_at else None,
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+                "last_seen": None,
+            }
+        )
 
     return {"total": total, "offset": offset, "limit": limit, "users": result}
 
@@ -243,27 +253,21 @@ async def list_tenants(
 
     result = []
     for t in tenants:
-        org_count = (
-            db.query(func.count(Organization.id))
-            .filter(Organization.tenant_id == t.id)
-            .scalar() or 0
+        org_count = db.query(func.count(Organization.id)).filter(Organization.tenant_id == t.id).scalar() or 0
+        user_count = db.query(func.count(User.id)).filter(User.tenant_id == t.id).scalar() or 0
+        result.append(
+            {
+                "id": str(t.id),
+                "name": t.name,
+                "slug": t.slug,
+                "plan": t.plan,
+                "is_active": t.is_active,
+                "organization_count": org_count,
+                "user_count": user_count,
+                "deleted_at": t.deleted_at.isoformat() if t.deleted_at else None,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+            }
         )
-        user_count = (
-            db.query(func.count(User.id))
-            .filter(User.tenant_id == t.id)
-            .scalar() or 0
-        )
-        result.append({
-            "id": str(t.id),
-            "name": t.name,
-            "slug": t.slug,
-            "plan": t.plan,
-            "is_active": t.is_active,
-            "organization_count": org_count,
-            "user_count": user_count,
-            "deleted_at": t.deleted_at.isoformat() if t.deleted_at else None,
-            "created_at": t.created_at.isoformat() if t.created_at else None,
-        })
 
     return {"total": total, "offset": offset, "limit": limit, "tenants": result}
 
@@ -278,12 +282,7 @@ async def get_tenant_detail(
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant no encontrado")
 
-    orgs = (
-        db.query(Organization)
-        .filter(Organization.tenant_id == tenant.id)
-        .order_by(Organization.name)
-        .all()
-    )
+    orgs = db.query(Organization).filter(Organization.tenant_id == tenant.id).order_by(Organization.name).all()
 
     org_data = []
     for org in orgs:
@@ -294,27 +293,29 @@ async def get_tenant_detail(
             .order_by(User.full_name)
             .all()
         )
-        org_data.append({
-            "id": str(org.id),
-            "name": org.name,
-            "tax_id": org.tax_id,
-            "is_active": org.is_active,
-            "is_ecf_authorized": org.is_ecf_authorized,
-            "certification_status": org.certification_status,
-            "deleted_at": org.deleted_at.isoformat() if org.deleted_at else None,
-            "created_at": org.created_at.isoformat() if org.created_at else None,
-            "users": [
-                {
-                    "id": str(u.id),
-                    "full_name": u.full_name,
-                    "email": u.email,
-                    "role": uo.role,
-                    "is_active": u.is_active,
-                    "deleted_at": u.deleted_at.isoformat() if u.deleted_at else None,
-                }
-                for u, uo in memberships
-            ],
-        })
+        org_data.append(
+            {
+                "id": str(org.id),
+                "name": org.name,
+                "tax_id": org.tax_id,
+                "is_active": org.is_active,
+                "is_ecf_authorized": org.is_ecf_authorized,
+                "certification_status": org.certification_status,
+                "deleted_at": org.deleted_at.isoformat() if org.deleted_at else None,
+                "created_at": org.created_at.isoformat() if org.created_at else None,
+                "users": [
+                    {
+                        "id": str(u.id),
+                        "full_name": u.full_name,
+                        "email": u.email,
+                        "role": uo.role,
+                        "is_active": u.is_active,
+                        "deleted_at": u.deleted_at.isoformat() if u.deleted_at else None,
+                    }
+                    for u, uo in memberships
+                ],
+            }
+        )
 
     return {
         "id": str(tenant.id),
@@ -530,9 +531,7 @@ async def delete_organization(
         raise HTTPException(status_code=400, detail="La organización ya está eliminada")
 
     org.deleted_at = utc_now()
-    db.query(UserOrganization).filter(
-        UserOrganization.organization_id == org.id
-    ).delete(synchronize_session=False)
+    db.query(UserOrganization).filter(UserOrganization.organization_id == org.id).delete(synchronize_session=False)
     db.commit()
     return {"message": "Organización marcada como eliminada (datos preservados por retención fiscal)"}
 
@@ -592,7 +591,8 @@ async def system_health(
             AuditLog.action == "error",
             AuditLog.created_at >= last_hour,
         )
-        .scalar() or 0
+        .scalar()
+        or 0
     )
 
     return {
@@ -625,10 +625,14 @@ async def create_reference_data(
     db: Session = Depends(get_db),
     ctx: TenantContext = Depends(require_admin),
 ):
-    existing = db.query(ReferenceData).filter(
-        ReferenceData.domain == body["domain"],
-        ReferenceData.code == body["code"],
-    ).first()
+    existing = (
+        db.query(ReferenceData)
+        .filter(
+            ReferenceData.domain == body["domain"],
+            ReferenceData.code == body["code"],
+        )
+        .first()
+    )
     if existing:
         raise HTTPException(status_code=409, detail=f"Ya existe '{body['code']}' en dominio '{body['domain']}'")
 
@@ -745,3 +749,9 @@ async def list_admin_audit_logs(
         "limit": limit,
         "events": [r.to_admin_dict() for r in rows],
     }
+
+
+@router.get("/health/dgii/check")
+async def run_dgii_health_check(ctx: TenantContext = Depends(require_admin)):
+    report = await check_dgii_health()
+    return report.to_dict()

@@ -1,15 +1,49 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { billingApi, Client, Product, InvoiceCreate, InvoiceLineItem } from "@/lib/api/billing";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
+import {
+  Calculator,
+  CreditCard,
+  Eraser,
+  Landmark,
+  Loader2,
+  Minus,
+  Plus,
+  Receipt,
+  Search,
+  Send,
+  User,
+  Wallet,
+  X,
+} from "lucide-react";
+
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Trash2, Plus, ShoppingCart, User, Send, Save, CreditCard, Sparkles, Loader2, DollarSign } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import {
+  billingApi,
+  type EmitResult,
+  type Product,
+  type BillingInvoice,
+} from "@/lib/api/billing";
+import { ProductSearch } from "@/features/billing/emit/product-search";
+import { NcfSelector } from "@/features/billing/emit/ncf-selector";
+import { CustomerSearch } from "@/features/billing/emit/customer-search";
+import { ConfirmEmissionDialog } from "@/features/billing/emit/confirm-emission-dialog";
+import { PendingInvoiceView } from "@/features/billing/emit/pending-invoice-view";
+
+// ── Types ──
 
 interface CartItem {
   product: Product;
@@ -18,499 +52,558 @@ interface CartItem {
   discount: number;
 }
 
+interface BuyerState {
+  id?: string;
+  name: string;
+  rnc: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+}
+
+type ViewState =
+  | { type: "form" }
+  | { type: "pending"; result: EmitResult & { invoice: NonNullable<EmitResult["invoice"]> } };
+
+const STORAGE_KEY = "fintral_quick_billing_form";
+const CONSUMIDOR_FINAL_TYPES = new Set([2, 32]);
+const FISCAL_TYPES = new Set([1, 31]);
+const ELECTRONIC_TYPES = new Set([31, 32, 33, 34, 41, 43, 44, 45, 46, 47]);
+
+// ── Helpers ──
+
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat("es-DO", {
+    style: "currency",
+    currency: "DOP",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
+// ── Sub-components ──
+
+function EmptyCart() {
+  return (
+    <div className="h-full flex flex-col items-center justify-center text-center gap-3">
+      <div className="size-12 rounded-full bg-muted/30 flex items-center justify-center">
+        <Search className="size-5 text-muted-foreground/50" />
+      </div>
+      <div>
+        <p className="text-sm font-medium text-muted-foreground">Carrito vacío</p>
+        <p className="text-xs text-muted-foreground/60 mt-0.5">
+          Busque productos para agregar a la factura
+        </p>
+      </div>
+    </div>
+  );
+}
+
+interface CartRowProps {
+  item: CartItem;
+  onUpdate: (updates: Partial<CartItem>) => void;
+  onRemove: () => void;
+}
+
+function CartRow({ item, onUpdate, onRemove }: CartRowProps) {
+  const lineTotal = item.quantity * item.price * (1 - item.discount / 100);
+
+  return (
+    <div className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-muted/30 group transition-colors">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{item.product.name}</p>
+        <p className="text-xs text-muted-foreground tabular-nums">
+          {formatCurrency(item.price)} c/u
+        </p>
+      </div>
+
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="size-6"
+          onClick={() => {
+            if (item.quantity <= 1) onRemove();
+            else onUpdate({ quantity: item.quantity - 1 });
+          }}
+        >
+          <Minus className="size-3" />
+        </Button>
+        <span className="w-8 text-center text-sm tabular-nums font-medium">
+          {item.quantity}
+        </span>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="size-6"
+          onClick={() => onUpdate({ quantity: item.quantity + 1 })}
+        >
+          <Plus className="size-3" />
+        </Button>
+      </div>
+
+      <div className="text-right min-w-[100px]">
+        <p className="text-sm font-medium tabular-nums">
+          {formatCurrency(lineTotal)}
+        </p>
+        {item.discount > 0 && (
+          <p className="text-[10px] text-rose-500 tabular-nums">
+            -{item.discount}% desc.
+          </p>
+        )}
+      </div>
+
+      <div className="w-20 opacity-0 group-hover:opacity-100 transition-opacity">
+        <Input
+          type="number"
+          value={item.price}
+          onChange={(e) => onUpdate({ price: parseFloat(e.target.value) || 0 })}
+          className="h-7 text-xs text-right"
+          min={0}
+          step={0.01}
+          aria-label="Override price"
+        />
+      </div>
+
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        className="size-6 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity shrink-0"
+        onClick={onRemove}
+      >
+        <X className="size-3" />
+      </Button>
+    </div>
+  );
+}
+
+function Section({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs font-medium">{label}</Label>
+      {children}
+    </div>
+  );
+}
+
+function TotalRow({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: string;
+  className?: string;
+}) {
+  return (
+    <div className={cn("flex justify-between text-xs text-muted-foreground", className)}>
+      <span>{label}</span>
+      <span className="tabular-nums">{value}</span>
+    </div>
+  );
+}
+
+// ── Main Page ──
+
 export default function QuickBillingPage() {
-  const router = useRouter();
-  const [clients, setClients] = useState<Client[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const [view, setView] = useState<ViewState>({ type: "form" });
 
-  // Form selections
-  const [selectedClientId, setSelectedClientId] = useState<string>("");
-  const [paymentType, setPaymentType] = useState<number>(1); // 1: Contado, 2: Crédito
-  const [paymentMethod, setPaymentMethod] = useState<number>(2); // 1: Efectivo, 2: Transf, 3: Tarjeta
-  const [ecfType, setEcfType] = useState<number>(31); // 31: Crédito Fiscal, 32: Consumo
-  const [isEcfAuthorized, setIsEcfAuthorized] = useState<boolean>(true);
-
-  // Cart
-  const [cart, setCart] = useState<CartItem[]>([]);
-
-  // Current item being added
-  const [selectedProductId, setSelectedProductId] = useState<string>("");
-  const [addQty, setAddQty] = useState<number>(1);
-  const [addPrice, setAddPrice] = useState<number>(0);
-  const [addDiscount, setAddDiscount] = useState<number>(0);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const [cList, pList, status] = await Promise.all([
-          billingApi.getClients(),
-          billingApi.getProducts(),
-          billingApi.getVerificationStatus(),
-        ]);
-        setClients(cList);
-        setProducts(pList);
-        setIsEcfAuthorized(status.is_ecf_authorized);
-
-        if (cList.length > 0) setSelectedClientId(cList[0].id);
-        if (pList.length > 0) {
-          setSelectedProductId(pList[0].id);
-          setAddPrice(pList[0].price);
-        }
-
-        // Set initial type based on authorization
-        setEcfType(status.is_ecf_authorized ? 31 : 1);
-      } catch (err: any) {
-        toast.error("Error al cargar datos: " + (err.message || "Error desconocido"));
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
+  // Restore draft from sessionStorage
+  const savedDraft = useMemo(() => {
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
   }, []);
 
-  const handleProductChange = (prodId: string) => {
-    setSelectedProductId(prodId);
-    const prod = products.find((p) => p.id === prodId);
-    if (prod) {
-      setAddPrice(prod.price);
-    }
-  };
+  // NCF & payment
+  const [ecfType, setEcfType] = useState<number | null>(savedDraft?.ecfType ?? null);
+  const [paymentType, setPaymentType] = useState<number>(savedDraft?.paymentType ?? 1);
+  const [paymentMethod, setPaymentMethod] = useState<number | undefined>(savedDraft?.paymentMethod ?? undefined);
+  const [notes, setNotes] = useState(savedDraft?.notes ?? "");
 
-  const addToCart = () => {
-    const prod = products.find((p) => p.id === selectedProductId);
-    if (!prod) return;
+  // Buyer
+  const [buyer, setBuyer] = useState<BuyerState>(savedDraft?.buyer ?? { name: "", rnc: "" });
 
-    if (addQty <= 0) {
-      toast.error("La cantidad debe ser mayor a 0");
-      return;
-    }
+  // Cart
+  const [cart, setCart] = useState<CartItem[]>(savedDraft?.cart ?? []);
 
-    const existingIndex = cart.findIndex((item) => item.product.id === prod.id);
-    if (existingIndex > -1) {
-      const newCart = [...cart];
-      newCart[existingIndex].quantity += addQty;
-      newCart[existingIndex].price = addPrice;
-      newCart[existingIndex].discount = addDiscount;
-      setCart(newCart);
-    } else {
-      setCart([...cart, { product: prod, quantity: addQty, price: addPrice, discount: addDiscount }]);
-    }
+  // Confirmation dialog
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
-    toast.success(`${prod.name} agregado a la factura`);
-    setAddQty(1);
-    setAddDiscount(0);
-  };
-
-  const removeFromCart = (index: number) => {
-    const newCart = cart.filter((_, i) => i !== index);
-    setCart(newCart);
-  };
-
-  // Calculations
-  const calculateTotals = () => {
-    let subtotal = 0;
-    let discountAmount = 0;
-    let taxAmount = 0;
-
-    cart.forEach((item) => {
-      const base = item.quantity * item.price;
-      const disc = base * (item.discount / 100);
-      const taxable = base - disc;
-      const tax = taxable * (item.product.tax_rate / 100);
-
-      subtotal += base;
-      discountAmount += disc;
-      taxAmount += tax;
-    });
-
-    const total = subtotal - discountAmount + taxAmount;
-
-    return { subtotal, discountAmount, taxAmount, total };
-  };
-
-  const totals = calculateTotals();
-
-  const handleSaveInvoice = async (transmitImmediately: boolean) => {
-    if (cart.length === 0) {
-      toast.error("Debe agregar al menos un producto a la factura");
-      return;
-    }
-
-    const isEcf = [31, 32, 34, 43].includes(ecfType);
-    if (isEcf && !isEcfAuthorized) {
-      toast.error("Tu organización debe estar certificada ante la DGII para emitir comprobantes electrónicos.");
-      return;
-    }
-
-    const payload: InvoiceCreate = {
-      client_id: selectedClientId || undefined,
-      ecf_type: ecfType,
-      payment_type: paymentType,
-      payment_method: paymentMethod,
-      items: cart.map((item) => ({
-        product_id: item.product.id,
-        quantity: item.quantity,
-        unit_price: item.price,
-        discount_rate: item.discount,
-      })),
-    };
-
+  // Persist draft to sessionStorage on every change
+  useEffect(() => {
+    if (view.type !== "form") return;
     try {
-      setSubmitting(true);
-      toast.info("Creando borrador de factura...");
-      const invoice = await billingApi.createInvoice(payload);
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+        ecfType, paymentType, paymentMethod, notes, buyer, cart,
+      }));
+    } catch { /* quota exceeded — ignore */ }
+  }, [ecfType, paymentType, paymentMethod, notes, buyer, cart, view.type]);
 
-      if (transmitImmediately) {
-        toast.info("Comprobante creado. Certificando ante la DGII...");
-        const result = await billingApi.transmitInvoice(invoice.id);
-        if (isEcf) {
-          toast.success(`Factura e-CF emitida y certificada: ${result.invoice.invoice_number}`);
-        } else {
-          toast.success(`Factura física registrada con éxito. NCF asignado: ${result.invoice.invoice_number}`);
-        }
-        router.push("/billing");
+  const isConsumidorFinal = ecfType !== null && CONSUMIDOR_FINAL_TYPES.has(ecfType);
+  const isElectronic = ecfType !== null && ELECTRONIC_TYPES.has(ecfType);
+  const hasCartItems = cart.length > 0;
+
+  // ── Totals ──
+  const totals = cart.reduce(
+    (acc, item) => {
+      const gross = item.quantity * item.price;
+      const disc = gross * (item.discount / 100);
+      const net = gross - disc;
+      const tax = net * (item.product.tax_rate / 100);
+      return {
+        subtotal: acc.subtotal + gross,
+        discountAmount: acc.discountAmount + disc,
+        taxAmount: acc.taxAmount + tax,
+        total: acc.total + net + tax,
+      };
+    },
+    { subtotal: 0, discountAmount: 0, taxAmount: 0, total: 0 },
+  );
+
+  // ── Validation ──
+  const buyerRncClean = buyer.rnc.replace(/[^0-9]/g, "");
+  const buyerValid = buyer.name.trim().length > 0 && buyerRncClean.length >= 9;
+  const canEmit = ecfType !== null && (isConsumidorFinal || buyerValid) && hasCartItems;
+
+  // ── Resolve buyer for emission ──
+  function resolveBuyer(): { name: string; rnc: string } {
+    if (isConsumidorFinal) return { name: "Consumidor Final", rnc: "132109122" };
+    return { name: buyer.name.trim(), rnc: buyerRncClean || "132109122" };
+  }
+
+  // ── Electronic emission via /emit ──
+  const emitMutation = useMutation({
+    mutationFn: (data: Parameters<typeof billingApi.emitInvoice>[0]) =>
+      billingApi.emitInvoice(data),
+    onSuccess: (result) => {
+      if (result.status === "verified") {
+        toast.success("Factura emitida exitosamente", {
+          description: "Comprobante electrónico timbrado por la DGII.",
+        });
+        resetForm();
+      } else if (result.status === "pending" && result.invoice?.id) {
+        setView({
+          type: "pending",
+          result: result as EmitResult & { invoice: NonNullable<EmitResult["invoice"]> },
+        });
       } else {
-        toast.success("Borrador de factura guardado exitosamente");
-        router.push("/billing");
+        toast.error(result.error_message || "Error al emitir la factura");
       }
-    } catch (err: any) {
-      toast.error("Error al emitir factura: " + (err.message || "Error desconocido"));
-    } finally {
-      setSubmitting(false);
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || "Error de conexión con el servidor");
+    },
+  });
+
+  // ── Physical emission via create + transmit ──
+  const physicalMutation = useMutation({
+    mutationFn: async () => {
+      const { name, rnc } = resolveBuyer();
+      const invoice = await billingApi.createInvoice({
+        client_id: buyer.id || undefined,
+        ecf_type: ecfType!,
+        payment_type: paymentType,
+        payment_method: paymentMethod,
+        items: cart.map((item) => ({
+          product_id: item.product.id,
+          quantity: item.quantity,
+          unit_price: item.price,
+          discount_rate: item.discount,
+        })),
+      });
+      const result = await billingApi.transmitInvoice(invoice.id);
+      return result.invoice;
+    },
+    onSuccess: (invoice: BillingInvoice) => {
+      toast.success("Factura emitida exitosamente", {
+        description: `Comprobante físico registrado. NCF: ${invoice.invoice_number || ""}`,
+      });
+      resetForm();
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || "Error al emitir la factura física");
+    },
+  });
+
+  const isPending = emitMutation.isPending || physicalMutation.isPending;
+
+  function clearForm() {
+    sessionStorage.removeItem(STORAGE_KEY);
+    setCart([]);
+    setBuyer({ name: "", rnc: "" });
+    setNotes("");
+    setPaymentMethod(undefined);
+    setPaymentType(1);
+    setEcfType(null);
+  }
+
+  const resetForm = clearForm;
+
+  // ── Cart operations ──
+  function addToCart(product: Product) {
+    const existing = cart.find((item) => item.product.id === product.id);
+    if (existing) {
+      setCart(
+        cart.map((item) =>
+          item.product.id === product.id
+            ? { ...item, quantity: item.quantity + 1 }
+            : item,
+        ),
+      );
+    } else {
+      setCart([...cart, { product, quantity: 1, price: product.price, discount: 0 }]);
     }
-  };
+  }
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("es-DO", {
-      style: "currency",
-      currency: "DOP",
-    }).format(amount);
-  };
+  function updateCartItem(index: number, updates: Partial<CartItem>) {
+    setCart(cart.map((item, i) => (i === index ? { ...item, ...updates } : item)));
+  }
 
-  if (loading) {
+  function removeFromCart(index: number) {
+    setCart(cart.filter((_, i) => i !== index));
+  }
+
+  // ── Emission ──
+  function handleEmit() {
+    if (!ecfType || !canEmit) return;
+
+    const { name, rnc } = resolveBuyer();
+
+    if (!isConsumidorFinal && rnc.length !== 9 && rnc.length !== 11) {
+      toast.error("El RNC/Cédula debe tener 9 u 11 dígitos");
+      return;
+    }
+
+    const needsConfirmation = totals.total >= 250_000 || (!isConsumidorFinal && !buyer.id);
+
+    if (isElectronic && needsConfirmation) {
+      setConfirmOpen(true);
+      return;
+    }
+
+    if (!isElectronic && needsConfirmation) {
+      setConfirmOpen(true);
+      return;
+    }
+
+    doEmit(name, rnc);
+  }
+
+  function doEmit(buyerName: string, buyerRnc: string) {
+    setConfirmOpen(false);
+
+    if (isElectronic) {
+      emitMutation.mutate({
+        mode: "quick",
+        ecf_type: ecfType!,
+        payment_type: paymentType,
+        payment_method: paymentMethod,
+        buyer_name: buyerName,
+        buyer_rnc: buyerRnc,
+        buyer_address: isConsumidorFinal ? undefined : buyer.address || undefined,
+        items: cart.map((item) => ({
+          description: item.product.name,
+          quantity: item.quantity,
+          unit_price: item.price,
+          discount_rate: item.discount,
+          tax_rate: item.product.tax_rate,
+        })),
+        notes: notes.trim() || undefined,
+      });
+    } else {
+      physicalMutation.mutate();
+    }
+  }
+
+  // ── Pending state ──
+  if (view.type === "pending") {
     return (
-      <div className="flex-1 space-y-6 p-4 md:p-8 pt-6">
-        <Skeleton className="h-10 w-48" />
-        <div className="grid gap-6 md:grid-cols-3">
-          <Skeleton className="h-96 md:col-span-2" />
-          <Skeleton className="h-96" />
-        </div>
+      <div className="h-full w-full flex flex-col items-center justify-center">
+        <PendingInvoiceView
+          result={view.result}
+          onBack={() => {
+            resetForm();
+            setView({ type: "form" });
+          }}
+        />
       </div>
     );
   }
 
+  // ── Form state ──
   return (
-    <div className="flex-1 space-y-6 p-4 md:p-8 pt-6">
-      {/* Header */}
-      <div>
-        <h2 className="text-xl font-bold tracking-tight text-foreground md:text-2xl">Nueva Factura de Venta</h2>
-        <p className="text-sm text-muted-foreground">
-          Cree comprobantes fiscales electrónicos autorizados con timbrado en tiempo real.
-        </p>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-12">
-        {/* Left Side: Invoice details + Product selector */}
-        <div className="lg:col-span-8 space-y-6">
-          {/* General Invoicing Configuration */}
-          <Card className="border border-border/50 bg-card/50">
-            <CardHeader className="py-4">
-              <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
-                <User className="size-4 text-primary" />
-                Datos de Emisión
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
-              <div className="flex flex-col gap-1.5 md:col-span-2">
-                <label htmlFor="quick-client" className="text-xs font-semibold text-muted-foreground">Cliente / Razón Social</label>
-                {clients.length === 0 ? (
-                  <p className="text-xs text-rose-500 font-medium">Debe registrar un cliente en la sección de Clientes</p>
-                ) : (
-                  <select
-                    id="quick-client"
-                    className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                    value={selectedClientId}
-                    onChange={(e) => setSelectedClientId(e.target.value)}
-                  >
-                    {clients.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({c.tax_id})
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="quick-ecf-type" className="text-xs font-semibold text-muted-foreground">Tipo Comprobante</label>
-                <select
-                  id="quick-ecf-type"
-                  className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                  value={ecfType}
-                  onChange={(e) => setEcfType(parseInt(e.target.value) || (isEcfAuthorized ? 31 : 1))}
-                >
-                  <optgroup label="Facturación Electrónica (e-CF)">
-                    <option value="31" disabled={!isEcfAuthorized}>
-                      Crédito Fiscal (31) {!isEcfAuthorized ? " (Requiere Certificación)" : ""}
-                    </option>
-                    <option value="32" disabled={!isEcfAuthorized}>
-                      Consumidor Final (32) {!isEcfAuthorized ? " (Requiere Certificación)" : ""}
-                    </option>
-                  </optgroup>
-                  <optgroup label="Facturación Tradicional / Física">
-                    <option value="1">Crédito Fiscal Físico (01)</option>
-                    <option value="2">Consumidor Final Físico (02)</option>
-                  </optgroup>
-                </select>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="quick-payment-type" className="text-xs font-semibold text-muted-foreground">Condición Pago</label>
-                <select
-                  id="quick-payment-type"
-                  className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                  value={paymentType}
-                  onChange={(e) => setPaymentType(parseInt(e.target.value) || 1)}
-                >
-                  <option value="1">Contado</option>
-                  <option value="2">Crédito</option>
-                </select>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="quick-payment-method" className="text-xs font-semibold text-muted-foreground">Método Pago</label>
-                <select
-                  id="quick-payment-method"
-                  className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(parseInt(e.target.value) || 2)}
-                >
-                  <option value="1">Efectivo</option>
-                  <option value="2">Cheque / Transferencia</option>
-                  <option value="3">Tarjeta de Crédito/Débito</option>
-                  <option value="4">A Plazo</option>
-                </select>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Add Item Panel */}
-          <Card className="border border-border/50 bg-card/50">
-            <CardHeader className="py-4">
-              <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
-                <ShoppingCart className="size-4 text-primary" />
-                Agregar Concepto / Servicio
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-6 items-end">
-              <div className="flex flex-col gap-1.5 sm:col-span-3">
-                <label htmlFor="quick-product" className="text-xs font-semibold text-muted-foreground">Producto o Servicio</label>
-                {products.length === 0 ? (
-                  <p className="text-xs text-rose-500 font-medium">Debe registrar productos en el Catálogo</p>
-                ) : (
-                  <select
-                    id="quick-product"
-                    className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                    value={selectedProductId}
-                    onChange={(e) => handleProductChange(e.target.value)}
-                  >
-                    {products.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.internal_code})
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-
-              <div className="flex flex-col gap-1.5 sm:col-span-1">
-                <label htmlFor="quick-price" className="text-xs font-semibold text-muted-foreground">Precio Unit.</label>
-                <input
-                  id="quick-price"
-                  aria-label="Precio unitario"
-                  type="number"
-                  step="0.01"
-                  className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                  value={addPrice || ""}
-                  onChange={(e) => setAddPrice(parseFloat(e.target.value) || 0)}
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5 sm:col-span-1">
-                <label htmlFor="quick-qty" className="text-xs font-semibold text-muted-foreground">Cantidad</label>
-                <input
-                  id="quick-qty"
-                  aria-label="Cantidad"
-                  type="number"
-                  className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                  value={addQty || ""}
-                  onChange={(e) => setAddQty(parseInt(e.target.value) || 0)}
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5 sm:col-span-1">
-                <label htmlFor="quick-discount" className="text-xs font-semibold text-muted-foreground">Desc %</label>
-                <input
-                  id="quick-discount"
-                  aria-label="Porcentaje de descuento"
-                  type="number"
-                  min="0"
-                  max="100"
-                  className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                  value={addDiscount}
-                  onChange={(e) => setAddDiscount(parseInt(e.target.value) || 0)}
-                />
-              </div>
-
-              <div className="sm:col-span-6 flex justify-end">
-                <Button
-                  onClick={addToCart}
-                  disabled={products.length === 0}
-                  className="h-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-xs px-3 gap-1.5"
-                >
-                  <Plus className="size-3.5" />
-                  Añadir Línea
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Cart Table */}
-          <Card className="border border-border/50 bg-card/50 overflow-hidden">
-            <CardHeader className="py-4">
-              <CardTitle className="text-sm font-semibold">Detalle del Documento</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {cart.length === 0 ? (
-                <div className="p-6 text-center text-xs text-muted-foreground">
-                  Añada conceptos o servicios para confeccionar la factura.
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="text-xs">Concepto / Servicio</TableHead>
-                      <TableHead className="text-xs text-right">Cant.</TableHead>
-                      <TableHead className="text-xs text-right">Precio Unit.</TableHead>
-                      <TableHead className="text-xs text-right">Descto %</TableHead>
-                      <TableHead className="text-xs">ITBIS Tasa</TableHead>
-                      <TableHead className="text-xs text-right">Importe</TableHead>
-                      <TableHead className="text-xs text-right pr-6"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {cart.map((item, index) => {
-                      const base = item.quantity * item.price;
-                      const disc = base * (item.discount / 100);
-                      const total = base - disc;
-                      return (
-                        <TableRow key={index}>
-                          <TableCell className="text-xs font-semibold py-2">
-                            {item.product.name}
-                          </TableCell>
-                          <TableCell className="text-xs text-right py-2">{item.quantity}</TableCell>
-                          <TableCell className="text-xs text-right py-2">
-                            {formatCurrency(item.price)}
-                          </TableCell>
-                          <TableCell className="text-xs text-right py-2">
-                            {item.discount > 0 ? `${item.discount}%` : "-"}
-                          </TableCell>
-                          <TableCell className="text-xs py-2">
-                            <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px] h-4">
-                              {item.product.tax_rate}%
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-xs text-right font-semibold py-2">
-                            {formatCurrency(total)}
-                          </TableCell>
-                          <TableCell className="text-right pr-6 py-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-6 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
-                              onClick={() => removeFromCart(index)}
-                            >
-                              <Trash2 className="size-3.5" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
+    <div className="h-full w-full flex overflow-hidden">
+      {/* ── Left: Product search + Receipt tape ── */}
+      <div className="flex-1 flex flex-col min-w-0 border-r border-border/50">
+        <div className="shrink-0 p-4 border-b border-border/50">
+          <ProductSearch onSelect={addToCart} />
         </div>
 
-        {/* Right Side: Total calculations & Transmission actions */}
-        <div className="lg:col-span-4">
-          <Card className="border border-border bg-primary/5 relative overflow-hidden backdrop-blur-xs">
-            <div className="absolute top-0 right-0 p-3 opacity-15">
-              <Sparkles className="size-24 text-primary" />
+        <div className="flex-1 overflow-y-auto p-4">
+          {!hasCartItems ? (
+            <EmptyCart />
+          ) : (
+            <div className="space-y-1">
+              {cart.map((item, index) => (
+                <CartRow
+                  key={`${item.product.id}-${index}`}
+                  item={item}
+                  onUpdate={(updates) => updateCartItem(index, updates)}
+                  onRemove={() => removeFromCart(index)}
+                />
+              ))}
             </div>
-
-            <CardHeader className="border-b border-border/50 pb-4">
-              <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
-                <CreditCard className="size-4 text-primary" />
-                Resumen de Totales
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Cálculos en pesos dominicanos (DOP).
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 py-6">
-              <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground">Subtotal</span>
-                <span className="font-semibold">{formatCurrency(totals.subtotal)}</span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground">Descuento</span>
-                <span className="font-semibold text-rose-500">
-                  {totals.discountAmount > 0 ? `- ${formatCurrency(totals.discountAmount)}` : formatCurrency(0)}
-                </span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground">ITBIS Total</span>
-                <span className="font-semibold">{formatCurrency(totals.taxAmount)}</span>
-              </div>
-
-              <div className="border-t border-border/50 pt-3 flex justify-between items-baseline">
-                <span className="text-xs font-bold text-foreground">Total Factura</span>
-                <span className="text-lg font-extrabold text-primary">
-                  {formatCurrency(totals.total)}
-                </span>
-              </div>
-            </CardContent>
-            <CardFooter className="flex flex-col gap-2 pt-2">
-              <Button
-                onClick={() => handleSaveInvoice(true)}
-                disabled={submitting || cart.length === 0}
-                className="w-full h-9 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-xs px-3 gap-1.5"
-              >
-                {submitting ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <Send className="size-3.5" />
-                )}
-                {[31, 32].includes(ecfType) ? "Transmitir y Emitir e-CF" : "Emitir Comprobante Físico"}
-              </Button>
-              <Button
-                onClick={() => handleSaveInvoice(false)}
-                disabled={submitting || cart.length === 0}
-                variant="outline"
-                className="w-full h-9 rounded-md border-border text-foreground hover:bg-muted text-xs gap-1.5"
-              >
-                <Save className="size-3.5" />
-                Guardar Borrador
-              </Button>
-            </CardFooter>
-          </Card>
+          )}
         </div>
       </div>
+
+      {/* ── Right: Payment panel ── */}
+      <div className="w-[380px] shrink-0 flex flex-col">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs font-medium">Datos de facturación</Label>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-destructive"
+              onClick={clearForm}
+            >
+              <Eraser className="size-3" />
+              Limpiar
+            </Button>
+          </div>
+
+          <Section label="Tipo de comprobante">
+            <NcfSelector value={ecfType} onChange={setEcfType} filterQuickMode />
+          </Section>
+
+          {isConsumidorFinal ? (
+            <div className="rounded-lg border p-3 bg-muted/20">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <User className="size-3.5" />
+                Consumidor Final
+                <span className="text-muted-foreground/60">
+                  ({ecfType === 2 ? "Físico 02" : "e-CF 32"})
+                </span>
+              </div>
+            </div>
+          ) : (
+            <Section label="Comprador">
+              <CustomerSearch value={buyer} onChange={setBuyer} />
+            </Section>
+          )}
+
+          <Section label="Condición de pago">
+            <Select
+              value={paymentType.toString()}
+              onValueChange={(v) => setPaymentType(parseInt(v))}
+            >
+              <SelectTrigger className="h-9 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">Contado</SelectItem>
+                <SelectItem value="2">Crédito</SelectItem>
+              </SelectContent>
+            </Select>
+          </Section>
+
+          <Section label="Método de pago">
+            <div className="grid grid-cols-3 gap-1.5">
+              {[
+                { value: 1, label: "Efectivo", icon: Wallet },
+                { value: 2, label: "Transferencia", icon: Landmark },
+                { value: 3, label: "Tarjeta", icon: CreditCard },
+              ].map(({ value, label, icon: Icon }) => (
+                <Button
+                  key={value}
+                  variant={paymentMethod === value ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setPaymentMethod(value)}
+                  className="h-9 text-xs gap-1.5"
+                >
+                  <Icon className="size-3.5" />
+                  {label}
+                </Button>
+              ))}
+            </div>
+          </Section>
+
+          <Section label="Notas">
+            <Input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Notas internas (opcional)"
+              className="h-9 text-sm"
+            />
+          </Section>
+        </div>
+
+        {/* ── Footer: Totals + Emit ── */}
+        <div className="shrink-0 border-t border-border/50 p-4 space-y-4">
+          <div className="space-y-1">
+            <TotalRow label="Subtotal" value={formatCurrency(totals.subtotal)} />
+            {totals.discountAmount > 0 && (
+              <TotalRow
+                label="Descuentos"
+                value={`-${formatCurrency(totals.discountAmount)}`}
+                className="text-rose-500"
+              />
+            )}
+            <TotalRow label="ITBIS" value={formatCurrency(totals.taxAmount)} />
+            <Separator />
+            <div className="flex justify-between items-baseline pt-1">
+              <span className="text-sm font-semibold">Total</span>
+              <span className="text-xl font-bold tabular-nums text-primary">
+                {formatCurrency(totals.total)}
+              </span>
+            </div>
+          </div>
+
+          <Button
+            className="w-full h-11 text-sm gap-2"
+            disabled={!canEmit || isPending}
+            onClick={handleEmit}
+          >
+            {isPending ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                Emitiendo...
+              </>
+            ) : (
+              <>
+                {isElectronic ? <Send className="size-4" /> : <Receipt className="size-4" />}
+                {isConsumidorFinal
+                  ? "Cobrar y emitir"
+                  : isElectronic
+                    ? "Emitir comprobante electrónico"
+                    : "Emitir comprobante físico"}
+              </>
+            )}
+          </Button>
+
+          {isElectronic && totals.total >= 250_000 && (
+            <p className="text-xs text-amber-600 flex items-center gap-1">
+              <Calculator className="size-3" />
+              Monto ≥ RD$250,000 — procesamiento asíncrono por la DGII
+            </p>
+          )}
+        </div>
+      </div>
+
+      <ConfirmEmissionDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        onConfirm={() => {
+          const { name, rnc } = resolveBuyer();
+          doEmit(name, rnc);
+        }}
+        isPending={isPending}
+        totalAmount={totals.total}
+        hasUnregisteredBuyer={!isConsumidorFinal && !buyer.id}
+      />
     </div>
   );
 }
