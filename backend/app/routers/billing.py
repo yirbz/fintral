@@ -1961,6 +1961,27 @@ async def transmit_invoice(invoice_id: str, ctx: TenantContext = Depends(require
     # Increment sequence number
     sequence.current_number += 1
 
+    # ── Plan enforcement: check e-CF quota before transmitting ──
+    from app.services.plan_service import PlanService, PlanLimitExceeded
+    plan_svc = PlanService(ctx.db)
+    try:
+        plan_svc.check_ecf_limit(ctx.org_id, amount=1)
+    except PlanLimitExceeded as e:
+        # Rollback the sequence increment
+        sequence.current_number -= 1
+        ctx.db.commit()
+        raise HTTPException(
+            status_code=402,  # Payment Required
+            detail={
+                "error": "ecf_limit_exceeded",
+                "message": (
+                    "Has alcanzado el límite mensual de comprobantes electrónicos (e-CF) "
+                    "de tu plan. Contrata un add-on o mejora tu plan para continuar emitiendo."
+                ),
+                "usage": e.usage if hasattr(e, 'usage') else {},
+            }
+        )
+
     is_electronic = sequence.prefix == "E"
     if is_electronic:
         if not ctx.organization.is_ecf_authorized:
@@ -2092,6 +2113,9 @@ async def transmit_invoice(invoice_id: str, ctx: TenantContext = Depends(require
         ctx.db.commit()
         invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
 
+        # Record e-CF usage
+        plan_svc.record_ecf(ctx.org_id)
+
         return {
             "message": "Factura física emitida exitosamente y registrada localmente",
             "invoice": invoice.to_dict(),
@@ -2141,6 +2165,9 @@ async def transmit_invoice(invoice_id: str, ctx: TenantContext = Depends(require
 
         ctx.db.commit()
         invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
+
+        # Record e-CF usage
+        plan_svc.record_ecf(ctx.org_id)
 
         return {
             "message": "Factura emitida y transmitida exitosamente",

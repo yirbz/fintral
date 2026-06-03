@@ -58,6 +58,8 @@ services:
       - XERO_REDIRECT_URI
       - ALANUBE_API_URL
       - ALANUBE_JWT
+      - AI_ASSISTANT_KEY
+      - AI_ASSISTANT_MODEL
     depends_on:
       redis:
         condition: service_healthy
