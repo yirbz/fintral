@@ -22,7 +22,7 @@ from uuid import UUID
 from sqlalchemy import func, desc
 from sqlalchemy.orm import Session
 
-from app.config import AI_MODEL_NAME, OPENAI_API_KEY
+from app.config import AI_ASSISTANT_KEY, AI_ASSISTANT_MODEL
 from app.dependencies.tenant import TenantContext
 from app.models import (
     DgiiSubmission,
@@ -879,11 +879,11 @@ class AIChatService:
 
     def _call_llm(self, prompt: str, system_prompt: str = "") -> Optional[str]:
         """Call the configured LLM and return the response text."""
-        if not OPENAI_API_KEY or OPENAI_API_KEY.startswith("demo"):
+        if not AI_ASSISTANT_KEY or AI_ASSISTANT_KEY.startswith("demo"):
             logger.warning("No valid API key for AI chat")
             return None
 
-        api_key = OPENAI_API_KEY
+        api_key = AI_ASSISTANT_KEY
 
         # Detect provider
         if api_key.startswith("AIza"):
@@ -899,7 +899,7 @@ class AIChatService:
             messages.append({"role": "user", "content": prompt})
 
             response = client.chat.completions.create(
-                model=AI_MODEL_NAME or "gpt-4o-mini",
+                model=AI_ASSISTANT_MODEL or "gpt-4o-mini",
                 messages=messages,
                 temperature=0.1,
                 max_tokens=1000,
@@ -913,8 +913,8 @@ class AIChatService:
         """Call Google Gemini API."""
         import requests
 
-        model = AI_MODEL_NAME or "gemini-2.0-flash"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={OPENAI_API_KEY}"
+        model = AI_ASSISTANT_MODEL or "gemini-2.0-flash"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={AI_ASSISTANT_KEY}"
 
         contents = []
         if system_prompt:

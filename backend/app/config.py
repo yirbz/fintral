@@ -100,6 +100,10 @@ OPENAI_API_KEY: str | None = AI_MODEL_API_KEY
 # LLM Model Name configuration
 AI_MODEL_NAME: str = os.getenv("AI_MODEL_NAME", os.getenv("GEMINI_MODEL", "gemini-2.0-flash"))
 
+# AI Assistant (AI Chat Sidebar) — independent key, separate from invoice pipeline
+AI_ASSISTANT_KEY: str | None = os.getenv("AI_ASSISTANT_KEY", os.getenv("OPENAI_API_KEY"))
+AI_ASSISTANT_MODEL: str = os.getenv("AI_ASSISTANT_MODEL", "gemini-2.5-flash")
+
 # ===========================================================================
 # Email (Resend)
 # ===========================================================================

@@ -40,6 +40,18 @@ export function AiChatSidebar() {
     }
   }, [open]);
 
+  // Keyboard shortcut: Cmd+I to toggle sidebar
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "i") {
+        e.preventDefault();
+        setOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   const handleSend = async (text?: string) => {
     const message = (text || input).trim();
     if (!message || loading) return;
@@ -80,18 +92,28 @@ export function AiChatSidebar() {
       {/* Toggle button */}
       <Button
         variant="ghost"
-        size="icon"
+        size="sm"
         onClick={() => setOpen(!open)}
         className={cn(
-          "relative size-8 rounded-full transition-colors",
-          open && "bg-muted"
+          "rounded-full gap-1.5 text-sm font-normal transition-all",
+          open
+            ? "text-foreground bg-accent/50 hover:bg-accent"
+            : "text-foreground/70 hover:text-foreground hover:bg-accent"
         )}
-        title={open ? "Cerrar AI Chat" : "Abrir AI Chat"}
       >
         {open ? (
-          <X className="size-4" />
+          <>
+            <X className="size-3.5" />
+            Cerrar asistente
+          </>
         ) : (
-          <Sparkles className="size-4 text-primary" />
+          <>
+            <Sparkles className="size-3.5 text-primary" />
+            Asistente AI
+            <kbd className="hidden rounded-md border border-border/40 bg-muted/50 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/60 md:inline-flex">
+              ⌘I
+            </kbd>
+          </>
         )}
       </Button>
 
@@ -115,6 +137,15 @@ export function AiChatSidebar() {
               </p>
             </div>
           </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setOpen(false)}
+            className="size-7 rounded-full text-muted-foreground hover:text-foreground"
+            title="Cerrar"
+          >
+            <X className="size-4" />
+          </Button>
         </div>
 
         {/* Messages */}
