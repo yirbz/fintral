@@ -6,7 +6,7 @@ import {
   Search, Upload, Download, Brain, MessageCircle,
   AlertTriangle, CheckCircle2, XCircle, Clock, Zap,
   Inbox, ChevronDown, Settings, Trash2, LogIn, LogOut,
-  Plug, FileText, RotateCcw, Edit3,
+  Plug, FileText, RotateCcw, Edit3, Send, BookMarked,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,8 @@ const ACTION_CATEGORY: Record<string, { icon: typeof FileText; label: string; co
   "invoice.uncancelled":   { icon: RotateCcw,      label: "Revocado",    color: "text-orange-500",    bg: "bg-orange-500/10" },
   "invoice.updated":       { icon: Edit3,          label: "Editado",     color: "text-blue-500",      bg: "bg-blue-500/10" },
   "invoice.bulk_cancelled":{ icon: XCircle,        label: "Anulación",   color: "text-amber-500",     bg: "bg-amber-500/10" },
+  "invoice.emitted":       { icon: Send,           label: "Emitido",     color: "text-indigo-500",    bg: "bg-indigo-500/10" },
+  "invoice.booked":        { icon: BookMarked,     label: "Contab.",     color: "text-amber-600",     bg: "bg-amber-600/10" },
   "integration.connected": { icon: Plug,           label: "Conexión",    color: "text-emerald-600",   bg: "bg-emerald-600/10" },
   "integration.disconnected": { icon: Plug,        label: "Desconexión", color: "text-red-500",       bg: "bg-red-500/10" },
   "integration.pushed":    { icon: Upload,         label: "Push",        color: "text-cyan-500",      bg: "bg-cyan-500/10" },
@@ -57,6 +59,8 @@ const STATUS_STYLE: Record<string, { icon: typeof Clock; class: string }> = {
   "invoice.restored":       { icon: CheckCircle2, class: "bg-emerald-500/10 text-emerald-600" },
   "invoice.bulk_restored":  { icon: CheckCircle2, class: "bg-emerald-500/10 text-emerald-600" },
   "invoice.updated":        { icon: Edit3,         class: "bg-blue-500/10 text-blue-600" },
+  "invoice.emitted":        { icon: CheckCircle2,  class: "bg-indigo-500/10 text-indigo-600" },
+  "invoice.booked":         { icon: BookMarked,    class: "bg-amber-500/10 text-amber-600" },
   "invoice.cancelled":      { icon: XCircle,       class: "bg-amber-500/10 text-amber-600" },
   "invoice.uncancelled":    { icon: RotateCcw,     class: "bg-orange-500/10 text-orange-600" },
   "integration.connected":  { icon: CheckCircle2, class: "bg-emerald-500/10 text-emerald-600" },
@@ -73,20 +77,74 @@ const RESOURCE_ICONS: Record<string, typeof FileText> = {
   user: LogIn,
 };
 
-const FILTER_ACTIONS = [
-  { id: "all", label: "Todos" },
-  { id: "invoice.created", label: "Subidas" },
-  { id: "invoice.processed", label: "Procesados" },
-  { id: "invoice.exported", label: "Exportados" },
-  { id: "invoice.updated", label: "Editados" },
-  { id: "invoice.deleted", label: "Eliminados" },
-  { id: "invoice.permanent_deleted", label: "Elim. perm." },
-  { id: "invoice.restored", label: "Restaurados" },
-  { id: "invoice.cancelled", label: "Anulados" },
-  { id: "integration.pushed", label: "Pushes" },
-  { id: "integration.connected", label: "Conexiones" },
-  { id: "settings.updated", label: "Config." },
+interface ContextGroup {
+  id: string;
+  label: string;
+  icon: typeof FileText;
+  filters: { id: string; label: string }[];
+}
+
+const CONTEXT_GROUPS: ContextGroup[] = [
+  {
+    id: "all",
+    label: "Todos",
+    icon: FileText,
+    filters: [],
+  },
+  {
+    id: "billing",
+    label: "Facturación",
+    icon: Send,
+    filters: [
+      { id: "invoice.emitted", label: "Emitidos" },
+      { id: "invoice.created", label: "Creados" },
+      { id: "invoice.updated", label: "Editados" },
+      { id: "invoice.cancelled", label: "Anulados" },
+      { id: "invoice.uncancelled", label: "Revocados" },
+      { id: "invoice.restored", label: "Restaurados" },
+      { id: "invoice.deleted", label: "Eliminados" },
+      { id: "invoice.permanent_deleted", label: "Elim. perm." },
+    ],
+  },
+  {
+    id: "accounting",
+    label: "Contabilidad",
+    icon: BookMarked,
+    filters: [
+      { id: "invoice.booked", label: "Contabilizados" },
+      { id: "invoice.processed", label: "Procesados" },
+      { id: "invoice.exported", label: "Exportados" },
+      { id: "export.downloaded", label: "Descargas" },
+    ],
+  },
+  {
+    id: "integrations",
+    label: "Integraciones",
+    icon: Plug,
+    filters: [
+      { id: "integration.connected", label: "Conectadas" },
+      { id: "integration.disconnected", label: "Desconectadas" },
+      { id: "integration.pushed", label: "Pushes" },
+      { id: "webhook.created", label: "Webhooks" },
+      { id: "webhook.deleted", label: "Eliminados" },
+    ],
+  },
+  {
+    id: "system",
+    label: "Sistema",
+    icon: Settings,
+    filters: [
+      { id: "settings.updated", label: "Configuración" },
+      { id: "user.login", label: "Inicios sesión" },
+      { id: "user.logout", label: "Cierres sesión" },
+    ],
+  },
 ];
+
+const CONTEXT_ACTION_MAP: Record<string, string[]> = {};
+for (const group of CONTEXT_GROUPS) {
+  CONTEXT_ACTION_MAP[group.id] = group.filters.map((f) => f.id);
+}
 
 function formatTimeAgo(date: Date): string {
   const diff = Date.now() - date.getTime();
@@ -136,13 +194,15 @@ function countErrors(events: AuditEvent[]): number {
 
 export function HistoryPage() {
   const [search, setSearch] = useState("");
-  const [actionFilter, setActionFilter] = useState("all");
+  const [contextTab, setContextTab] = useState("all");
+  const [specificAction, setSpecificAction] = useState<string | null>(null);
+  const resolvedAction = contextTab === "all" ? null : specificAction;
 
   const { data, isLoading } = useQuery({
-    queryKey: ["history", actionFilter],
+    queryKey: ["history", resolvedAction],
     queryFn: () =>
       listHistory({
-        action: actionFilter === "all" ? undefined : actionFilter,
+        action: resolvedAction ?? undefined,
         limit: 200,
       }),
     refetchInterval: 15_000,
@@ -151,6 +211,12 @@ export function HistoryPage() {
   const events = useMemo(() => {
     if (!data?.events) return [];
     let list = data.events;
+
+    if (contextTab !== "all" && !specificAction) {
+      const allowed = CONTEXT_ACTION_MAP[contextTab] ?? [];
+      list = list.filter((e) => allowed.includes(e.action));
+    }
+
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(
@@ -161,10 +227,17 @@ export function HistoryPage() {
       );
     }
     return list;
-  }, [data, search]);
+  }, [data, search, contextTab, specificAction]);
 
   const grouped = useMemo(() => groupByDate(events), [events]);
   const errors = useMemo(() => countErrors(events), [events]);
+
+  const currentGroup = CONTEXT_GROUPS.find((g) => g.id === contextTab);
+
+  function handleContextChange(id: string) {
+    setContextTab(id);
+    setSpecificAction(null);
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -200,35 +273,84 @@ export function HistoryPage() {
         </div>
       </div>
 
-      {/* Filter bar */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px] max-w-xs">
-          <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Buscar por resumen, usuario o detalle..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="h-7 pl-7 text-xs"
-          />
-        </div>
-        <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-card p-0.5 overflow-x-auto">
-          {FILTER_ACTIONS.map((tab) => (
+      {/* Context tabs */}
+      <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-card p-0.5 self-start overflow-x-auto">
+        {CONTEXT_GROUPS.map((group) => {
+          const GroupIcon = group.icon;
+          return (
             <button
-              key={tab.id}
+              key={group.id}
               type="button"
-              onClick={() => setActionFilter(tab.id)}
+              onClick={() => handleContextChange(group.id)}
               className={cn(
-                "whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                actionFilter === tab.id
+                "flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                contextTab === group.id
                   ? "bg-primary text-primary-foreground shadow-xs"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
-              {tab.label}
+              <GroupIcon className="size-3.5" />
+              {group.label}
             </button>
-          ))}
-        </div>
+          );
+        })}
       </div>
+
+      {/* Sub-filters per context */}
+      {currentGroup && currentGroup.filters.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[200px] max-w-xs">
+            <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por resumen, usuario o detalle..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-7 pl-7 text-xs"
+            />
+          </div>
+          <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-card p-0.5 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setSpecificAction(null)}
+              className={cn(
+                "whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                !specificAction
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Todos
+            </button>
+            {currentGroup.filters.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setSpecificAction(f.id)}
+                className={cn(
+                  "whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                  specificAction === f.id
+                    ? "bg-primary text-primary-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[200px] max-w-xs">
+            <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por resumen, usuario o detalle..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-7 pl-7 text-xs"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Loading */}
       {isLoading ? (

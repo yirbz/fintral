@@ -1730,7 +1730,7 @@ async def dgii_pending_invoices(
             Invoice.transaction_type == "income",
         )
     else:
-        query = query.filter(Invoice.deleted_at.is_(None))
+        query = query.filter(Invoice.is_deleted.is_(False))
         if transaction_type:
             query = query.filter(Invoice.transaction_type == transaction_type)
 
@@ -1813,7 +1813,7 @@ async def dgii_auto_generate(
             Invoice.transaction_type == "income",
         )
     else:
-        query = query.filter(Invoice.deleted_at.is_(None))
+        query = query.filter(Invoice.is_deleted.is_(False))
         if transaction_type:
             query = query.filter(Invoice.transaction_type == transaction_type)
 
@@ -1841,7 +1841,7 @@ async def dgii_auto_generate(
         past_query = ctx.db.query(Invoice).filter(
             Invoice.tenant_id == ctx.tenant_id,
             Invoice.organization_id == ctx.org_id,
-            Invoice.deleted_at.is_(None),
+            Invoice.is_deleted.is_(False),
             Invoice.invoice_date < date_from,
             Invoice.processed.is_(True),
         )
@@ -2035,7 +2035,7 @@ def _compute_pending_summary(ctx: TenantContext) -> dict:
 
         if trans_type:
             query = query.filter(Invoice.transaction_type == trans_type)
-            query = query.filter(Invoice.deleted_at.is_(None))
+            query = query.filter(Invoice.is_deleted.is_(False))
         else:
             # 608: solo anulaciones de comprobantes emitidos (income)
             query = query.filter(

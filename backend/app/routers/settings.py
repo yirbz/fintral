@@ -28,6 +28,8 @@ class OrgUpdate(BaseModel):
     website: Optional[str] = None
     country: Optional[str] = None
     fiscal_address: Optional[str] = None
+    municipality: Optional[str] = None
+    province: Optional[str] = None
 
 
 @router.get("/settings", response_class=HTMLResponse)
@@ -184,6 +186,8 @@ async def get_organization(
         "website": org.website,
         "country": org.country,
         "fiscal_address": org.fiscal_address,
+        "municipality": org.municipality,
+        "province": org.province,
         "created_at": org.created_at.isoformat() if org.created_at else None,
         "updated_at": org.updated_at.isoformat() if org.updated_at else None,
         "member_count": len(members),
@@ -259,6 +263,8 @@ async def update_organization(
     org.website = body.website.strip() if body.website else None
     org.country = body.country or org.country
     org.fiscal_address = body.fiscal_address.strip() if body.fiscal_address else None
+    org.municipality = body.municipality.strip() if body.municipality else None
+    org.province = body.province.strip() if body.province else None
     org.updated_at = utc_now()
     ctx.db.commit()
     ctx.db.refresh(org)
@@ -272,6 +278,8 @@ async def update_organization(
         "website": org.website,
         "country": org.country,
         "fiscal_address": org.fiscal_address,
+        "municipality": org.municipality,
+        "province": org.province,
     }
 
 

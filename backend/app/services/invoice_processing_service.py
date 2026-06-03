@@ -256,7 +256,7 @@ class InvoiceProcessingService:
                         Invoice.tenant_id == tenant_id,
                         Invoice.organization_id == org_id,
                         Invoice.invoice_number == modified_ncf,
-                        Invoice.deleted_at.is_(None),
+                        Invoice.is_deleted.is_(False),
                     )
                     .first()
                 )

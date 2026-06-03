@@ -48,6 +48,19 @@ export interface EcfSequence {
   is_active: boolean;
 }
 
+export interface SequenceAlert {
+  sequence_id: string;
+  ecf_type: number;
+  prefix: string;
+  start_number: number;
+  end_number: number;
+  current_number: number;
+  expiry_date?: string;
+  consumed_pct: number;
+  remaining: number;
+  alerts: ("critical" | "expiring" | "exhausted" | "expired")[];
+}
+
 export interface EcfSequenceCreate {
   ecf_type: number;
   prefix: string;
@@ -83,6 +96,22 @@ export interface BillingInvoice {
   payment_condition?: string;
   payment_status?: string;
   raw_extracted_data?: string; // JSON string with Alanube data
+  original_xml_data?: string;  // Raw e-CF XML content
+  ecf_type?: string;
+  file_type?: string;
+  file_url?: string;
+  processed_url?: string;
+  is_electronic?: boolean;
+  rnc_comprador?: string;
+  line_items?: {
+    line: number;
+    name: string;
+    quantity: number;
+    unit_price: number;
+    discount_rate: number;
+    tax_rate: number;
+    total: number;
+  }[];
   client?: Client;
 }
 
@@ -106,6 +135,72 @@ export interface CertificationError {
   technical_details?: string;
 }
 
+// ── Invoice Types (available ECF types for emission) ──
+
+export interface InvoiceTypeInfo {
+  code: string;
+  ecf_type: number;
+  label: string;
+  description: string;
+  is_available: boolean;
+  has_active_sequence: boolean;
+  sequence_id?: string;
+  sequence_current?: number;
+  sequence_end?: number;
+  requires_certification: boolean;
+  supports_quick_mode: boolean;
+  is_minor_expense: boolean;
+}
+
+export interface PaymentSplit {
+  payment_method: number;   // 1:Cash 2:Check/Transfer 3:Card 4:Credit 6:Swap 7:Credit Note 8:Mixed
+  payment_amount: number;
+}
+
+// ── Unified Emission ──
+
+export interface EmitLineItem {
+  description: string;
+  quantity: number;
+  unit_price: number;
+  discount_rate?: number;
+  tax_rate?: number;
+  good_service_indicator?: number; // 1: Good, 2: Service
+}
+
+export interface EmitRequest {
+  mode: "quick" | "detailed";
+  ecf_type: number;
+  income_type?: string;
+  payment_type: number;    // 1: Contado, 2: Crédito
+  payment_method?: number;  // 1: Efectivo, 2: Cheque/Transf, 3: Tarjeta
+  payment_splits?: PaymentSplit[];
+  items: EmitLineItem[];
+  notes?: string;
+
+  // Quick mode
+  buyer_name?: string;
+  buyer_rnc?: string;
+  buyer_address?: string;
+  buyer_phone?: string;
+  buyer_email?: string;
+
+  // Detailed mode
+  client_id?: string;
+  reference_ecf?: string;
+  reference_date?: string;
+  modification_code?: number; // 1:Total cancellation 2:Text correction 3:Amount 4:Replace NCF
+}
+
+export interface EmitResult {
+  message: string;
+  status: "verified" | "pending" | "draft" | "error";
+  invoice?: BillingInvoice;
+  async_track_id?: string;
+  error_code?: string;
+  error_message?: string;
+}
+
 export async function testAlanubeConnection(data: { api_url: string; jwt_token: string }) {
   return apiFetch<{ ok: boolean; company?: unknown; error?: string }>("/api/billing/alanube/test", {
     method: "POST",
@@ -115,6 +210,16 @@ export async function testAlanubeConnection(data: { api_url: string; jwt_token: 
 }
 
 export const billingApi = {
+  // Invoice Types
+  getInvoiceTypes: () => apiFetch<InvoiceTypeInfo[]>("/api/billing/invoice-types"),
+
+  // Unified Emission
+  emitInvoice: (data: EmitRequest) =>
+    apiFetch<EmitResult>("/api/billing/emit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }),
   // Clients
   getClients: () => apiFetch<Client[]>("/api/billing/clients"),
   createClient: (data: ClientCreate) =>
@@ -171,6 +276,7 @@ export const billingApi = {
     apiFetch<{ status: string }>(`/api/billing/sequences/${id}`, {
       method: "DELETE",
     }),
+  getSequenceAlerts: () => apiFetch<SequenceAlert[]>("/api/billing/sequences/alerts"),
 
   // Invoices
   getInvoices: () => apiFetch<BillingInvoice[]>("/api/billing/invoices"),

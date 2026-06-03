@@ -19,6 +19,8 @@ class Organization(Base):
     website = Column(String, nullable=True)
     country = Column(String(3))  # ISO 3166-1 alpha-3
     fiscal_address = Column(String, nullable=True)
+    municipality = Column(String, nullable=True)
+    province = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     is_ecf_authorized = Column(Boolean, default=False, nullable=False)
     settings_json = Column(Text, default="{}")

@@ -34,8 +34,8 @@ services:
       # ── Infra (topology loaded from local .env) ──
       - ENVIRONMENT=${LOCAL_ENVIRONMENT:-DEVELOPMENT}
       - BACKEND_PORT=${LOCAL_BACKEND_PORT:-8000}
-      - SUPABASE_URL=${LOCAL_SUPABASE_URL}
-      - SUPABASE_STORAGE_BUCKET=${LOCAL_SUPABASE_STORAGE_BUCKET:-invoices}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_STORAGE_BUCKET=${SUPABASE_STORAGE_BUCKET:-invoices}
       - DATABASE_URL=${LOCAL_DATABASE_URL}
       - REDIS_URL=${LOCAL_REDIS_URL}
       # ── Secrets (inherited from Doppler via shell — no default) ──

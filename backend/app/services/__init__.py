@@ -3,6 +3,8 @@ from .invoice_processing_service import InvoiceProcessingService
 from .settings_service import SettingsService
 from .statistics_service import StatisticsService
 from .alanube import AlanubeService
+from .alert_hooks import BaseAlertHook, Alert, AlertManager, alert_manager
+from .dgii_health import check_dgii_health, start_dgii_health_task
 
 __all__ = [
     "InvoiceProcessingService",
@@ -10,5 +12,10 @@ __all__ = [
     "SettingsService",
     "EvolutionService",
     "AlanubeService",
+    "BaseAlertHook",
+    "Alert",
+    "AlertManager",
+    "alert_manager",
+    "check_dgii_health",
+    "start_dgii_health_task",
 ]
-
