@@ -96,6 +96,12 @@ export interface HealthCheck {
   errors_last_hour: number;
 }
 
+export interface DgiiHealthCheck {
+  status: "ok" | "degraded";
+  timestamp: string;
+  checks: Record<string, { status: string; message: string }>;
+}
+
 export const adminApi = {
   getStats: () => apiFetch<AdminStats>("/api/admin/stats"),
 
@@ -214,4 +220,6 @@ export const adminApi = {
   },
 
   getHealth: () => apiFetch<HealthCheck>("/api/admin/health"),
+
+  checkDgiiHealth: () => apiFetch<DgiiHealthCheck>("/api/admin/health/dgii/check"),
 };

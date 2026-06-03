@@ -22,7 +22,14 @@ from app.config import SUPABASE_URL
 from app.core.container import export_service, openai_processor, webhook_sender
 from app.dependencies.tenant import TenantContext, require_tenant
 from app.repositories import InvoiceRepository
-from app.schemas import BulkActionRequest, CancelInvoiceRequest, CreditNoteCreate, ExportRequest, ManualInvoiceCreate, WebhookPushRequest
+from app.schemas import (
+    BulkActionRequest,
+    CancelInvoiceRequest,
+    CreditNoteCreate,
+    ExportRequest,
+    ManualInvoiceCreate,
+    WebhookPushRequest,
+)
 from app.services import InvoiceProcessingService
 from app.services.pipeline.categorizer import DGII_CATEGORY_LABELS, get_dgii_code
 from app.services.pipeline.image_preprocessor import image_preprocessor
@@ -49,7 +56,9 @@ ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff"}
 ALLOWED_PDF_EXTENSIONS = {".pdf"}
 ALLOWED_XML_EXTENSIONS = {".xml"}
 ALLOWED_XLSX_EXTENSIONS = {".xlsx", ".xls"}
-ALLOWED_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | ALLOWED_PDF_EXTENSIONS | ALLOWED_XML_EXTENSIONS | ALLOWED_XLSX_EXTENSIONS
+ALLOWED_EXTENSIONS = (
+    ALLOWED_IMAGE_EXTENSIONS | ALLOWED_PDF_EXTENSIONS | ALLOWED_XML_EXTENSIONS | ALLOWED_XLSX_EXTENSIONS
+)
 
 
 def get_file_type(filename: str) -> str:
@@ -148,10 +157,14 @@ def _invoice_snapshot(invoice: Invoice) -> dict[str, Any]:
         "source_type": invoice.source_type,
         "processed": invoice.processed,
         "confidence_score": invoice.confidence_score,
+        "is_deleted": invoice.is_deleted,
         "deleted_at": invoice.deleted_at.isoformat() if invoice.deleted_at else None,
         "deleted_by": str(invoice.deleted_by) if invoice.deleted_by else None,
         "cancelled_at": invoice.cancelled_at.isoformat() if invoice.cancelled_at else None,
         "cancellation_type": invoice.cancellation_type,
+        "is_electronic": invoice.is_electronic,
+        "ecf_type": invoice.ecf_type,
+        "original_xml_data": invoice.original_xml_data,
     }
 
 
@@ -334,8 +347,14 @@ async def upload_files(
 ):
     from app.services.websocket import websocket_manager
 
-    logger.info("Upload request: %d file(s), org=%s, tenant=%s, category=%s, transaction_type=%s",
-                len(files), ctx.org_id, ctx.tenant_id, category, transaction_type)
+    logger.info(
+        "Upload request: %d file(s), org=%s, tenant=%s, category=%s, transaction_type=%s",
+        len(files),
+        ctx.org_id,
+        ctx.tenant_id,
+        category,
+        transaction_type,
+    )
 
     results: list[dict] = []
 
@@ -357,6 +376,7 @@ async def upload_files(
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             from app.utils.filenames import normalize_filename
+
             clean_filename = normalize_filename(file.filename or "invoice.jpg")
             safe_filename = f"{timestamp}_{clean_filename}"
             file_data = file.file.read()
@@ -388,12 +408,17 @@ async def upload_files(
                     content_type=file.content_type,
                 )
                 if not original_path:
-                    logger.error("Upload failed for %s — storage upload returned None (check Supabase config/permissions)", file.filename)
-                    results.append({
-                        "filename": file.filename,
-                        "success": False,
-                        "error": "Error al subir a storage",
-                    })
+                    logger.error(
+                        "Upload failed for %s — storage upload returned None (check Supabase config/permissions)",
+                        file.filename,
+                    )
+                    results.append(
+                        {
+                            "filename": file.filename,
+                            "success": False,
+                            "error": "Error al subir a storage",
+                        }
+                    )
                     ctx.db.rollback()
                     continue
 
@@ -415,17 +440,19 @@ async def upload_files(
                             "jpg",
                             content_type="image/jpeg",
                         )
-                        invoice.quality_report = json.dumps({
-                            "blur_score": quality.blur_score,
-                            "brightness": quality.brightness,
-                            "contrast": quality.contrast,
-                            "text_density": quality.text_density,
-                            "has_glare": quality.has_glare,
-                            "is_too_dark": quality.is_too_dark,
-                            "is_too_bright": quality.is_too_bright,
-                            "ocr_readiness": quality.readiness_label,
-                            "warnings": quality.warnings,
-                        })
+                        invoice.quality_report = json.dumps(
+                            {
+                                "blur_score": quality.blur_score,
+                                "brightness": quality.brightness,
+                                "contrast": quality.contrast,
+                                "text_density": quality.text_density,
+                                "has_glare": quality.has_glare,
+                                "is_too_dark": quality.is_too_dark,
+                                "is_too_bright": quality.is_too_bright,
+                                "ocr_readiness": quality.readiness_label,
+                                "warnings": quality.warnings,
+                            }
+                        )
                     except Exception as exc:
                         logger.warning("Could not preprocess image at upload: %s", exc)
 
@@ -436,8 +463,14 @@ async def upload_files(
 
             ctx.db.commit()
 
-            logger.info("Invoice created: id=%s, filename=%s, file_type=%s, category=%s, storage_path=%s",
-                        invoice.id, safe_filename, file_type, category, invoice.file_path)
+            logger.info(
+                "Invoice created: id=%s, filename=%s, file_type=%s, category=%s, storage_path=%s",
+                invoice.id,
+                safe_filename,
+                file_type,
+                category,
+                invoice.file_path,
+            )
 
             results.append(
                 {
@@ -449,8 +482,10 @@ async def upload_files(
             )
 
             await websocket_manager.notify_new_invoice_upload(
-                str(invoice.id), file.filename,
-                org_id=str(ctx.org_id), tenant_id=str(ctx.tenant_id),
+                str(invoice.id),
+                file.filename,
+                org_id=str(ctx.org_id),
+                tenant_id=str(ctx.tenant_id),
             )
 
             record(
@@ -459,7 +494,7 @@ async def upload_files(
                 organization_id=ctx.org_id,
                 organization_name=ctx.organization.name,
                 actor_id=str(ctx.user.id),
-                actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+                actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
                 actor_email=ctx.user.email,
                 action="invoice.uploaded",
                 resource_type="invoice",
@@ -474,7 +509,6 @@ async def upload_files(
     return {"results": results}
 
 
-
 @router.post("/process/{invoice_id}")
 async def process_invoice(
     invoice_id: str,
@@ -486,7 +520,11 @@ async def process_invoice(
             raise HTTPException(status_code=404, detail="Factura no encontrada")
 
         result = await processing_service.process_invoice_record(
-            ctx.db, invoice, ctx.tenant_id, ctx.org_id, user_id=ctx.user.id,
+            ctx.db,
+            invoice,
+            ctx.tenant_id,
+            ctx.org_id,
+            user_id=ctx.user.id,
         )
 
         if result["status"] == "already_processed":
@@ -514,7 +552,7 @@ async def process_invoice(
             organization_id=ctx.org_id,
             organization_name=ctx.organization.name,
             actor_id=str(ctx.user.id),
-            actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+            actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
             actor_email=ctx.user.email,
             action="invoice.processed",
             resource_type="invoice",
@@ -581,12 +619,16 @@ async def get_invoices(
 async def pending_invoice_count(
     ctx: TenantContext = Depends(require_tenant),
 ):
-    count = ctx.db.query(Invoice).filter(
-        Invoice.tenant_id == ctx.tenant_id,
-        Invoice.organization_id == ctx.org_id,
-        Invoice.processed.is_(False),
-        Invoice.deleted_at.is_(None),
-    ).count()
+    count = (
+        ctx.db.query(Invoice)
+        .filter(
+            Invoice.tenant_id == ctx.tenant_id,
+            Invoice.organization_id == ctx.org_id,
+            Invoice.processed.is_(False),
+            Invoice.is_deleted.is_(False),
+        )
+        .count()
+    )
     return {"count": count}
 
 
@@ -633,6 +675,7 @@ async def get_optimized_image(
         raise HTTPException(status_code=400, detail="La factura no es una imagen")
 
     from app.services.supabase_storage import optimize_image_from_storage
+
     target_path = resolve_invoice_path(invoice, variant="processed" if processed else "original")
     if not target_path:
         target_path = resolve_invoice_path(invoice, variant="original")
@@ -644,33 +687,51 @@ async def get_optimized_image(
     return {"optimized_image": optimized_data}
 
 
-FISCAL_CORE_FIELDS = frozenset({
-    "vendor_name", "invoice_number", "invoice_date",
-    "total_amount", "tax_amount", "currency",
-    "transaction_type", "vendor_country", "vendor_tax_id",
-    "vendor_fiscal_address", "goods_services_type",
-    "rnc_comprador", "ecf_type",
-})
+FISCAL_CORE_FIELDS = frozenset(
+    {
+        "vendor_name",
+        "invoice_number",
+        "invoice_date",
+        "total_amount",
+        "tax_amount",
+        "currency",
+        "transaction_type",
+        "vendor_country",
+        "vendor_tax_id",
+        "vendor_fiscal_address",
+        "goods_services_type",
+        "rnc_comprador",
+        "ecf_type",
+    }
+)
 
-OPERATIONAL_METADATA_FIELDS = frozenset({
-    "category", "description",
-    "accounting_account_id", "cost_center_id",
-    "tags", "internal_notes", "payment_status",
-    "payment_condition", "due_date", "payment_date",
-    "bank_account_id",
-})
+OPERATIONAL_METADATA_FIELDS = frozenset(
+    {
+        "category",
+        "description",
+        "accounting_account_id",
+        "cost_center_id",
+        "tags",
+        "internal_notes",
+        "payment_status",
+        "payment_condition",
+        "due_date",
+        "payment_date",
+        "bank_account_id",
+    }
+)
 
 
 def revalidate_invoice(invoice: Invoice, db: Session, org_rnc: Optional[str] = None) -> list[str]:
     from app.services.pipeline.validator import post_extraction_validator
-    
+
     # Infer electronic status and ecf_type from invoice number if not already set
     ncf_clean = (invoice.invoice_number or "").strip().upper()
     is_ecf = len(ncf_clean) == 13 and ncf_clean.startswith("E")
-    
+
     if len(ncf_clean) >= 3 and ncf_clean[1:3].isdigit():
         invoice.ecf_type = ncf_clean[1:3]
-    
+
     invoice.is_electronic = is_ecf
 
     ncf_modified = None
@@ -705,7 +766,7 @@ def revalidate_invoice(invoice: Invoice, db: Session, org_rnc: Optional[str] = N
 
     # Run validation
     validated = post_extraction_validator.validate(data, org_rnc=org_rnc)
-    
+
     # Auto-link parent invoice
     ncf_code = ncf_clean[1:3] if (ncf_clean and len(ncf_clean) >= 3 and ncf_clean[1:3].isdigit()) else None
     if invoice.ecf_type in ("33", "34") or ncf_code in ("03", "04"):
@@ -716,7 +777,7 @@ def revalidate_invoice(invoice: Invoice, db: Session, org_rnc: Optional[str] = N
                     Invoice.tenant_id == invoice.tenant_id,
                     Invoice.organization_id == invoice.organization_id,
                     Invoice.invoice_number == ncf_modified,
-                    Invoice.deleted_at.is_(None),
+                    Invoice.is_deleted.is_(False),
                 )
                 .first()
             )
@@ -745,12 +806,12 @@ async def update_invoice(
     # Guard Clause of Inmutabilidad for e-CF
     is_locked = invoice.is_electronic or invoice.status == "verified"
     attempted_fiscal = FISCAL_CORE_FIELDS & invoice_data.keys()
-    
+
     if is_locked and attempted_fiscal:
         detail_msg = (
             "Esta factura electrónica (e-CF) es inmutable y no se pueden modificar sus datos fiscales ({})."
-            if invoice.is_electronic else
-            "Esta factura ya está verificada y no se pueden modificar sus datos fiscales ({})."
+            if invoice.is_electronic
+            else "Esta factura ya está verificada y no se pueden modificar sus datos fiscales ({})."
         ).format(", ".join(sorted(attempted_fiscal)))
         raise HTTPException(
             status_code=403,
@@ -799,6 +860,7 @@ async def update_invoice(
         if val:
             try:
                 from uuid import UUID
+
                 invoice.bank_account_id = UUID(str(val))
             except Exception:
                 pass
@@ -836,10 +898,14 @@ async def update_invoice(
     # ACID: bank balance mutation lives in the same transaction as the invoice state
     was_unpaid = before.get("payment_status") != "paid"
     if was_unpaid and invoice.payment_status == "paid" and invoice.bank_account_id:
-        bank_acct = ctx.db.query(BankAccount).filter(
-            BankAccount.id == invoice.bank_account_id,
-            BankAccount.organization_id == ctx.org_id,
-        ).first()
+        bank_acct = (
+            ctx.db.query(BankAccount)
+            .filter(
+                BankAccount.id == invoice.bank_account_id,
+                BankAccount.organization_id == ctx.org_id,
+            )
+            .first()
+        )
         if not bank_acct:
             raise HTTPException(
                 status_code=422,
@@ -872,7 +938,9 @@ async def update_invoice(
     if "category" in invoice_data and invoice.vendor_tax_id:
         clean_rnc = re.sub(r"[^0-9]", "", invoice.vendor_tax_id)
         if clean_rnc:
-            dgii_code = invoice_data.get("goods_services_type") or get_dgii_code(invoice.category, invoice.transaction_type)
+            dgii_code = invoice_data.get("goods_services_type") or get_dgii_code(
+                invoice.category, invoice.transaction_type
+            )
             if dgii_code and dgii_code in DGII_CATEGORY_LABELS:
                 existing = (
                     ctx.db.query(TenantVendorRule)
@@ -907,7 +975,7 @@ async def update_invoice(
         organization_id=ctx.org_id,
         organization_name=ctx.organization.name,
         actor_id=str(ctx.user.id),
-        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
         action="invoice.updated",
         resource_type="invoice",
@@ -922,7 +990,6 @@ async def update_invoice(
     return invoice.to_dict()
 
 
-
 @router.post("/invoices/{invoice_id}/verify")
 async def verify_invoice(
     invoice_id: str,
@@ -933,7 +1000,9 @@ async def verify_invoice(
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
     if invoice.is_electronic:
-        raise HTTPException(status_code=400, detail="Las facturas electrónicas se verifican automáticamente al procesarse")
+        raise HTTPException(
+            status_code=400, detail="Las facturas electrónicas se verifican automáticamente al procesarse"
+        )
     if invoice.status == "verified":
         return {"message": "La factura ya estaba verificada", "invoice": invoice.to_dict()}
 
@@ -950,7 +1019,7 @@ async def verify_invoice(
         organization_id=ctx.org_id,
         organization_name=ctx.organization.name,
         actor_id=str(ctx.user.id),
-        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
         action="invoice.verified",
         resource_type="invoice",
@@ -963,7 +1032,6 @@ async def verify_invoice(
 
     invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
     return {"message": "Factura verificada exitosamente", "invoice": invoice.to_dict()}
-
 
 
 @router.post("/invoices/{invoice_id}/credit-note")
@@ -1011,7 +1079,7 @@ async def create_credit_note(
         organization_id=ctx.org_id,
         organization_name=ctx.organization.name,
         actor_id=str(ctx.user.id),
-        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
         action="credit_note.created",
         resource_type="invoice",
@@ -1059,9 +1127,7 @@ async def create_manual_invoice(
 
     line_items_data = None
     if payload.line_items:
-        line_items_data = json.dumps(
-            [item.model_dump() for item in payload.line_items]
-        )
+        line_items_data = json.dumps([item.model_dump() for item in payload.line_items])
 
     raw_data: dict[str, object] = {}
     if payload.payment_method:
@@ -1099,13 +1165,12 @@ async def create_manual_invoice(
         payment_status=payment_status,
         bank_account_id=payload.bank_account_id,
     )
-    
+
     # Run validation and save audit_flags
     warnings = revalidate_invoice(invoice, ctx.db, org_rnc=ctx.organization.tax_id)
     invoice.audit_flags = json.dumps(warnings, ensure_ascii=False)
 
     invoice_repo.create(ctx.db, invoice)
-
 
     record(
         db=ctx.db,
@@ -1113,7 +1178,7 @@ async def create_manual_invoice(
         organization_id=ctx.org_id,
         organization_name=ctx.organization.name,
         actor_id=str(ctx.user.id),
-        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
         action="invoice.created",
         resource_type="invoice",
@@ -1135,6 +1200,7 @@ async def delete_invoice(
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
+    invoice.is_deleted = True
     invoice.deleted_at = datetime.utcnow()
     invoice.deleted_by = ctx.user.id
     ctx.db.commit()
@@ -1145,7 +1211,7 @@ async def delete_invoice(
         organization_id=ctx.org_id,
         organization_name=ctx.organization.name,
         actor_id=str(ctx.user.id),
-        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
         action="invoice.deleted",
         resource_type="invoice",
@@ -1171,6 +1237,7 @@ async def bulk_delete_invoices(
     now = datetime.utcnow()
     count = 0
     for invoice in invoices:
+        invoice.is_deleted = True
         invoice.deleted_at = now
         invoice.deleted_by = ctx.user.id
         count += 1
@@ -1183,7 +1250,7 @@ async def bulk_delete_invoices(
         organization_id=ctx.org_id,
         organization_name=ctx.organization.name,
         actor_id=str(ctx.user.id),
-        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
         action="invoice.deleted",
         resource_type="invoice",
@@ -1204,7 +1271,11 @@ async def bulk_process_invoices(
 
     invoices = invoice_repo.list_pending_by_ids(ctx.db, action.invoice_ids, ctx.tenant_id, ctx.org_id)
     success_count, errors = await processing_service.bulk_process(
-        ctx.db, invoices, ctx.tenant_id, ctx.org_id, user_id=ctx.user.id,
+        ctx.db,
+        invoices,
+        ctx.tenant_id,
+        ctx.org_id,
+        user_id=ctx.user.id,
     )
 
     invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
@@ -1223,9 +1294,12 @@ async def restore_invoice(
     invoice = invoice_repo.get_including_trashed(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
-    if not invoice.deleted_at:
+    if not invoice.is_deleted:
         raise HTTPException(status_code=400, detail="La factura no está en la papelera")
+    if invoice.status == "permanently_deleted":
+        raise HTTPException(status_code=400, detail="La factura fue eliminada permanentemente y no puede restaurarse")
 
+    invoice.is_deleted = False
     invoice.deleted_at = None
     invoice.deleted_by = None
     ctx.db.commit()
@@ -1237,7 +1311,7 @@ async def restore_invoice(
         organization_id=ctx.org_id,
         organization_name=ctx.organization.name,
         actor_id=str(ctx.user.id),
-        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
         action="invoice.restored",
         resource_type="invoice",
@@ -1262,7 +1336,7 @@ async def permanent_delete_invoice(
             organization_id=ctx.org_id,
             organization_name=ctx.organization.name,
             actor_id=str(ctx.user.id),
-            actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+            actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
             actor_email=ctx.user.email,
             action="invoice.permanent_deleted",
             resource_type="invoice",
@@ -1272,50 +1346,62 @@ async def permanent_delete_invoice(
         )
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
-    logger.info("Permanent delete requested: id=%s, filename=%s, file_path=%s, processed_path=%s",
-                invoice_id, invoice.filename, invoice.file_path, invoice.processed_path)
+    logger.info(
+        "Permanent delete requested: id=%s, filename=%s, file_path=%s, processed_path=%s",
+        invoice_id,
+        invoice.filename,
+        invoice.file_path,
+        invoice.processed_path,
+    )
 
-    storage_ok = True
-    if invoice.file_path and INVOICES_PREFIX in invoice.file_path:
-        logger.info("Deleting storage folder for invoice %s (tenant=%s, org=%s)",
-                    invoice.id, ctx.tenant_id, ctx.org_id)
-        if not delete_invoice_folder(ctx.tenant_id, ctx.org_id, invoice.id):
-            logger.error("Storage folder deletion FAILED for invoice %s", invoice.id)
-            storage_ok = False
-    elif invoice.file_path:
-        logger.info("Deleting individual storage file: %s", invoice.file_path)
-        if not supabase_delete(invoice.file_path):
-            logger.error("File deletion FAILED: %s", invoice.file_path)
-            storage_ok = False
-        if invoice.processed_path:
-            logger.info("Deleting processed file: %s", invoice.processed_path)
-            if not supabase_delete(invoice.processed_path):
-                logger.error("Processed file deletion FAILED: %s", invoice.processed_path)
-                storage_ok = False
-
-    if not storage_ok and (invoice.file_path or invoice.processed_path):
-        logger.error("Aborting permanent delete for invoice %s — storage cleanup failed", invoice_id)
-        raise HTTPException(status_code=500, detail="Error al eliminar archivos del storage")
+    # Preserve storage for emitted e-CFs per DGII regulations (Ley 32-23, Código Tributario).
+    # The signed XML must be retained for minimum 10 years even if the DB record is removed.
+    has_emitted_ecf = invoice.is_electronic and bool(invoice.original_xml_data)
 
     snapshot = _invoice_snapshot(invoice)
+
+    # Clean up storage files (best-effort) — DB record is never deleted per DGII 10-year retention.
+    if not has_emitted_ecf:
+        try:
+            if invoice.file_path and INVOICES_PREFIX in invoice.file_path:
+                logger.info(
+                    "Deleting storage folder for invoice %s (tenant=%s, org=%s)", invoice.id, ctx.tenant_id, ctx.org_id
+                )
+                if not delete_invoice_folder(ctx.tenant_id, ctx.org_id, invoice.id):
+                    logger.warning("Storage folder deletion FAILED for invoice %s", invoice.id)
+            elif invoice.file_path:
+                logger.info("Deleting individual storage file: %s", invoice.file_path)
+                if not supabase_delete(invoice.file_path):
+                    logger.warning("File deletion FAILED: %s", invoice.file_path)
+                if invoice.processed_path and not supabase_delete(invoice.processed_path):
+                    logger.warning("Processed file deletion FAILED: %s", invoice.processed_path)
+        except Exception:
+            logger.exception("Storage cleanup error for invoice %s (non-fatal)", invoice.id)
+
+    invoice.status = "permanently_deleted"
+    ctx.db.commit()
+
+    summary = f"Factura '{invoice.invoice_number}' marcada como eliminada permanentemente (registro preservado)"
+    if has_emitted_ecf:
+        summary += " — XML preservado para cumplimiento DGII"
     record(
         db=ctx.db,
         tenant_id=ctx.tenant_id,
         organization_id=ctx.org_id,
         organization_name=ctx.organization.name,
         actor_id=str(ctx.user.id),
-        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
         action="invoice.permanent_deleted",
         resource_type="invoice",
         resource_id=str(invoice_id),
-        summary=f"Factura '{invoice.invoice_number}' eliminada permanentemente",
+        summary=summary,
         details=f"Proveedor: {invoice.vendor_name}, Total: {invoice.total_amount} {invoice.currency or ''}",
         snapshot_before=snapshot,
     )
-    invoice_repo.hard_delete(ctx.db, invoice)
-    logger.info("Invoice permanently deleted: id=%s, filename=%s", invoice_id, invoice.filename)
-    return {"message": "Factura eliminada permanentemente"}
+    invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
+    logger.info("Invoice marked as permanently deleted (record kept): id=%s, filename=%s", invoice_id, invoice.filename)
+    return {"message": "Factura marcada como eliminada. El registro se conserva en BD para cumplimiento DGII."}
 
 
 @router.post("/invoices/{invoice_id}/cancel")
@@ -1342,7 +1428,7 @@ async def cancel_invoice(
         organization_id=ctx.org_id,
         organization_name=ctx.organization.name,
         actor_id=str(ctx.user.id),
-        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
         action="invoice.cancelled",
         resource_type="invoice",
@@ -1386,7 +1472,7 @@ async def uncancel_invoice(
         organization_id=ctx.org_id,
         organization_name=ctx.organization.name,
         actor_id=str(ctx.user.id),
-        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
         action="invoice.uncancelled",
         resource_type="invoice",
@@ -1425,7 +1511,7 @@ async def bulk_cancel_invoices(
         organization_id=ctx.org_id,
         organization_name=ctx.organization.name,
         actor_id=str(ctx.user.id),
-        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
         action="invoice.bulk_cancelled",
         resource_type="invoice",
@@ -1449,13 +1535,15 @@ async def bulk_restore_invoices(
             Invoice.id.in_(action.invoice_ids),
             Invoice.tenant_id == ctx.tenant_id,
             Invoice.organization_id == ctx.org_id,
-            Invoice.deleted_at.isnot(None),
+            Invoice.is_deleted.is_(True),
+            Invoice.status != "permanently_deleted",
         )
         .all()
     )
 
     count = 0
     for invoice in invoices:
+        invoice.is_deleted = False
         invoice.deleted_at = None
         invoice.deleted_by = None
         count += 1
@@ -1468,7 +1556,7 @@ async def bulk_restore_invoices(
         organization_id=ctx.org_id,
         organization_name=ctx.organization.name,
         actor_id=str(ctx.user.id),
-        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
         action="invoice.bulk_restored",
         resource_type="invoice",
@@ -1492,62 +1580,68 @@ async def bulk_permanent_delete_invoices(
             Invoice.id.in_(action.invoice_ids),
             Invoice.tenant_id == ctx.tenant_id,
             Invoice.organization_id == ctx.org_id,
-            Invoice.deleted_at.isnot(None),
+            Invoice.is_deleted.is_(True),
         )
         .all()
     )
 
     snapshots = {str(inv.id): _invoice_snapshot(inv) for inv in invoices}
 
-    errors: list[str] = []
+    preserved_ecf_count = 0
     for invoice in invoices:
-        storage_ok = True
-        if invoice.file_path and INVOICES_PREFIX in invoice.file_path:
-            if not delete_invoice_folder(ctx.tenant_id, ctx.org_id, invoice.id):
-                logger.error("Error deleting storage folder for invoice %s", invoice.id)
-                storage_ok = False
-        elif invoice.file_path:
-            if not supabase_delete(invoice.file_path):
-                logger.error("Error deleting file for invoice %s: %s", invoice.id, invoice.file_path)
-                storage_ok = False
-            if invoice.processed_path and not supabase_delete(invoice.processed_path):
-                logger.error("Error deleting processed file for invoice %s: %s", invoice.id, invoice.processed_path)
-                storage_ok = False
+        has_emitted_ecf = invoice.is_electronic and bool(invoice.original_xml_data)
+        if has_emitted_ecf:
+            preserved_ecf_count += 1
+            continue
+        # Best-effort storage cleanup — never delete DB records
+        try:
+            if invoice.file_path and INVOICES_PREFIX in invoice.file_path:
+                logger.info(
+                    "Deleting storage folder for invoice %s (tenant=%s, org=%s)", invoice.id, ctx.tenant_id, ctx.org_id
+                )
+                if not delete_invoice_folder(ctx.tenant_id, ctx.org_id, invoice.id):
+                    logger.warning("Storage folder deletion FAILED for invoice %s", invoice.id)
+            elif invoice.file_path:
+                if not supabase_delete(invoice.file_path):
+                    logger.warning("File deletion FAILED: %s", invoice.file_path)
+                if invoice.processed_path and not supabase_delete(invoice.processed_path):
+                    logger.warning("Processed file deletion FAILED: %s", invoice.processed_path)
+        except Exception:
+            logger.exception("Storage cleanup error for invoice %s (non-fatal)", invoice.id)
 
-        if storage_ok:
-            ctx.db.delete(invoice)
-        else:
-            errors.append(str(invoice.id))
-
+    for invoice in invoices:
+        invoice.status = "permanently_deleted"
     ctx.db.commit()
 
-    deleted_ids = [str(inv.id) for inv in invoices if str(inv.id) not in errors]
     pending = len(action.invoice_ids) - len(invoices) if len(action.invoice_ids) > 0 else 0
+    summary = f"{len(invoices)} factura(s) marcada(s) como eliminadas permanentemente (registros preservados)"
+    if preserved_ecf_count:
+        summary += f" — XML de {preserved_ecf_count} e-CF(s) preservado para cumplimiento DGII"
+    if pending:
+        summary += f", {pending} no encontrada(s) en BD"
     record(
         db=ctx.db,
         tenant_id=ctx.tenant_id,
         organization_id=ctx.org_id,
         organization_name=ctx.organization.name,
         actor_id=str(ctx.user.id),
-        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
         action="invoice.bulk_permanent_deleted",
         resource_type="invoice",
-        summary=f"{len(deleted_ids)} factura(s) eliminada(s) permanentemente"
-        + (f", {pending} no encontrada(s) en BD" if pending else ""),
-        snapshot_before=[snapshots[i] for i in deleted_ids if i in snapshots],
+        summary=summary,
+        snapshot_before=[snapshots[i] for i in snapshots],
     )
 
-    deleted_count = len(invoices) - len(errors)
-    if errors:
-        logger.warning("Storage deletion failed for %d invoice(s), DB records preserved", len(errors))
-        return {
-            "message": f"{deleted_count} factura(s) eliminada(s), {len(errors)} no se pudieron eliminar (error de storage)",
-            "count": deleted_count,
-            "errors": errors,
-        }
+    invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
 
-    return {"message": "Facturas eliminadas permanentemente", "count": deleted_count}
+    preserved_msg = (
+        f" — XML de {preserved_ecf_count} e-CF(s) preservado para cumplimiento DGII" if preserved_ecf_count else ""
+    )
+    return {
+        "message": f"{len(invoices)} factura(s) marcada(s) como eliminada(s). Los registros se conservan en BD para cumplimiento DGII.{preserved_msg}",
+        "count": len(invoices),
+    }
 
 
 @router.post("/api/invoices/export")
@@ -1610,7 +1704,7 @@ async def export_invoices(
             organization_id=ctx.org_id,
             organization_name=ctx.organization.name,
             actor_id=str(ctx.user.id),
-            actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+            actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
             actor_email=ctx.user.email,
             action="invoice.exported",
             resource_type="invoice",
@@ -1657,7 +1751,11 @@ async def push_invoices_webhook(
         "invoices": [inv.to_dict() for inv in invoices],
     }
     result = webhook_sender.trigger_event(
-        ctx.db, payload.event, data, tenant_id=ctx.tenant_id, org_id=ctx.org_id,
+        ctx.db,
+        payload.event,
+        data,
+        tenant_id=ctx.tenant_id,
+        org_id=ctx.org_id,
     )
     return {"status": "sent", "result": result}
 
@@ -1693,7 +1791,7 @@ async def export_invoices_csv(
         organization_id=ctx.org_id,
         organization_name=ctx.organization.name,
         actor_id=str(ctx.user.id),
-        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
         action="export.downloaded",
         resource_type="invoice",
@@ -1781,7 +1879,11 @@ async def export_invoices_csv(
                 invoice.total_amount or "",
                 invoice.tax_amount or "",
                 invoice.currency or "",
-                "Ingreso" if invoice.transaction_type == "income" else "Gasto" if invoice.transaction_type == "expense" else "",
+                "Ingreso"
+                if invoice.transaction_type == "income"
+                else "Gasto"
+                if invoice.transaction_type == "expense"
+                else "",
                 invoice.category or "",
                 invoice.description or "",
                 "Sí" if invoice.processed else "No",
@@ -1808,6 +1910,7 @@ async def export_invoices_csv(
 # ---------------------------------------------------------------------------
 # Vendor Categorization Rules (Feedback Loop)
 # ---------------------------------------------------------------------------
+
 
 class VendorRulePayload(BaseModel):
     emisor_rnc: str
@@ -1851,10 +1954,11 @@ async def upsert_vendor_rule(
         raise HTTPException(
             status_code=400,
             detail=f"Código de categoría inválido: {payload.dgii_category_code}. "
-                   f"Valores válidos: {', '.join(sorted(DGII_CATEGORY_LABELS))}",
+            f"Valores válidos: {', '.join(sorted(DGII_CATEGORY_LABELS))}",
         )
 
     from re import sub as _sub
+
     clean_rnc = _sub(r"[^0-9]", "", payload.emisor_rnc)
 
     existing = (
@@ -1909,12 +2013,7 @@ async def delete_vendor_rule(
 
 @router.get("/api/dgii-categories")
 async def list_dgii_categories():
-    return {
-        "categories": [
-            {"code": k, "label": v}
-            for k, v in sorted(DGII_CATEGORY_LABELS.items())
-        ]
-    }
+    return {"categories": [{"code": k, "label": v} for k, v in sorted(DGII_CATEGORY_LABELS.items())]}
 
 
 @router.get("/invoices/template")
@@ -1949,8 +2048,9 @@ async def mark_invoice_as_paid(
 
     # Set status to paid and determine payment date
     invoice.payment_status = "paid"
-    
+
     from app.utils.dates import utc_now
+
     p_date = utc_now()
     if payload and payload.payment_date:
         try:
@@ -1963,6 +2063,7 @@ async def mark_invoice_as_paid(
     if payload and payload.bank_account_id:
         invoice.bank_account_id = payload.bank_account_id
         from app.models import BankAccount
+
         bank_acc = (
             ctx.db.query(BankAccount)
             .filter(
@@ -1985,14 +2086,17 @@ async def mark_invoice_as_paid(
 
     # Audit log
     before = {"payment_status": "pending", "payment_date": None}
-    after = {"payment_status": "paid", "payment_date": invoice.payment_date.isoformat() if invoice.payment_date else None}
+    after = {
+        "payment_status": "paid",
+        "payment_date": invoice.payment_date.isoformat() if invoice.payment_date else None,
+    }
     record(
         db=ctx.db,
         tenant_id=ctx.tenant_id,
         organization_id=ctx.org_id,
         organization_name=ctx.organization.name,
         actor_id=str(ctx.user.id),
-        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None),
+        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
         action="invoice.marked_paid",
         resource_type="invoice",
@@ -2008,6 +2112,7 @@ async def mark_invoice_as_paid(
 
 def _get_bank_balances(db: Session, tenant_id: UUID, org_id: UUID) -> list[dict]:
     from app.models import BankAccount
+
     accounts = (
         db.query(BankAccount)
         .filter(
@@ -2046,6 +2151,7 @@ async def get_cxp_summary(
     ctx: TenantContext = Depends(require_tenant),
 ):
     from app.utils.dates import utc_now
+
     now = utc_now()
     start_of_today = datetime.combine(now.date(), datetime.min.time())
     one_week_from_now = start_of_today + timedelta(days=7)
@@ -2060,22 +2166,20 @@ async def get_cxp_summary(
             Invoice.transaction_type == "expense",
             Invoice.payment_condition == "credito",
             Invoice.payment_status != "paid",
-            Invoice.deleted_at.is_(None),
+            Invoice.is_deleted.is_(False),
         )
         .all()
     )
 
     total_outstanding = sum(inv.total_amount or 0.0 for inv in outstanding_invoices)
-    
+
     total_overdue = sum(
-        inv.total_amount or 0.0 
-        for inv in outstanding_invoices 
-        if inv.due_date and inv.due_date.date() < now.date()
+        inv.total_amount or 0.0 for inv in outstanding_invoices if inv.due_date and inv.due_date.date() < now.date()
     )
 
     weekly_commitments = sum(
-        inv.total_amount or 0.0 
-        for inv in outstanding_invoices 
+        inv.total_amount or 0.0
+        for inv in outstanding_invoices
         if inv.due_date and start_of_today.date() <= inv.due_date.date() <= one_week_from_now.date()
     )
 
@@ -2097,6 +2201,7 @@ async def get_cxc_summary(
     ctx: TenantContext = Depends(require_tenant),
 ):
     from app.utils.dates import utc_now
+
     now = utc_now()
     start_of_today = datetime.combine(now.date(), datetime.min.time())
     one_week_from_now = start_of_today + timedelta(days=7)
@@ -2111,22 +2216,20 @@ async def get_cxc_summary(
             Invoice.transaction_type == "income",
             Invoice.payment_condition == "credito",
             Invoice.payment_status != "paid",
-            Invoice.deleted_at.is_(None),
+            Invoice.is_deleted.is_(False),
         )
         .all()
     )
 
     total_outstanding = sum(inv.total_amount or 0.0 for inv in outstanding_invoices)
-    
+
     total_overdue = sum(
-        inv.total_amount or 0.0 
-        for inv in outstanding_invoices 
-        if inv.due_date and inv.due_date.date() < now.date()
+        inv.total_amount or 0.0 for inv in outstanding_invoices if inv.due_date and inv.due_date.date() < now.date()
     )
 
     weekly_receivables = sum(
-        inv.total_amount or 0.0 
-        for inv in outstanding_invoices 
+        inv.total_amount or 0.0
+        for inv in outstanding_invoices
         if inv.due_date and start_of_today.date() <= inv.due_date.date() <= one_week_from_now.date()
     )
 

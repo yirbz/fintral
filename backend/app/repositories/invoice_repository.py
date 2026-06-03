@@ -16,7 +16,7 @@ class InvoiceRepository:
                 Invoice.id == invoice_id,
                 Invoice.tenant_id == tenant_id,
                 Invoice.organization_id == org_id,
-                Invoice.deleted_at.is_(None),
+                Invoice.is_deleted.is_(False),
             )
             .first()
         )
@@ -39,7 +39,7 @@ class InvoiceRepository:
                 Invoice.id == invoice_id,
                 Invoice.tenant_id == tenant_id,
                 Invoice.organization_id == org_id,
-                Invoice.deleted_at.is_(None),
+                Invoice.is_deleted.is_(False),
             )
             .first()
         )
@@ -62,7 +62,7 @@ class InvoiceRepository:
         query = db.query(Invoice).filter(
             Invoice.tenant_id == tenant_id,
             Invoice.organization_id == org_id,
-            Invoice.deleted_at.is_(None),
+            Invoice.is_deleted.is_(False),
         )
 
         if transaction_type:
@@ -95,20 +95,18 @@ class InvoiceRepository:
                 Invoice.audit_flags != "null",
                 or_(
                     Invoice.raw_extracted_data.is_(None),
-                    not_(Invoice.raw_extracted_data.like('%"warnings_reviewed": true%'))
-                )
+                    not_(Invoice.raw_extracted_data.like('%"warnings_reviewed": true%')),
+                ),
             )
         elif quality == "has_duplicates":
-            query = query.filter(
-                Invoice.audit_flags.ilike("%COMPROBANTE DUPLICADO%")
-            )
+            query = query.filter(Invoice.audit_flags.ilike("%COMPROBANTE DUPLICADO%"))
         elif quality == "no_ncf":
             query = query.filter(
                 Invoice.processed.is_(True),
                 or_(
                     Invoice.invoice_number.is_(None),
                     Invoice.invoice_number == "",
-                )
+                ),
             )
         elif quality == "low_confidence":
             query = query.filter(
@@ -138,7 +136,7 @@ class InvoiceRepository:
                 Invoice.id.in_(invoice_ids),
                 Invoice.tenant_id == tenant_id,
                 Invoice.organization_id == org_id,
-                Invoice.deleted_at.is_(None),
+                Invoice.is_deleted.is_(False),
             )
             .all()
         )
@@ -150,7 +148,7 @@ class InvoiceRepository:
                 Invoice.id.in_(invoice_ids),
                 Invoice.tenant_id == tenant_id,
                 Invoice.organization_id == org_id,
-                Invoice.deleted_at.is_(None),
+                Invoice.is_deleted.is_(False),
                 Invoice.processed.is_(False),
             )
             .all()
@@ -180,7 +178,7 @@ class InvoiceRepository:
                 Invoice.processed.is_(True),
                 Invoice.tenant_id == tenant_id,
                 Invoice.organization_id == org_id,
-                Invoice.deleted_at.is_(None),
+                Invoice.is_deleted.is_(False),
             )
             .first()
         )
@@ -206,7 +204,7 @@ class InvoiceRepository:
                 Invoice.id != exclude_invoice_id,
                 Invoice.tenant_id == tenant_id,
                 Invoice.organization_id == org_id,
-                Invoice.deleted_at.is_(None),
+                Invoice.is_deleted.is_(False),
             )
             .first()
         )
@@ -218,7 +216,7 @@ class InvoiceRepository:
                 Invoice.category.isnot(None),
                 Invoice.tenant_id == tenant_id,
                 Invoice.organization_id == org_id,
-                Invoice.deleted_at.is_(None),
+                Invoice.is_deleted.is_(False),
             )
             .distinct()
             .all()
@@ -236,7 +234,8 @@ class InvoiceRepository:
         query = db.query(Invoice).filter(
             Invoice.tenant_id == tenant_id,
             Invoice.organization_id == org_id,
-            Invoice.deleted_at.isnot(None),
+            Invoice.is_deleted.is_(True),
+            Invoice.status != "permanently_deleted",
         )
         total = query.count()
         invoices = query.order_by(desc(Invoice.deleted_at)).offset(skip).limit(limit).all()
@@ -251,23 +250,23 @@ class InvoiceRepository:
         db: Session,
         tenant_id: UUID,
         org_id: UUID,
-        transaction_type: Optional[str] = None,   # 'expense' | 'income'
+        transaction_type: Optional[str] = None,  # 'expense' | 'income'
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
         categories: Optional[List[str]] = None,
-        goods_types: Optional[List[str]] = None,   # ['01', '07', ...]
+        goods_types: Optional[List[str]] = None,  # ['01', '07', ...]
         vendor_search: Optional[str] = None,
         source_types: Optional[List[str]] = None,  # ['xml', 'pdf_text', ...]
-        processed_only: bool = True,               # Por defecto solo procesadas
-        include_no_ncf: bool = False,              # Incluir sin NCF
-        invoice_ids: Optional[List[str]] = None,   # Override explícito de IDs
+        processed_only: bool = True,  # Por defecto solo procesadas
+        include_no_ncf: bool = False,  # Incluir sin NCF
+        invoice_ids: Optional[List[str]] = None,  # Override explícito de IDs
     ) -> List[Invoice]:
         """Query flexible para exportaciones DGII. Sin paginación — devuelve todos
         los registros que cumplan los criterios, ordenados por fecha de factura."""
         query = db.query(Invoice).filter(
             Invoice.tenant_id == tenant_id,
             Invoice.organization_id == org_id,
-            Invoice.deleted_at.is_(None),
+            Invoice.is_deleted.is_(False),
             Invoice.cancelled_at.is_(None),
             Invoice.is_electronic.is_(False),
         )
@@ -334,7 +333,7 @@ class InvoiceRepository:
         query = db.query(Invoice).filter(
             Invoice.tenant_id == tenant_id,
             Invoice.organization_id == org_id,
-            Invoice.deleted_at.is_(None),
+            Invoice.is_deleted.is_(False),
             Invoice.processed.is_(True),
         )
         if transaction_type:
@@ -347,20 +346,12 @@ class InvoiceRepository:
         all_invoices = query.all()
         total = len(all_invoices)
 
-        missing_ncf = sum(
-            1 for inv in all_invoices
-            if not (inv.invoice_number or "").strip()
-        )
-        missing_rnc = sum(
-            1 for inv in all_invoices
-            if not (inv.vendor_tax_id or "").strip()
-        )
-        missing_goods_type = sum(
-            1 for inv in all_invoices
-            if not (inv.goods_services_type or "").strip()
-        )
+        missing_ncf = sum(1 for inv in all_invoices if not (inv.invoice_number or "").strip())
+        missing_rnc = sum(1 for inv in all_invoices if not (inv.vendor_tax_id or "").strip())
+        missing_goods_type = sum(1 for inv in all_invoices if not (inv.goods_services_type or "").strip())
         complete = sum(
-            1 for inv in all_invoices
+            1
+            for inv in all_invoices
             if (inv.invoice_number or "").strip()
             and (inv.vendor_tax_id or "").strip()
             and (inv.goods_services_type or "").strip()

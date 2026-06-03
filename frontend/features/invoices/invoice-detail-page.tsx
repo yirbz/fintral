@@ -633,7 +633,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                 />
               </Field>
               <Field
-                label="RNC / Vendor Tax ID"
+                label="RNC / Cédula"
                 locked={isLocked}
               >
                 <Input

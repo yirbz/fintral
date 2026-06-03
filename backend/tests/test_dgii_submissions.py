@@ -562,6 +562,7 @@ class TestSubmissionReportSnapshot:
                 transaction_type="expense",
                 invoice_date=utc_now(),
                 processed=True,
+                is_deleted=True,
                 deleted_at=utc_now(),
             )
             db.add(inv)

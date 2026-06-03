@@ -191,7 +191,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: <PackageIcon />,
     },
     {
-      title: "Secuencias NCF",
+      title: "Rangos NCF",
       url: getLink("/sequences"),
       icon: <GridIcon />,
     },

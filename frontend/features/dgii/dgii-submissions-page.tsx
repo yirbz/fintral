@@ -937,7 +937,7 @@ export function DgiiSubmissionsPage() {
                 ¿Ya subiste este reporte al portal de la DGII?
               </p>
               <p className="text-muted-foreground">
-                El envío pasará a estado "pendiente de confirmar". Luego podrás reportar resultados por factura o confirmar directamente si todo fue aceptado.
+                El envío pasará a estado &ldquo;pendiente de confirmar&rdquo;. Luego podrás reportar resultados por factura o confirmar directamente si todo fue aceptado.
               </p>
             </AlertDialogDescription>
           </AlertDialogHeader>

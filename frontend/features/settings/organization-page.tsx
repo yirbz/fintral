@@ -143,6 +143,8 @@ export function OrganizationPage() {
   const [website, setWebsite] = useState("");
   const [country, setCountry] = useState("DOM");
   const [fiscalAddress, setFiscalAddress] = useState("");
+  const [municipality, setMunicipality] = useState("");
+  const [province, setProvince] = useState("");
   const [hasChanges, setHasChanges] = useState(false);
 
   useEffect(() => {
@@ -155,6 +157,8 @@ export function OrganizationPage() {
       setWebsite(d.website || "");
       setCountry(d.country || "DOM");
       setFiscalAddress(d.fiscal_address || "");
+      setMunicipality(d.municipality || "");
+      setProvince(d.province || "");
     }
   }, [orgQuery.data]);
 
@@ -169,9 +173,11 @@ export function OrganizationPage() {
       emailContact !== (d.email_contact || "") ||
       website !== (d.website || "") ||
       country !== (d.country || "DOM") ||
-      fiscalAddress !== (d.fiscal_address || "");
+      fiscalAddress !== (d.fiscal_address || "") ||
+      municipality !== (d.municipality || "") ||
+      province !== (d.province || "");
     setHasChanges(dirty);
-  }, [name, taxId, phone, emailContact, website, country, fiscalAddress, orgQuery.data]);
+  }, [name, taxId, phone, emailContact, website, country, fiscalAddress, municipality, province, orgQuery.data]);
 
   const isAdmin =
     session.data?.role === "owner" || session.data?.role === "admin";
@@ -186,6 +192,8 @@ export function OrganizationPage() {
         website: website || null,
         country,
         fiscal_address: fiscalAddress || null,
+        municipality: municipality || null,
+        province: province || null,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["organization-settings"] });
@@ -411,11 +419,35 @@ export function OrganizationPage() {
                 <Textarea
                   value={fiscalAddress}
                   onChange={(e) => setFiscalAddress(e.target.value)}
-                  placeholder="Calle, número, sector, ciudad, provincia"
+                  placeholder="Calle, número, sector"
                   className="pl-8 resize-none"
                   rows={2}
                 />
               </div>
+            </div>
+
+            {/* Municipio */}
+            <div>
+              <Label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Municipio
+              </Label>
+              <Input
+                value={municipality}
+                onChange={(e) => setMunicipality(e.target.value)}
+                placeholder="Santo Domingo"
+              />
+            </div>
+
+            {/* Provincia */}
+            <div>
+              <Label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Provincia
+              </Label>
+              <Input
+                value={province}
+                onChange={(e) => setProvince(e.target.value)}
+                placeholder="Distrito Nacional"
+              />
             </div>
           </div>
         </CardContent>

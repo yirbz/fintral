@@ -15,6 +15,7 @@ from app.services.supabase_storage import (
     delete_file as supabase_delete,
     delete_invoice_folder,
 )
+from app.services.dgii_health import start_dgii_health_task
 from app.services.websocket import start_heartbeat_task
 
 logger = setup_logging()
@@ -46,13 +47,18 @@ def init_database() -> None:
 
     t0 = time.time()
     alembic_cfg = Config("alembic.ini")
-    alembic_cfg.attributes['skip_logging_config'] = True
+    alembic_cfg.attributes["skip_logging_config"] = True
     inspector = inspect(engine)
     tables = inspector.get_table_names()
     has_alembic_version = "alembic_version" in tables
     has_data_tables = "invoices" in tables
-    logger.info("init_database — has_alembic_version=%s has_data_tables=%s tables=%d (%.2fs)",
-                has_alembic_version, has_data_tables, len(tables), time.time() - t0)
+    logger.info(
+        "init_database — has_alembic_version=%s has_data_tables=%s tables=%d (%.2fs)",
+        has_alembic_version,
+        has_data_tables,
+        len(tables),
+        time.time() - t0,
+    )
 
     if has_alembic_version:
         with engine.connect() as conn:
@@ -67,10 +73,13 @@ def init_database() -> None:
         db_rev_exists = row in [r.revision for r in script.walk_revisions()]
         if not db_rev_exists and has_data_tables:
             base_rev = script.get_base()
-            logger.warning("Current alembic_version=%s not found in migration scripts — "
-                           "likely the initial migration was regenerated. "
-                           "Stamping to base (%s) via SQL, then running pending migrations.",
-                           row, base_rev)
+            logger.warning(
+                "Current alembic_version=%s not found in migration scripts — "
+                "likely the initial migration was regenerated. "
+                "Stamping to base (%s) via SQL, then running pending migrations.",
+                row,
+                base_rev,
+            )
             with engine.connect() as conn:
                 conn.execute(text("UPDATE alembic_version SET version_num = :base"), {"base": base_rev})
                 conn.commit()
@@ -83,8 +92,7 @@ def init_database() -> None:
             command.upgrade(alembic_cfg, "head")
             logger.info("Alembic migrations applied (%.2fs)", time.time() - t1)
         except Exception as e:
-            logger.error("Alembic upgrade failed (%s) after %.2fs: %s",
-                         type(e).__name__, time.time() - t1, e)
+            logger.error("Alembic upgrade failed (%s) after %.2fs: %s", type(e).__name__, time.time() - t1, e)
             raise
         return
 
@@ -101,8 +109,12 @@ def init_database() -> None:
         command.upgrade(alembic_cfg, "head")
         logger.info("Database tables created (%.2fs)", time.time() - t1)
     except Exception as e:
-        logger.warning("Alembic upgrade failed (%s) — falling back to create_all (%.2fs): %s",
-                       type(e).__name__, time.time() - t1, e)
+        logger.warning(
+            "Alembic upgrade failed (%s) — falling back to create_all (%.2fs): %s",
+            type(e).__name__,
+            time.time() - t1,
+            e,
+        )
         try:
             Base.metadata.create_all(bind=engine)
             logger.info("create_all fallback done")
@@ -135,7 +147,10 @@ def ensure_default_admin(db: Session) -> None:
             supabase_uid = supabase_result["id"]
             logger.info("Admin user created in Supabase Auth: %s (id=%s)", ADMIN_EMAIL, supabase_uid)
         else:
-            logger.warning("Supabase Auth admin creation failed for %s — check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY", ADMIN_EMAIL)
+            logger.warning(
+                "Supabase Auth admin creation failed for %s — check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY",
+                ADMIN_EMAIL,
+            )
 
     tenant = get_default_tenant(db)
     org = get_default_org(db, tenant.id)
@@ -180,15 +195,18 @@ def cleanup_expired_trash(db: Session) -> None:
     inspector = inspect(engine)
     columns = [c["name"] for c in inspector.get_columns("invoices")]
     if "deleted_at" not in columns:
-        logger.warning("cleanup_expired_trash — deleted_at column missing from invoices table, skipping (run migrations first)")
+        logger.warning(
+            "cleanup_expired_trash — deleted_at column missing from invoices table, skipping (run migrations first)"
+        )
         return
 
     cutoff = datetime.utcnow() - timedelta(days=30)
     expired = (
         db.query(Invoice)
         .filter(
-            Invoice.deleted_at.isnot(None),
+            Invoice.is_deleted.is_(True),
             Invoice.deleted_at < cutoff,
+            Invoice.status != "permanently_deleted",
         )
         .all()
     )
@@ -206,22 +224,33 @@ def cleanup_expired_trash(db: Session) -> None:
                 if INVOICES_PREFIX in invoice.file_path:
                     ok = delete_invoice_folder(invoice.tenant_id, invoice.organization_id, invoice.id)
                     if not ok:
-                        logger.warning("cleanup_expired_trash — storage cleanup failed for invoice %s, deleting DB record anyway", invoice.id)
+                        logger.warning(
+                            "cleanup_expired_trash — storage cleanup failed for invoice %s, setting status anyway",
+                            invoice.id,
+                        )
                         storage_errors += 1
                 else:
                     ok = supabase_delete(invoice.file_path)
                     if not ok:
-                        logger.warning("cleanup_expired_trash — file delete failed for invoice %s: %s", invoice.id, invoice.file_path)
+                        logger.warning(
+                            "cleanup_expired_trash — file delete failed for invoice %s: %s",
+                            invoice.id,
+                            invoice.file_path,
+                        )
                         storage_errors += 1
                     if invoice.processed_path:
                         supabase_delete(invoice.processed_path)
         except Exception as exc:
             logger.warning("cleanup_expired_trash — error cleaning storage for invoice %s: %s", invoice.id, exc)
             storage_errors += 1
-        db.delete(invoice)
+        invoice.status = "permanently_deleted"
         deleted_count += 1
     db.commit()
-    logger.info("cleanup_expired_trash — %d invoice(s) deleted from database (%d storage cleanup error(s))", deleted_count, storage_errors)
+    logger.info(
+        "cleanup_expired_trash — %d invoice(s) marked as permanently_deleted (%d storage cleanup error(s))",
+        deleted_count,
+        storage_errors,
+    )
 
 
 async def run_startup(db: Session) -> None:
@@ -269,6 +298,9 @@ async def run_startup(db: Session) -> None:
         logger.info("Heartbeat task started for WebSocket connections")
     else:
         logger.info("Heartbeat task disabled by environment configuration")
+
+    asyncio.create_task(start_dgii_health_task())
+    logger.info("DGII health check scheduler started (daily at 06:00 UTC)")
 
     logger.info("")
     logger.info("=" * 60)

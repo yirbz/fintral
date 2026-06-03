@@ -19,6 +19,7 @@ import {
   Printer,
   Send,
   Loader2,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { VerificationBanner } from "@/components/billing/verification-banner";
@@ -133,10 +134,16 @@ export default function BillingDashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/billing/quick" passHref>
+          <Link href="/billing/emit" passHref>
             <Button className="h-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-xs gap-1.5 px-3">
+              <Zap className="size-3.5" />
+              Nueva e-CF
+            </Button>
+          </Link>
+          <Link href="/billing/quick" passHref>
+            <Button variant="outline" className="h-8 rounded-md border-border text-foreground hover:bg-muted text-xs gap-1.5 px-3">
               <PlusCircle className="size-3.5" />
-              Nueva Factura
+              Rápida (clásico)
             </Button>
           </Link>
         </div>

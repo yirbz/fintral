@@ -32,6 +32,7 @@ export async function logout() {
   return response.ok;
 }
 
-export async function getMe(signal?: AbortSignal) {
-  return await apiFetch<SessionPayload>("/api/me", { signal });
+export async function getMe(signal?: AbortSignal, baseUrl?: string) {
+  const url = baseUrl ? `${baseUrl}/api/me` : "/api/me";
+  return await apiFetch<SessionPayload>(url, { signal });
 }
