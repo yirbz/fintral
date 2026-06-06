@@ -201,6 +201,7 @@ export function CustomerSearch({ value, onChange, disabled }: CustomerSearchProp
             variant="outline"
             role="combobox"
             aria-expanded={open}
+            aria-controls="customer-search-listbox"
             disabled={disabled}
             className="w-full justify-between h-9 text-sm"
           >
@@ -228,7 +229,7 @@ export function CustomerSearch({ value, onChange, disabled }: CustomerSearchProp
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[320px] p-0" align="start">
-          <Command>
+          <Command id="customer-search-listbox">
             <CommandInput placeholder="Buscar cliente por nombre o RNC..." />
             <CommandList>
               <CommandEmpty>

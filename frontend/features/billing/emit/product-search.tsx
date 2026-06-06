@@ -43,6 +43,7 @@ export function ProductSearch({ onSelect, disabled }: ProductSearchProps) {
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          aria-controls="product-search-listbox"
           disabled={disabled}
           size="sm"
           className="w-full justify-between h-8 text-xs"
@@ -55,7 +56,7 @@ export function ProductSearch({ onSelect, disabled }: ProductSearchProps) {
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[300px] p-0" align="start">
-        <Command>
+        <Command id="product-search-listbox">
           <CommandInput placeholder="Buscar producto..." />
           <CommandList>
             <CommandEmpty className="py-4 text-sm text-muted-foreground text-center">

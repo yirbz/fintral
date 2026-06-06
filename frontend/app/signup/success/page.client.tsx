@@ -23,18 +23,19 @@ export default function SignUpSuccessPage() {
   const [showLoader, setShowLoader] = useState(true)
 
   useEffect(() => {
-    let cancelled = false
-    const delay = new Promise<void>((r) => setTimeout(r, 600))
-    const check = getMe().then(() => true).catch(() => false)
+    const timer = setTimeout(async () => {
+      try {
+        await getMe();
+        router.replace("/dashboard");
+      } catch {
+        // No session — stay on success page
+      } finally {
+        setShowLoader(false);
+      }
+    }, 600);
 
-    Promise.all([delay, check]).then(([, hasSession]) => {
-      if (cancelled) return
-      setShowLoader(false)
-      if (hasSession) router.replace("/dashboard")
-    })
-
-    return () => { cancelled = true }
-  }, [router])
+    return () => clearTimeout(timer);
+  }, [router]);
 
   if (showLoader) return <LogoLoader />
 
