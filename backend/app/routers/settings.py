@@ -256,6 +256,31 @@ async def update_organization(
         if existing_phone:
             raise HTTPException(status_code=409, detail="Este número de teléfono ya está registrado")
 
+    # Validate email_contact uniqueness
+    if body.email_contact:
+        email = body.email_contact.strip().lower()
+        existing_email = (
+            ctx.db.query(Organization)
+            .filter(
+                Organization.email_contact == email,
+                Organization.id != ctx.org_id,
+                Organization.is_active.is_(True),
+            )
+            .first()
+        )
+        if existing_email:
+            raise HTTPException(
+                status_code=409,
+                detail=f"El email '{body.email_contact}' ya está registrado como contacto de la organización '{existing_email.name}'.",
+            )
+        # Check if it's a registered user email
+        existing_user = ctx.db.query(User).filter(User.email == email).first()
+        if existing_user:
+            raise HTTPException(
+                status_code=409,
+                detail=f"El email '{body.email_contact}' corresponde a un usuario registrado. Cada organización debe usar un email de contacto único.",
+            )
+
     org.name = body.name.strip()
     org.tax_id = body.tax_id.strip() if body.tax_id else None
     org.phone = body.phone.strip() if body.phone else None

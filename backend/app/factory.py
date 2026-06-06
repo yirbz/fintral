@@ -11,7 +11,7 @@ from app.database import get_db
 from app.config import FINTRAL_DATA_DIR, IS_PRODUCTION, SUPABASE_URL
 from app.core.bootstrap import run_startup
 from app.core.ui import ensure_runtime_dirs
-from app.routers import admin, auth_pages, dgii, evolution, history, integrations, invoices, notifications, odoo_integration, organizations, pending_uploads, quickbooks_integration, settings, statistics, websocket, webhooks, xero_integration, bank_accounts, billing, ai_chat, plans
+from app.routers import admin, auth_pages, dgii, evolution, history, integrations, invitations, invoices, notifications, odoo_integration, organizations, pending_uploads, quickbooks_integration, settings, statistics, websocket, webhooks, xero_integration, bank_accounts, billing, ai_chat, plans
 from app.services.cleanup_service import start_cleanup_task
 
 logger = logging.getLogger(__name__)
@@ -58,6 +58,7 @@ def create_app() -> FastAPI:
     app.include_router(notifications.router)
     app.include_router(pending_uploads.router)
     app.include_router(settings.router)
+    app.include_router(invitations.router)
     app.include_router(invoices.router)
     app.include_router(webhooks.router)
     app.include_router(history.router)

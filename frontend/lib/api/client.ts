@@ -18,14 +18,32 @@ function isOnPublicPage(): boolean {
   return path.startsWith("/login") || path.startsWith("/logout") || path.startsWith("/signup");
 }
 
+function getStoredOrgId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem("fintral_active_org");
+  } catch {
+    return null;
+  }
+}
+
 export async function apiFetch<T>(
   input: string,
   init: RequestInitWithRaw = {}
 ): Promise<T> {
   const { raw, ...requestInit } = init;
+
+  // Build headers — always send the active org if we have one
+  const headers = new Headers(requestInit.headers);
+  const orgId = getStoredOrgId();
+  if (orgId) {
+    headers.set("X-Organization-Id", orgId);
+  }
+
   const response = await fetch(input, {
     credentials: "include",
-    ...requestInit
+    ...requestInit,
+    headers,
   });
 
   if (!response.ok) {
