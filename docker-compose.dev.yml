@@ -32,12 +32,12 @@ services:
     env_file: []
     environment:
       # ── Infra (topology loaded from local .env) ──
-      - ENVIRONMENT=${LOCAL_ENVIRONMENT:-DEVELOPMENT}
-      - BACKEND_PORT=${LOCAL_BACKEND_PORT:-8000}
+      - ENVIRONMENT=${LOCAL_ENVIRONMENT:-${ENVIRONMENT:-DEVELOPMENT}}
+      - BACKEND_PORT=${LOCAL_BACKEND_PORT:-${BACKEND_PORT:-8000}}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_STORAGE_BUCKET=${SUPABASE_STORAGE_BUCKET:-invoices}
-      - DATABASE_URL=${LOCAL_DATABASE_URL}
-      - REDIS_URL=${LOCAL_REDIS_URL}
+      - DATABASE_URL=${LOCAL_DATABASE_URL:-${DATABASE_URL}}
+      - REDIS_URL=${LOCAL_REDIS_URL:-${REDIS_URL}}
       # ── Secrets (inherited from Doppler via shell — no default) ──
       - APP_JWT_SECRET_KEY
       - SECRET_KEY
@@ -82,9 +82,9 @@ services:
       dockerfile: Dockerfile.dev
     container_name: fintral-frontend-dev
     environment:
-      - BACKEND_URL=http://backend:${LOCAL_BACKEND_PORT:-8000}
-      - NEXT_PUBLIC_ENVIRONMENT=${LOCAL_ENVIRONMENT:-DEVELOPMENT}
-      - NEXT_PUBLIC_APP_URL=${LOCAL_NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      - BACKEND_URL=http://backend:${LOCAL_BACKEND_PORT:-${BACKEND_PORT:-8000}}
+      - NEXT_PUBLIC_ENVIRONMENT=${LOCAL_ENVIRONMENT:-${ENVIRONMENT:-DEVELOPMENT}}
+      - NEXT_PUBLIC_APP_URL=${LOCAL_NEXT_PUBLIC_APP_URL:-${NEXT_PUBLIC_APP_URL:-${PUBLIC_APP_URL:-http://localhost:3000}}}
       # Optional overrides:
       # - NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
       # - NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws
@@ -95,7 +95,7 @@ services:
       - /app/node_modules
       - /app/.next
     ports:
-      - "${LOCAL_FRONTEND_PORT:-3000}:3000"
+      - "${LOCAL_FRONTEND_PORT:-${FRONTEND_PORT:-3000}}:3000"
     networks:
       - fintral-dev
 
@@ -106,7 +106,7 @@ services:
       - backend
       - frontend
     ports:
-      - "${LOCAL_PROXY_PORT:-8001}:80"
+      - "${LOCAL_PROXY_PORT:-${PROXY_PORT:-8001}}:80"
     volumes:
       - ./nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
     extra_hosts:

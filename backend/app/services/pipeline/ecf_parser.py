@@ -16,11 +16,13 @@ ECF_TYPES = {
     "32": "Factura de Consumo Electronica",
     "33": "Nota de Debito Electronica",
     "34": "Nota de Credito Electronica",
-    "41": "Compras Electronico",
+    "41": "Compras Electronica",
     "42": "Registro Unico de Ingresos Electronico",
     "43": "Gastos Menores Electronico",
     "44": "Regimenes Especiales Electronico",
-    "45": "Gubernamental Electronico",
+    "45": "Gubernamental Electronica",
+    "46": "Factura de Exportacion Electronica",
+    "47": "Comprobante para Pagos al Exterior Electronico",
 }
 
 ECF_XSD_FILES = {
@@ -122,7 +124,7 @@ class ECFParser(BaseProcessor):
         if ecf_type in _xsd_cache:
             return _xsd_cache[ecf_type]
         xsd_path = os.path.join(DGII_XSD_DIR, ECF_XSD_FILES.get(ecf_type, ""))
-        if not os.path.exists(xsd_path):
+        if not os.path.isfile(xsd_path):
             logger.warning("XSD file not found for e-CF type %s: %s", ecf_type, xsd_path)
             return None
         try:
@@ -147,7 +149,7 @@ class ECFParser(BaseProcessor):
             schema.assertValid(root)
             logger.info("XSD validation passed for e-CF type %s", ecf_type)
             return []
-        except etree.DocumentInvalid as e:
+        except etree.DocumentInvalid:
             error_log = schema.error_log
             warnings = []
             for err in error_log:

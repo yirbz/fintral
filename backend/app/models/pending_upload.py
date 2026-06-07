@@ -4,6 +4,7 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 from uuid_utils import uuid7
 
+from app.config import SUPABASE_URL, SUPABASE_STORAGE_BUCKET
 from app.database import Base, GUID
 from app.utils.dates import utc_now
 
@@ -15,6 +16,7 @@ class PendingUpload(Base):
     tenant_id = Column(GUID, ForeignKey("tenants.id"), nullable=False, index=True)
     organization_id = Column(GUID, ForeignKey("organizations.id"), nullable=False, index=True)
     user_id = Column(GUID, ForeignKey("users.id"), nullable=False, index=True)
+    upload_link_id = Column(GUID, ForeignKey("upload_links.id", ondelete="CASCADE"), nullable=True, index=True)
 
     filename = Column(String(255), nullable=False)
     file_path = Column(String(500), nullable=False)
@@ -28,6 +30,7 @@ class PendingUpload(Base):
     tenant = relationship("Tenant", lazy="joined")
     organization = relationship("Organization", lazy="joined")
     user = relationship("User", lazy="joined")
+    upload_link = relationship("UploadLink", lazy="joined")
 
     def __init__(self, **kwargs):
         if "expires_at" not in kwargs:
@@ -35,13 +38,18 @@ class PendingUpload(Base):
         super().__init__(**kwargs)
 
     def to_dict(self) -> dict:
+        file_url = None
+        if SUPABASE_URL and self.file_path:
+            file_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{self.file_path.lstrip('/')}"
         return {
             "id": str(self.id),
             "tenant_id": str(self.tenant_id),
             "organization_id": str(self.organization_id),
             "user_id": str(self.user_id),
+            "upload_link_id": str(self.upload_link_id) if self.upload_link_id else None,
             "filename": self.filename,
             "file_path": self.file_path,
+            "file_url": file_url,
             "file_type": self.file_type,
             "file_size": self.file_size,
             "processed": self.processed,

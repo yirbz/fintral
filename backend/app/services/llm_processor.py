@@ -255,7 +255,7 @@ class LLMInvoiceProcessor:
             - Si la imagen es muy borrosa o ilegible (no puedes leer la mayoría del texto), añade "Documento poco legible".
             - Si NO hay NCF visible en absoluto en la factura, añade "Falta NCF".
             - Si el ITBIS calculado no coincide con el 18% del monto gravable, añade "Posible error en ITBIS".
-            - Si la fecha de emisión es muy antigua (> 6 meses desde la fecha actual), añade "Factura antigua".
+            - Si la fecha de emisión es del año anterior o más antigua, añade "Factura antigua".
             - Si ves propinas o cargos no deducibles (alcohol, entretenimiento), menciónalo.
 
             PROHIBIDO TERMINANTEMENTE — NUNCA añadas estos warnings:
@@ -866,7 +866,7 @@ class LLMInvoiceProcessor:
             - Si la imagen es muy borrosa o ilegible, añade "Documento poco legible".
             - Si NO hay NCF visible en absoluto, añade "Falta NCF".
             - Si el ITBIS calculado no coincide con el 18% del monto gravable, añade "Posible error en ITBIS".
-            - Si la fecha de emisión es muy antigua (> 6 meses desde la fecha actual), añade "Factura antigua".
+            - Si la fecha de emisión es del año anterior o más antigua, añade "Factura antigua".
             - Si ves propinas o cargos no deducibles (alcohol, entretenimiento), menciónalo.
 
             PROHIBIDO TERMINANTEMENTE — NUNCA añadas estos warnings:

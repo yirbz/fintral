@@ -120,15 +120,6 @@ class EvolutionWebhookChange(BaseModel):
     value: EvolutionWebhookValue
 
 
-class CreditNoteCreate(BaseModel):
-    """Create a credit/debit note linked to the original invoice."""
-    total_amount: float = 0.0
-    tax_amount: float | None = None
-    description: str | None = None
-    line_items: list[LineItem] = []
-    motivo: str | None = None  # Reason for the credit note
-
-
 class EvolutionWebhookEntry(BaseModel):
     id: str
     changes: List[EvolutionWebhookChange]

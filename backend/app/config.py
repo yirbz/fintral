@@ -94,15 +94,18 @@ REDIS_URL: str | None = os.getenv("REDIS_URL")
 # ===========================================================================
 # LLM Providers (multi-modal invoice parsing pipeline)
 # ===========================================================================
-AI_MODEL_API_KEY: str | None = os.getenv("AI_MODEL_API_KEY", os.getenv("OPENAI_API_KEY"))
-OPENAI_API_KEY: str | None = AI_MODEL_API_KEY
+AI_PIPELINE_KEY: str | None = os.getenv("AI_PIPELINE_KEY", os.getenv("AI_MODEL_API_KEY", os.getenv("OPENAI_API_KEY")))
+AI_MODEL_API_KEY: str | None = AI_PIPELINE_KEY
+OPENAI_API_KEY: str | None = AI_PIPELINE_KEY
 
-# LLM Model Name configuration
-AI_MODEL_NAME: str = os.getenv("AI_MODEL_NAME", os.getenv("GEMINI_MODEL", "gemini-2.0-flash"))
+AI_PIPELINE_MODEL: str = os.getenv("AI_PIPELINE_MODEL", os.getenv("AI_MODEL_NAME", os.getenv("GEMINI_MODEL", "gemini-2.0-flash")))
+AI_MODEL_NAME: str = AI_PIPELINE_MODEL
 
-# AI Assistant (AI Chat Sidebar) — independent key, separate from invoice pipeline
-AI_ASSISTANT_KEY: str | None = os.getenv("AI_ASSISTANT_KEY", os.getenv("OPENAI_API_KEY"))
-AI_ASSISTANT_MODEL: str = os.getenv("AI_ASSISTANT_MODEL", "gemini-2.5-flash")
+AI_SIDECAR_KEY: str | None = os.getenv("AI_SIDECAR_KEY", os.getenv("AI_ASSISTANT_KEY", os.getenv("OPENAI_API_KEY")))
+AI_ASSISTANT_KEY: str | None = AI_SIDECAR_KEY
+
+AI_SIDECAR_MODEL: str = os.getenv("AI_SIDECAR_MODEL", os.getenv("AI_ASSISTANT_MODEL", "gemini-2.5-flash"))
+AI_ASSISTANT_MODEL: str = AI_SIDECAR_MODEL
 
 # ===========================================================================
 # Email (Resend)

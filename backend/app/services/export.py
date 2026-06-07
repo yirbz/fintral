@@ -643,44 +643,182 @@ class ExportService:
     #   - Herramienta de Envio Formato 607.xls              → Formato607.GenerarArchivo
     #   - Herramienta de envio Formato 608.xls              → Formato608.cmdGenerarArchivo_Click
 
-    def export_dgii_606_txt(self, invoices: List[Invoice], report_rnc: Optional[str] = None, period: Optional[str] = None) -> bytes:
+    def _extract_modificatory_raw(self, inv) -> dict:
+        return self._parse_raw_data(getattr(inv, "raw_extracted_data", None))
+
+    def _build_606_txt_fields_from_modificatory(self, inv, report_rnc: Optional[str] = None) -> List[str]:
+        raw = self._extract_modificatory_raw(inv)
+        ncf = inv.invoice_number or ""
+        vendor_tax_id = inv.vendor_tax_id
+        inv_rnc = self._only_digits(vendor_tax_id) or ""
+        tipo_id = self._tipo_id_from_tax_id(inv_rnc) or ""
+        goods_type = self._normalize_goods_type(raw.get("goods_services_type")) or ""
+        goods_type_code = goods_type[:2] if goods_type else ""
+        ncf_modified = inv.modified_ncf or ""
+        fecha_comprobante = self._format_date(inv.invoice_date) or ""
+        fecha_pago = self._format_date(raw.get("payment_date")) or ""
+
+        total = abs(float(inv.total_amount or 0.0))
+        tax = abs(float(inv.tax_amount or 0.0)) if inv.tax_amount is not None else 0.0
+        total_neg = -total
+        tax_neg = -tax
+        base = self._compute_base(total_neg, tax_neg, {})
+        amount_services, amount_goods = 0.0, 0.0
+        raw_gs = self._normalize_goods_type(raw.get("goods_services_type"))
+        if raw_gs and "Servicios" in raw_gs:
+            amount_services = base
+        elif raw_gs and "Bienes" in raw_gs:
+            amount_goods = base
+        elif base:
+            amount_goods = base
+        total_facturado = (amount_services or 0.0) + (amount_goods or 0.0)
+        itbis_facturado = tax_neg
+        itbis_retenido = self._to_number(raw.get("itbis_retenido"))
+        if itbis_retenido:
+            itbis_retenido = -abs(itbis_retenido)
+        itbis_proporcionalidad = self._to_number(raw.get("itbis_proporcionalidad"))
+        itbis_llevado_costo = self._to_number(raw.get("itbis_llevado_costo"))
+        itbis_adelantar = itbis_facturado - (itbis_llevado_costo or 0.0)
+        if itbis_adelantar < 0:
+            itbis_adelantar = 0.0
+        itbis_percibido = self._to_number(raw.get("itbis_percibido"))
+        isr_retention_type = self._normalize_isr_retention(raw.get("isr_retention_type"))
+        isr_retention_amount = self._to_number(raw.get("isr_retention_amount"))
+        isr_percibido = self._to_number(raw.get("isr_percibido"))
+        isc_amount = self._to_number(raw.get("isc_amount"))
+        other_taxes = self._to_number(raw.get("other_taxes"))
+        legal_tip = self._to_number(raw.get("legal_tip"))
+        payment_method = self._normalize_payment_method(raw.get("payment_method"))
+        isr_type_code = (isr_retention_type or "")[:2]
+        payment_code = (payment_method or "")[:2]
+
+        return [
+            inv_rnc,
+            tipo_id,
+            goods_type_code,
+            ncf,
+            ncf_modified,
+            fecha_comprobante,
+            fecha_pago,
+            self._txt_amount(amount_services, allow_zero=True),
+            self._txt_amount(amount_goods, allow_zero=True),
+            self._txt_amount(total_facturado, allow_zero=True),
+            self._txt_amount(itbis_facturado, allow_zero=True),
+            self._txt_amount(itbis_retenido),
+            self._txt_amount(itbis_proporcionalidad),
+            self._txt_amount(itbis_llevado_costo),
+            self._txt_amount(itbis_adelantar, allow_zero=True),
+            self._txt_amount(itbis_percibido),
+            isr_type_code,
+            self._txt_amount(isr_retention_amount),
+            self._txt_amount(isr_percibido),
+            self._txt_amount(isc_amount),
+            self._txt_amount(other_taxes),
+            self._txt_amount(legal_tip),
+            payment_code,
+        ]
+
+    def _build_607_txt_fields_from_modificatory(self, inv) -> List[str]:
+        raw = self._extract_modificatory_raw(inv)
+        buyer_tax_id = inv.vendor_tax_id
+        inv_rnc = self._only_digits(buyer_tax_id) or ""
+        tipo_id = self._tipo_id_from_tax_id(inv_rnc) or ""
+        ncf = inv.invoice_number or ""
+        ncf_modified = inv.modified_ncf or ""
+        tipo_ingreso_raw = raw.get("tipo_ingreso") or "01"
+        tipo_ingreso = tipo_ingreso_raw[-1] if len(tipo_ingreso_raw) >= 2 else tipo_ingreso_raw
+        fecha = self._format_date(inv.invoice_date) or ""
+        fecha_retencion = self._format_date(raw.get("payment_date")) or ""
+        total = abs(float(inv.total_amount or 0.0))
+        tax = abs(float(inv.tax_amount or 0.0)) if inv.tax_amount is not None else 0.0
+        amount_facturado = -self._compute_base(total, tax, {})
+        itbis_retenido = self._to_number(raw.get("itbis_retenido"))
+        if itbis_retenido:
+            itbis_retenido = -abs(itbis_retenido)
+        itbis_percibido = self._to_number(raw.get("itbis_percibido"))
+        ret_renta_terceros = self._txt_amount(self._to_number(raw.get("retencion_renta_terceros")))
+        isr_percibido = self._txt_amount(self._to_number(raw.get("isr_percibido")))
+        isc = self._txt_amount(self._to_number(raw.get("isc_amount")))
+        otros_imp = self._txt_amount(self._to_number(raw.get("other_taxes")))
+        propina = self._txt_amount(self._to_number(raw.get("legal_tip")))
+
+        efectivo, cheque, tarjeta, credito, bonos, permuta, otras = self._payment_breakdown_607(
+            raw.get("payment_method"),
+            total,
+        )
+        efectivo = -efectivo
+        cheque = -cheque
+        tarjeta = -tarjeta
+        credito = -credito
+        bonos = -bonos
+        permuta = -permuta
+        otras = -otras
+
+        return [
+            inv_rnc,
+            tipo_id,
+            ncf,
+            ncf_modified,
+            tipo_ingreso,
+            fecha,
+            fecha_retencion,
+            self._txt_amount(amount_facturado, allow_zero=True),
+            self._txt_amount(-tax, allow_zero=True),
+            self._txt_amount(itbis_retenido),
+            self._txt_amount(itbis_percibido),
+            ret_renta_terceros,
+            isr_percibido,
+            isc,
+            otros_imp,
+            propina,
+            self._txt_amount(efectivo),
+            self._txt_amount(cheque),
+            self._txt_amount(tarjeta),
+            self._txt_amount(credito),
+            self._txt_amount(bonos),
+            self._txt_amount(permuta),
+            self._txt_amount(otras),
+        ]
+
+    def export_dgii_606_txt(self, invoices: List[Invoice], report_rnc: Optional[str] = None, period: Optional[str] = None, modificatories: Optional[List[Invoice]] = None) -> bytes:
         """Genera el archivo .txt oficial DGII 606 (Compras) — formato pipe-delimited.
 
-        Estructura:
-            Línea 1 (header): 606|RNC|PERIODO|CANT_REGISTROS
-            Líneas 2+: RNC|TipoId|TipoBienes|NCF|NCFMod|FechaComprobante|FechaPago|
-                        ServiciosFact|BienesFact|TotalFact|ITBISFact|ITBISRet|
-                        ProporcionalidadITBIS|ITBISCosto|ITBISAdelantar|ITBISPercibido|
-                        TipoRetISR|MontoRetRenta|ISRPercibido|ISC|OtrosImp|
-                        PropinaLegal|FormaPago
+        Si se proporcionan `modificatories` (NC/ND), se incluyen como líneas adicionales
+        con signo invertido (reversión de ITBIS).
         """
         rnc = self._only_digits(report_rnc) or ""
         period_value = period or self._derive_period(invoices) or ""
-        lines = [f"606|{rnc}|{period_value}|{len(invoices)}"]
+        mods = list(modificatories or [])
+        total_rows = len(invoices) + len(mods)
+        lines = [f"606|{rnc}|{period_value}|{total_rows}"]
 
         for inv in invoices:
             fields = self._build_606_txt_fields(inv, report_rnc)
+            lines.append("|".join(fields))
+        for mod in mods:
+            fields = self._build_606_txt_fields_from_modificatory(mod, report_rnc)
             lines.append("|".join(fields))
 
         # DGII macro: last line WITHOUT trailing newline (Print #1, strDetalle;)
         return "\r\n".join(lines).encode("utf-8")
 
-    def export_dgii_607_txt(self, invoices: List[Invoice], report_rnc: Optional[str] = None, period: Optional[str] = None) -> bytes:
+    def export_dgii_607_txt(self, invoices: List[Invoice], report_rnc: Optional[str] = None, period: Optional[str] = None, modificatories: Optional[List[Invoice]] = None) -> bytes:
         """Genera el archivo .txt oficial DGII 607 (Ventas) — formato pipe-delimited.
 
-        Estructura:
-            Línea 1 (header): 607|RNC|PERIODO|CANT_REGISTROS
-            Líneas 2+: RNC_Comprador|TipoId|NCF|NCFMod|TipoIngreso|FechaComp|FechaRet|
-                        MontoFact|ITBISFact|ITBISRetTerceros|ITBISPercibido|
-                        RetRentaTerceros|ISRPercibido|ISC|OtrosImp|PropinaLegal|
-                        Efectivo|Cheque|Tarjeta|Credito|Bonos|Permuta|OtrasFormas
+        Si se proporcionan `modificatories` (NC/ND), se incluyen como líneas adicionales
+        con signo invertido (reversión de ITBIS).
         """
         rnc = self._only_digits(report_rnc) or ""
         period_value = period or self._derive_period(invoices) or ""
-        lines = [f"607|{rnc}|{period_value}|{len(invoices)}"]
+        mods = list(modificatories or [])
+        total_rows = len(invoices) + len(mods)
+        lines = [f"607|{rnc}|{period_value}|{total_rows}"]
 
         for inv in invoices:
             fields = self._build_607_txt_fields(inv)
+            lines.append("|".join(fields))
+        for mod in mods:
+            fields = self._build_607_txt_fields_from_modificatory(mod)
             lines.append("|".join(fields))
 
         return "\r\n".join(lines).encode("utf-8")
@@ -1446,3 +1584,290 @@ class ExportService:
                 "estado": "Procesado" if inv.processed else "Pendiente",
             })
         return json.dumps(data, indent=2, ensure_ascii=False)
+
+    def export_ap_ar(self, invoices: List[Invoice], organization, report_type: str, format_type: str) -> bytes:
+        """Exporta cuentas por pagar (ap) o por cobrar (ar) al formato indicado (xlsx, csv, txt)."""
+        if format_type == "xlsx":
+            return self._export_ap_ar_xlsx(invoices, organization, report_type)
+        elif format_type == "csv":
+            return self._export_ap_ar_csv(invoices, report_type)
+        elif format_type == "txt":
+            return self._export_ap_ar_txt(invoices, report_type)
+        else:
+            raise ValueError(f"Formato no soportado: {format_type}")
+
+    def _export_ap_ar_xlsx(self, invoices: List[Invoice], organization, report_type: str) -> bytes:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+        from app.utils.dates import utc_now
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Cuentas por Pagar" if report_type == "ap" else "Cuentas por Cobrar"
+        ws.views.sheetView[0].showGridLines = True
+
+        # Paleta de diseño Fintral (Indigo / Slate)
+        primary_color = "533AFD"  # Indigo primario Fintral
+        title_font = Font(name="Segoe UI", size=16, bold=True, color="1E1B4B")
+        section_font = Font(name="Segoe UI", size=11, bold=True, color="475569")
+        meta_font = Font(name="Segoe UI", size=9, italic=True, color="64748B")
+        header_font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
+        data_font = Font(name="Segoe UI", size=10, color="1E293B")
+        total_font = Font(name="Segoe UI", size=11, bold=True, color="0F172A")
+
+        header_fill = PatternFill(start_color=primary_color, end_color=primary_color, fill_type="solid")
+        zebra_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
+
+        thin_side = Side(style='thin', color='E2E8F0')
+        border_cell = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+
+        border_total = Border(
+            top=Side(style='thin', color='94A3B8'),
+            bottom=Side(style='double', color='1E1B4B')
+        )
+
+        # Bloque de Encabezado Corporativo
+        ws.cell(row=1, column=1, value="FINTRAL - PLATAFORMA DE FACTURACIÓN & CONTABILIDAD").font = title_font
+        report_name = "Reporte de Cuentas por Pagar (CXP)" if report_type == "ap" else "Reporte de Cuentas por Cobrar (CXC)"
+        ws.cell(row=2, column=1, value=report_name).font = section_font
+
+        org_name = organization.name if organization else "N/A"
+        org_rnc = organization.tax_id if organization else "N/A"
+        ws.cell(row=3, column=1, value=f"Organización: {org_name} | RNC: {org_rnc}").font = data_font
+
+        now = utc_now().strftime("%Y-%m-%d %I:%M:%S %p")
+        ws.cell(row=4, column=1, value=f"Generado el: {now} (UTC)").font = meta_font
+
+        # Columnas del Reporte
+        headers = [
+            "NCF / Número",
+            "Proveedor" if report_type == "ap" else "Cliente",
+            "RNC / Identificación",
+            "Fecha Emisión",
+            "Fecha Vencimiento",
+            "Días Vencidos",
+            "Estado",
+            "Monto Facturado",
+            "ITBIS",
+            "Total Pendiente"
+        ]
+
+        header_row = 6
+        for col_idx, h in enumerate(headers, 1):
+            cell = ws.cell(row=header_row, column=col_idx, value=h)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = border_cell
+
+        ws.row_dimensions[header_row].height = 28
+
+        # Filas de Datos
+        current_row = 7
+        now_date = utc_now().date()
+        for idx, inv in enumerate(invoices):
+            days_overdue = 0
+            if inv.due_date:
+                due_date_only = inv.due_date.date()
+                if due_date_only < now_date:
+                    days_overdue = (now_date - due_date_only).days
+
+            status_text = "Pendiente"
+            if inv.due_date and inv.due_date.date() < now_date:
+                status_text = "Vencido"
+            if inv.payment_status == "paid":
+                status_text = "Pagado"
+
+            tax = inv.tax_amount or 0.0
+            total = inv.total_amount or 0.0
+            base = total - tax
+
+            row_data = [
+                inv.invoice_number or "S/N",
+                inv.vendor_name or "Desconocido",
+                inv.vendor_tax_id or "N/A",
+                inv.invoice_date.date() if inv.invoice_date else None,
+                inv.due_date.date() if inv.due_date else None,
+                days_overdue,
+                status_text,
+                base,
+                tax,
+                total
+            ]
+
+            is_zebra = (idx % 2 == 1)
+            for col_idx, val in enumerate(row_data, 1):
+                cell = ws.cell(row=current_row, column=col_idx, value=val)
+                cell.font = data_font
+                cell.border = border_cell
+                if is_zebra:
+                    cell.fill = zebra_fill
+
+                if col_idx in [1, 2, 3]:
+                    cell.alignment = Alignment(horizontal="left", vertical="center")
+                elif col_idx in [4, 5]:
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                    if val:
+                        cell.number_format = 'yyyy-mm-dd'
+                elif col_idx == 6:
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                    cell.number_format = '#,##0'
+                elif col_idx == 7:
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                elif col_idx in [8, 9, 10]:
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                    cell.number_format = '"DOP "$#,##0.00'
+
+            ws.row_dimensions[current_row].height = 20
+            current_row += 1
+
+        # Fila de Totales Generales
+        ws.cell(row=current_row, column=1, value="Total General").font = total_font
+        ws.cell(row=current_row, column=1).alignment = Alignment(horizontal="left", vertical="center")
+        ws.cell(row=current_row, column=1).border = border_total
+
+        for col_idx in range(2, len(headers) + 1):
+            cell = ws.cell(row=current_row, column=col_idx)
+            cell.border = border_total
+            if col_idx in [8, 9, 10]:
+                col_letter = get_column_letter(col_idx)
+                cell.value = f"=SUM({col_letter}7:{col_letter}{current_row-1})"
+                cell.font = total_font
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+                cell.number_format = '"DOP "$#,##0.00'
+
+        ws.row_dimensions[current_row].height = 24
+
+        # Autoajuste de Ancho de Columnas
+        for col in ws.columns:
+            max_len = 0
+            col_letter = get_column_letter(col[0].column)
+            # Medimos desde la cabecera hacia abajo para no desconfigurar por el título largo en la fila 1
+            for cell in col[5:]:
+                if cell.value is not None:
+                    if str(cell.value).startswith("="):
+                        val_str = "DOP $999,999.99"
+                    elif isinstance(cell.value, datetime):
+                        val_str = cell.value.strftime("%Y-%m-%d")
+                    elif isinstance(cell.value, (int, float)):
+                        val_str = f"DOP ${cell.value:,.2f}"
+                    else:
+                        val_str = str(cell.value)
+                    max_len = max(max_len, len(val_str))
+
+            header_val = ws.cell(row=6, column=col[0].column).value
+            if header_val:
+                max_len = max(max_len, len(str(header_val)))
+
+            ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
+        file_stream = io.BytesIO()
+        wb.save(file_stream)
+        return file_stream.getvalue()
+
+    def _export_ap_ar_csv(self, invoices: List[Invoice], report_type: str) -> bytes:
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        headers = [
+            "NCF / Numero",
+            "Proveedor" if report_type == "ap" else "Cliente",
+            "RNC / Identificacion",
+            "Fecha Emision",
+            "Fecha Vencimiento",
+            "Dias Vencidos",
+            "Estado",
+            "Monto Facturado",
+            "ITBIS",
+            "Total Pendiente"
+        ]
+        writer.writerow(headers)
+
+        from app.utils.dates import utc_now
+        now_date = utc_now().date()
+
+        for inv in invoices:
+            days_overdue = 0
+            if inv.due_date:
+                due_date_only = inv.due_date.date()
+                if due_date_only < now_date:
+                    days_overdue = (now_date - due_date_only).days
+
+            status_text = "Pendiente"
+            if inv.due_date and inv.due_date.date() < now_date:
+                status_text = "Vencido"
+            if inv.payment_status == "paid":
+                status_text = "Pagado"
+
+            tax = inv.tax_amount or 0.0
+            total = inv.total_amount or 0.0
+            base = total - tax
+
+            writer.writerow([
+                inv.invoice_number or "S/N",
+                inv.vendor_name or "Desconocido",
+                inv.vendor_tax_id or "N/A",
+                inv.invoice_date.strftime("%Y-%m-%d") if inv.invoice_date else "",
+                inv.due_date.strftime("%Y-%m-%d") if inv.due_date else "",
+                days_overdue,
+                status_text,
+                f"{base:.2f}",
+                f"{tax:.2f}",
+                f"{total:.2f}"
+            ])
+
+        return output.getvalue().encode("utf-8")
+
+    def _export_ap_ar_txt(self, invoices: List[Invoice], report_type: str) -> bytes:
+        output = io.StringIO()
+
+        headers = [
+            "NCF/Numero",
+            "Proveedor" if report_type == "ap" else "Cliente",
+            "RNC/Identificacion",
+            "Fecha Emision",
+            "Fecha Vencimiento",
+            "Dias Vencidos",
+            "Estado",
+            "Monto Facturado",
+            "ITBIS",
+            "Total Pendiente"
+        ]
+        output.write("\t".join(headers) + "\n")
+
+        from app.utils.dates import utc_now
+        now_date = utc_now().date()
+
+        for inv in invoices:
+            days_overdue = 0
+            if inv.due_date:
+                due_date_only = inv.due_date.date()
+                if due_date_only < now_date:
+                    days_overdue = (now_date - due_date_only).days
+
+            status_text = "Pendiente"
+            if inv.due_date and inv.due_date.date() < now_date:
+                status_text = "Vencido"
+            if inv.payment_status == "paid":
+                status_text = "Pagado"
+
+            tax = inv.tax_amount or 0.0
+            total = inv.total_amount or 0.0
+            base = total - tax
+
+            row = [
+                inv.invoice_number or "S/N",
+                inv.vendor_name or "Desconocido",
+                inv.vendor_tax_id or "N/A",
+                inv.invoice_date.strftime("%Y-%m-%d") if inv.invoice_date else "",
+                inv.due_date.strftime("%Y-%m-%d") if inv.due_date else "",
+                str(days_overdue),
+                status_text,
+                f"{base:.2f}",
+                f"{tax:.2f}",
+                f"{total:.2f}"
+            ]
+            output.write("\t".join(row) + "\n")
+
+        return output.getvalue().encode("utf-8")

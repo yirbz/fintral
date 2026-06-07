@@ -42,6 +42,7 @@ class Organization(Base):
     # Relationships
     tenant = relationship("Tenant", back_populates="organizations")
     invoices = relationship("Invoice", back_populates="organization", lazy="select")
+    # credit_notes = relationship("CreditNote", back_populates="organization", lazy="select")
     notifications = relationship("Notification", back_populates="organization", lazy="select")
     webhooks = relationship("WebhookEndpoint", back_populates="organization", lazy="select")
 

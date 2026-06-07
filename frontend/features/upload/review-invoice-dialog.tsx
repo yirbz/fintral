@@ -98,7 +98,7 @@ export function ReviewInvoiceDialog({
     setSaving(true);
     try {
       // Build payload: for e-CF (locked) only send operational metadata
-      const isLocked = invoice.is_electronic || invoice.status === "verified";
+      const isLocked = !!invoice.original_xml_data || invoice.status === "verified";
       const operationalFields: Record<string, unknown> = {
         category: formState.category,
         payment_condition: formState.payment_condition,
@@ -123,7 +123,7 @@ export function ReviewInvoiceDialog({
       const updated = await updateInvoice(invoice.id, payload);
 
       // 2. Verify invoice to lock it if not electronic or already verified
-      if (!invoice.is_electronic && invoice.status !== "verified") {
+      if (!invoice.original_xml_data && invoice.status !== "verified") {
         await verifyInvoice(invoice.id);
       }
 
@@ -137,10 +137,14 @@ export function ReviewInvoiceDialog({
     }
   };
 
+  const ext = invoice.filename ? invoice.filename.split(".").pop()?.toLowerCase() : "";
+  const isPdf = ext === "pdf";
+  const isImage = ["jpg", "jpeg", "png", "gif", "bmp", "webp"].includes(ext || "") || invoice.file_type === "image";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl md:max-w-2xl bg-card border border-border text-card-foreground shadow-2xl">
-        <DialogHeader>
+      <DialogContent className="max-w-7xl w-[96vw] max-h-[95vh] lg:h-[90vh] bg-card border border-border text-card-foreground shadow-2xl flex flex-col p-6 overflow-hidden rounded-xl">
+        <DialogHeader className="shrink-0 mb-3">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="size-5 text-emerald-500" />
             <DialogTitle className="text-base font-semibold">
@@ -153,7 +157,7 @@ export function ReviewInvoiceDialog({
         </DialogHeader>
 
         {isLowConfidence && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-400">
+          <div className="shrink-0 mb-3 flex items-start gap-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-400">
             <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-500" />
             <div>
               <span className="font-semibold">Confianza de extracción baja ({(confidence * 100).toFixed(0)}%)</span>.
@@ -162,164 +166,200 @@ export function ReviewInvoiceDialog({
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-3 text-xs">
-          {/* Vendor Details */}
-          <div className="space-y-3">
-            <h4 className="font-semibold text-primary uppercase tracking-wider text-[10px]">Datos del Proveedor</h4>
-            <div className="space-y-2">
-              <div>
-                <Label className="text-[11px] text-muted-foreground">Nombre Proveedor</Label>
-                <Input
-                  className="h-8 text-xs mt-1"
-                  value={formState.vendor_name ?? ""}
-                  onChange={(e) => setFormState((p) => ({ ...p, vendor_name: e.target.value }))}
-                />
-              </div>
-              <div>
-                <Label className="text-[11px] text-muted-foreground">RNC/Cédula Proveedor</Label>
-                <Input
-                  className="h-8 text-xs mt-1"
-                  value={formState.vendor_tax_id ?? ""}
-                  onChange={(e) => setFormState((p) => ({ ...p, vendor_tax_id: e.target.value }))}
-                />
-              </div>
-              <div>
-                <Label className="text-[11px] text-muted-foreground">NCF / Número Comprobante</Label>
-                <Input
-                  className="h-8 text-xs mt-1 font-mono uppercase"
-                  value={formState.invoice_number ?? ""}
-                  onChange={(e) => setFormState((p) => ({ ...p, invoice_number: e.target.value }))}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Payment & Classification Details */}
-          <div className="space-y-3">
-            <h4 className="font-semibold text-primary uppercase tracking-wider text-[10px]">Clasificación & Pagos</h4>
-            <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label className="text-[11px] text-muted-foreground">Condición Pago</Label>
-                  <Select
-                    value={formState.payment_condition ?? "contado"}
-                    onValueChange={(val) => setFormState((p) => ({ ...p, payment_condition: val }))}
-                  >
-                    <SelectTrigger className="h-8 text-xs mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="contado" className="text-xs">Contado</SelectItem>
-                      <SelectItem value="credito" className="text-xs">Crédito</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-[11px] text-muted-foreground">Estado Pago</Label>
-                  <Select
-                    value={formState.payment_status ?? "pending"}
-                    onValueChange={(val) => setFormState((p) => ({ ...p, payment_status: val }))}
-                  >
-                    <SelectTrigger className="h-8 text-xs mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pending" className="text-xs">Pendiente</SelectItem>
-                      <SelectItem value="paid" className="text-xs">Pagado</SelectItem>
-                      <SelectItem value="overdue" className="text-xs">Vencido</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div>
-                <Label className="text-[11px] text-muted-foreground">Cuenta Bancaria Asociada (IA)</Label>
-                <Select
-                  value={formState.bank_account_id ?? ""}
-                  onValueChange={(val) => setFormState((p) => ({ ...p, bank_account_id: val || null }))}
-                >
-                  <SelectTrigger className="h-8 text-xs mt-1 border-primary/30 bg-primary/[0.02]">
-                    <SelectValue placeholder="Selecciona o asocia cuenta..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none_acc" disabled className="text-xs italic text-muted-foreground">Ninguna cuenta</SelectItem>
-                    {bankAccounts.map((bank) => (
-                      <SelectItem key={bank.id} value={bank.id} className="text-xs">
-                        {bank.name} (${bank.balance.toFixed(2)})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label className="text-[11px] text-muted-foreground">Tipo de Gasto (DGII 606)</Label>
-                <Select
-                  value={formState.goods_services_type ?? ""}
-                  onValueChange={(val) => setFormState((p) => ({ ...p, goods_services_type: val, category: ADMIN_CATEGORY_MAP[val] ?? p.category }))}
-                >
-                  <SelectTrigger className="h-8 text-xs mt-1">
-                    <SelectValue placeholder="Clasificación DGII..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {DGII_CATEGORIES.map((cat) => (
-                      <SelectItem key={cat.code} value={cat.code} className="text-xs">
-                        {cat.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Invoice Amounts & Dates Row */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 border-t border-border/60 pt-3 text-xs">
-          <div>
-            <Label className="text-[11px] text-muted-foreground">Fecha Emisión</Label>
-            <Input
-              type="date"
-              className="h-8 text-xs mt-1"
-              value={formState.invoice_date ?? ""}
-              onChange={(e) => setFormState((p) => ({ ...p, invoice_date: e.target.value }))}
-            />
-          </div>
-          <div>
-            <Label className="text-[11px] text-muted-foreground">Fecha Vencimiento</Label>
-            <Input
-              type="date"
-              className="h-8 text-xs mt-1"
-              value={formState.due_date ?? ""}
-              onChange={(e) => setFormState((p) => ({ ...p, due_date: e.target.value }))}
-            />
-          </div>
-          <div>
-            <Label className="text-[11px] text-muted-foreground">Monto Total</Label>
-            <Input
-              type="number"
-              className="h-8 text-xs mt-1 font-mono font-medium"
-              value={formState.total_amount ?? 0}
-              onChange={(e) => setFormState((p) => ({ ...p, total_amount: Number(e.target.value) }))}
-            />
-          </div>
-          <div>
-            <Label className="text-[11px] text-muted-foreground">ITBIS</Label>
-            <div className="flex items-center gap-2 mt-1">
-              <Input
-                type="number"
-                className="h-8 text-xs font-mono flex-1"
-                value={formState.tax_amount ?? 0}
-                onChange={(e) => setFormState((p) => ({ ...p, tax_amount: Number(e.target.value) }))}
+        <div className="flex-1 min-h-0 w-full grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-hidden mb-3">
+          {/* Left Column: Visual preview (PDF/Image) */}
+          <div className="lg:col-span-7 border border-border rounded-lg bg-muted/20 overflow-hidden flex flex-col justify-center items-center relative min-h-[260px] lg:min-h-0 h-full">
+            {isPdf ? (
+              <iframe
+                src={`/invoices/${invoice.id}/file#toolbar=0`}
+                className="w-full h-full border-0 rounded-lg"
+                title="Previsualización PDF"
               />
-              <span className="text-[11px] text-muted-foreground font-medium whitespace-nowrap">
-                {getItbisDetail(invoice).rate}
-              </span>
+            ) : isImage ? (
+              <div className="w-full h-full flex items-center justify-center p-3">
+                <img
+                  src={`/invoices/${invoice.id}/file`}
+                  alt="Previsualización del documento"
+                  className="max-w-full max-h-full object-contain rounded-md shadow-sm"
+                />
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center p-6 text-center text-muted-foreground">
+                <p className="font-semibold text-xs mb-1">Previsualización no disponible</p>
+                <p className="text-[10px] text-muted-foreground/80 max-w-[280px]">
+                  {ext === "xml"
+                    ? "Este es un documento e-CF (XML) digital. Los datos fueron validados directamente de la firma electrónica."
+                    : "Este tipo de archivo no admite previsualización visual."}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Right Column: Form fields (Scrollable) */}
+          <div className="lg:col-span-5 flex flex-col overflow-y-auto pr-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 text-xs">
+              {/* Vendor Details */}
+              <div className="space-y-3">
+                <h4 className="font-semibold text-primary uppercase tracking-wider text-[10px]">Datos del Proveedor</h4>
+                <div className="space-y-2">
+                  <div>
+                    <Label className="text-[11px] text-muted-foreground">Nombre Proveedor</Label>
+                    <Input
+                      className="h-8 text-xs mt-1"
+                      value={formState.vendor_name ?? ""}
+                      onChange={(e) => setFormState((p) => ({ ...p, vendor_name: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] text-muted-foreground">RNC/Cédula Proveedor</Label>
+                    <Input
+                      className="h-8 text-xs mt-1"
+                      value={formState.vendor_tax_id ?? ""}
+                      onChange={(e) => setFormState((p) => ({ ...p, vendor_tax_id: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] text-muted-foreground">NCF / Número Comprobante</Label>
+                    <Input
+                      className="h-8 text-xs mt-1 font-mono uppercase"
+                      value={formState.invoice_number ?? ""}
+                      onChange={(e) => setFormState((p) => ({ ...p, invoice_number: e.target.value }))}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Payment & Classification Details */}
+              <div className="space-y-3 border-t border-border/60 pt-4">
+                <h4 className="font-semibold text-primary uppercase tracking-wider text-[10px]">Clasificación & Pagos</h4>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-[11px] text-muted-foreground">Condición Pago</Label>
+                      <Select
+                        value={formState.payment_condition ?? "contado"}
+                        onValueChange={(val) => setFormState((p) => ({ ...p, payment_condition: val }))}
+                      >
+                        <SelectTrigger className="h-8 text-xs mt-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="contado" className="text-xs">Contado</SelectItem>
+                          <SelectItem value="credito" className="text-xs">Crédito</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-[11px] text-muted-foreground">Estado Pago</Label>
+                      <Select
+                        value={formState.payment_status ?? "pending"}
+                        onValueChange={(val) => setFormState((p) => ({ ...p, payment_status: val }))}
+                      >
+                        <SelectTrigger className="h-8 text-xs mt-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pending" className="text-xs">Pendiente</SelectItem>
+                          <SelectItem value="paid" className="text-xs">Pagado</SelectItem>
+                          <SelectItem value="overdue" className="text-xs">Vencido</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label className="text-[11px] text-muted-foreground">Cuenta Bancaria Asociada (IA)</Label>
+                    <Select
+                      value={formState.bank_account_id ?? ""}
+                      onValueChange={(val) => setFormState((p) => ({ ...p, bank_account_id: val || null }))}
+                    >
+                      <SelectTrigger className="h-8 text-xs mt-1 border-primary/30 bg-primary/[0.02]">
+                        <SelectValue placeholder="Selecciona o asocia cuenta..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none_acc" disabled className="text-xs italic text-muted-foreground">Ninguna cuenta</SelectItem>
+                        {bankAccounts.map((bank) => (
+                          <SelectItem key={bank.id} value={bank.id} className="text-xs">
+                            {bank.name} (${bank.balance.toFixed(2)})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label className="text-[11px] text-muted-foreground">Tipo de Gasto (DGII 606)</Label>
+                    <Select
+                      value={formState.goods_services_type ?? ""}
+                      onValueChange={(val) => setFormState((p) => ({ ...p, goods_services_type: val, category: ADMIN_CATEGORY_MAP[val] ?? p.category }))}
+                    >
+                      <SelectTrigger className="h-8 text-xs mt-1">
+                        <SelectValue placeholder="Clasificación DGII..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DGII_CATEGORIES.map((cat) => (
+                          <SelectItem key={cat.code} value={cat.code} className="text-xs">
+                            {cat.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Invoice Amounts & Dates Row */}
+              <div className="space-y-3 border-t border-border/60 pt-4">
+                <h4 className="font-semibold text-primary uppercase tracking-wider text-[10px]">Montos & Fechas</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-[11px] text-muted-foreground">Fecha Emisión</Label>
+                    <Input
+                      type="date"
+                      className="h-8 text-xs mt-1"
+                      value={formState.invoice_date ?? ""}
+                      onChange={(e) => setFormState((p) => ({ ...p, invoice_date: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] text-muted-foreground">Fecha Vencimiento</Label>
+                    <Input
+                      type="date"
+                      className="h-8 text-xs mt-1"
+                      value={formState.due_date ?? ""}
+                      onChange={(e) => setFormState((p) => ({ ...p, due_date: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] text-muted-foreground">Monto Total</Label>
+                    <Input
+                      type="number"
+                      className="h-8 text-xs mt-1 font-mono font-medium"
+                      value={formState.total_amount ?? 0}
+                      onChange={(e) => setFormState((p) => ({ ...p, total_amount: Number(e.target.value) }))}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] text-muted-foreground">ITBIS</Label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Input
+                        type="number"
+                        className="h-8 text-xs font-mono flex-1"
+                        value={formState.tax_amount ?? 0}
+                        onChange={(e) => setFormState((p) => ({ ...p, tax_amount: Number(e.target.value) }))}
+                      />
+                      <span className="text-[11px] text-muted-foreground font-medium whitespace-nowrap">
+                        {getItbisDetail(invoice).rate}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        <DialogFooter className="mt-4 gap-2">
+        <DialogFooter className="shrink-0 pt-3 border-t border-border/60 gap-2">
           <Button
             size="sm"
             variant="outline"
@@ -337,7 +377,7 @@ export function ReviewInvoiceDialog({
           >
             {saving ? (
               <>
-                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                 Guardando...
               </>
             ) : (
@@ -347,5 +387,6 @@ export function ReviewInvoiceDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
   );
 }

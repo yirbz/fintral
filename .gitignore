@@ -1,4 +1,6 @@
+# ─────────────────────────────────────────────
 # Python
+# ─────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
@@ -24,31 +26,65 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# Environment variables
+# ─────────────────────────────────────────────
+# Virtual environments
+# ─────────────────────────────────────────────
+venv/
+env/
+ENV/
+.venv/
+
+# ─────────────────────────────────────────────
+# Environment variables & secrets
+# ─────────────────────────────────────────────
 .env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*.local
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+secrets.yaml
+secrets.json
+credentials.json
+.credentials
 
+# ─────────────────────────────────────────────
 # Database
+# ─────────────────────────────────────────────
 *.db
+*.db.bak
 *.sqlite
 *.sqlite3
-invoices.db
 
-# Uploads (archivos temporales)
+# ─────────────────────────────────────────────
+# Uploads (runtime data, not source)
+# ─────────────────────────────────────────────
 uploads/*
 !uploads/.gitkeep
+backend/data/portal/
+backend/data/static/
 
-# IDE
+# ─────────────────────────────────────────────
+# IDE / Editor
+# ─────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.project
+.classpath
+.settings/
 
-# macOS
+# ─────────────────────────────────────────────
+# OS junk
+# ─────────────────────────────────────────────
 .DS_Store
 .DS_Store?
 ._*
@@ -56,57 +92,60 @@ uploads/*
 .Trashes
 ehthumbs.db
 Thumbs.db
+desktop.ini
 
+# ─────────────────────────────────────────────
 # Logs
+# ─────────────────────────────────────────────
 *.log
 logs/
 
-# Runtime
+# ─────────────────────────────────────────────
+# Testing & coverage
+# ─────────────────────────────────────────────
 .coverage
 .pytest_cache/
 .mypy_cache/
 .dmypy.json
 dmypy.json
-
-# Heroku
-.heroku/
-venv/
-
-# Virtual environments
-env/
-ENV/
-.venv/
-
-# Security
-*.pem
-*.key
-*.crt
-*.cer
-*.p12
-*.pfx
-
-# Secrets
-secrets.yaml
-secrets.json
-credentials.json
-.credentials
-
-# Docker
-docker-compose.override.yml
-
-# Testing
 htmlcov/
 .tox/
 .nox/
 *.cover
 .hypothesis/
 
-# Backup files
+# ─────────────────────────────────────────────
+# Docker
+# ─────────────────────────────────────────────
+docker-compose.override.yml
+
+# ─────────────────────────────────────────────
+# Heroku
+# ─────────────────────────────────────────────
+.heroku/
+
+# ─────────────────────────────────────────────
+# Backup / temp files
+# ─────────────────────────────────────────────
 *.bak
 *.backup
 *.old
+*.tmp
 
-# Opencode
+# ─────────────────────────────────────────────
+# One-off / throwaway scripts at repo or backend root
+# ─────────────────────────────────────────────
+backend/check_*.py
+backend/cleanup_*.py
+backend/list_all_*.py
+
+# Example / sample XMLs at repo root
+ejemplo_*.xml
+
+# ─────────────────────────────────────────────
+# AI coding assistants & agent config
+# (agent-local, never committed)
+# ─────────────────────────────────────────────
 .opencode/
 .codegraph/
 AGENTS.md
@@ -114,10 +153,20 @@ AGENTS.md
 .agents/
 .claude/
 .continue/
+.antigravitycli/
+.gemini/
 
-# Frontend (Next.js)
+# ─────────────────────────────────────────────
+# Frontend skills (gitignored per AGENTS.md)
+# ─────────────────────────────────────────────
+frontend/skills/
+
+# ─────────────────────────────────────────────
+# Frontend — Next.js / Node
+# ─────────────────────────────────────────────
 frontend/node_modules/
 frontend/.next/
+frontend/.next-root-owned*/
 frontend/coverage/
 frontend/dist/
 frontend/out/
@@ -125,13 +174,22 @@ frontend/.turbo/
 frontend/.cache/
 frontend/tsconfig.tsbuildinfo
 
-# Antigravity CLI
-.antigravitycli/
-
-#Docs
-docs/plans/
-
-# Project artifacts (not useful for dev or prod)
-architecture_diagram.png
+# ─────────────────────────────────────────────
+# Supabase local state
+# ─────────────────────────────────────────────
 supabase/.branches/
 supabase/.temp/
+
+# ─────────────────────────────────────────────
+# Docs — generated plans (not source)
+# ─────────────────────────────────────────────
+docs/plans/
+
+# ─────────────────────────────────────────────
+# Session recordings (opencode etc.)
+# ─────────────────────────────────────────────
+session-ses_*.md
+
+# Misc project artifacts
+# ─────────────────────────────────────────────
+architecture_diagram.png

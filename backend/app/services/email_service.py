@@ -287,3 +287,98 @@ def send_verification_email(email: str, full_name: str, code: str) -> bool:
     except Exception as e:
         logger.warning("Failed to send verification email to %s: %s", email, e)
         return False
+
+
+def send_upload_link_email(email: str, org_name: str, link: str, expires_in_hours: int, max_files: int) -> bool:
+    logger.info("Sending upload link email to %s, link: %s", email, link)
+    if not RESEND_API_KEY:
+        logger.warning("Resend not configured — skipping upload link email to %s. Link: %s", email, link)
+        return False
+    resend.api_key = RESEND_API_KEY
+    html = f"""<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+</head>
+<body style="margin:0;padding:0;background:#0a0a0b;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:15px;line-height:1.5">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0b;padding:32px 16px">
+<tr><td align="center">
+  <table width="480" cellpadding="0" cellspacing="0" style="background:#111113;border-radius:20px;overflow:hidden;border:1px solid #1e1e20;max-width:100%">
+    <tr>
+      <td style="padding:40px 40px 0" align="center">
+        <table cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="padding-right:10px;vertical-align:middle">
+              <table cellpadding="0" cellspacing="0">
+                <tr><td><div style="width:18px;height:3px;border-radius:2px;background:#38bdf8;margin-bottom:4px"></div></td></tr>
+                <tr><td><div style="width:13px;height:3px;border-radius:2px;background:#7dd3fc;margin-bottom:4px"></div></td></tr>
+                <tr><td><div style="width:8px;height:3px;border-radius:2px;background:#bae6fd"></div></td></tr>
+              </table>
+            </td>
+            <td style="vertical-align:middle">
+              <span style="font-size:20px;font-weight:600;color:#e4e4e7;letter-spacing:-0.3px">Fintral</span>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:32px 40px 28px" align="left">
+        <h1 style="color:#fafafa;font-size:22px;font-weight:600;margin:0 0 16px;letter-spacing:-0.3px">Solicitud de Facturas</h1>
+        <p style="color:#a1a1aa;margin:0 0 12px">Hola,</p>
+        <p style="color:#a1a1aa;margin:0 0 20px">La organización <strong style="color:#e4e4e7">{org_name}</strong> te ha solicitado subir facturas o documentos contables a través del siguiente enlace temporal:</p>
+        
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px">
+          <tr><td align="center">
+            <a href="{link}" style="background:#533afd;color:#ffffff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block">Subir Documentos</a>
+          </td></tr>
+        </table>
+
+        <div style="background:#1a1a1d;border-radius:10px;border:1px solid #252528;padding:16px;margin-bottom:20px;color:#8e8e93;font-size:13px">
+          <p style="margin:0 0 8px;color:#d1d1d6;font-weight:500">Detalles de la solicitud:</p>
+          <ul style="margin:0;padding-left:20px;line-height:1.6">
+            <li>Límite de archivos: <strong>{max_files} archivos</strong></li>
+            <li>Duración del enlace: <strong>{expires_in_hours} horas</strong></li>
+          </ul>
+        </div>
+
+        <p style="color:#52525b;font-size:13px;line-height:1.6;margin:0">Este enlace es seguro y no requiere inicio de sesión. Expirará automáticamente al cumplir el plazo o alcanzar el límite de archivos.</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="background:#0a0a0b;padding:18px 40px;border-top:1px solid #1a1a1c">
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="left" style="vertical-align:middle">
+              <table cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding-right:6px"><div style="width:12px;height:2px;border-radius:1px;background:#38bdf8;margin-bottom:2.5px"></div></td>
+                  <td style="padding-right:6px"><div style="width:9px;height:2px;border-radius:1px;background:#7dd3fc;margin-bottom:2.5px"></div></td>
+                  <td style="padding-right:6px"><div style="width:5px;height:2px;border-radius:1px;background:#bae6fd"></div></td>
+                </tr>
+              </table>
+            </td>
+            <td align="right" style="vertical-align:middle">
+              <span style="color:#3f3f46;font-size:12px">Portal de Carga Seguro</span>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+  <p style="color:#27272a;font-size:11px;margin:16px 0 0;text-align:center">Fintral &mdash; Santo Domingo, República Dominicana</p>
+</td></tr></table>
+</body>
+</html>"""
+    try:
+        response = resend.Emails.send({
+            "from": EMAIL_FROM,
+            "to": [email],
+            "subject": f"Carga de documentos solicitada por {org_name}",
+            "html": html,
+        })
+        logger.info("Upload link email sent to %s — id=%s", email, response.get("id"))
+        return True
+    except Exception as e:
+        logger.warning("Failed to send upload link email to %s: %s", email, e)
+        return False
+

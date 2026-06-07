@@ -17,7 +17,7 @@ from app.services.pipeline.ecf_parser import ecf_parser
 
 logger = logging.getLogger(__name__)
 
-AI_FALLBACK_STRATEGIES = {"image_ocr", "pdf_image"}
+AI_FALLBACK_STRATEGIES = {"image_ocr", "pdf_image", "pdf_text"}
 CONFIDENCE_THRESHOLD = 0.7
 LOW_CONFIDENCE_AI_THRESHOLD = 0.4
 
@@ -384,6 +384,21 @@ class PipelineOrchestrator:
                         data["total_amount"] = val
                 except Exception:
                     pass
+
+        # Credit note detection — OCR text patterns
+        if re.search(r"NOTA\s+DE\s+CR[EÉ]DITO|CREDIT\s+NOTE|e-CF\s*32", text, re.IGNORECASE):
+            data["is_credit_note"] = True
+        # NCF prefix B04 indicates a physical credit note
+        if re.search(r"\bB04\d{8,10}\b", text):
+            data["is_credit_note"] = True
+            if not data.get("invoice_number"):
+                ncf_b04 = re.search(r"\b(B04\d{8,10})\b", text)
+                if ncf_b04:
+                    data["invoice_number"] = ncf_b04.group(1)
+        # Detect reference to modified NCF (e.g. "NCF Modificado: E310000000001" or "Factura Original: B01000000001")
+        modified_ncf = re.search(r"(?:NCF\s*(?:Modificado|Original|Reference|Ref)|Factura\s*Original)\s*:?\s*([BE]\d{2}\d{8,10})", text, re.IGNORECASE)
+        if modified_ncf:
+            data["ncf_modified"] = modified_ncf.group(1)
 
         return data
 

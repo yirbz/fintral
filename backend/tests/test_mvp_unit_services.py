@@ -182,6 +182,7 @@ def test_statistics_service_returns_superset_contract():
             file_path="uploads/stats.csv",
             file_type="pdf",
             processed=True,
+            status="verified",
             total_amount=100.0,
             tax_amount=18.0,
             currency="USD",

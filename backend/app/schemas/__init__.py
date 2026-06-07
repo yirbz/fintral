@@ -2,7 +2,6 @@ from .requests import (
     BulkActionRequest,
     CancelInvoiceRequest,
     ChatRequest,
-    CreditNoteCreate,
     EvolutionWebhook,
     ExportRequest,
     ForgotPasswordRequest,
@@ -14,11 +13,9 @@ from .requests import (
     WebhookCreate,
     WebhookPushRequest,
 )
-
 __all__ = [
     "CancelInvoiceRequest",
     "ChatRequest",
-    "CreditNoteCreate",
     "SettingUpdate",
     "BulkActionRequest",
     "ExportRequest",

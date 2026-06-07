@@ -12,6 +12,8 @@ export interface InvoiceFilters {
   category?: string;
   payment_status?: string;
   payment_condition?: string;
+  status?: string;
+  include_drafts?: boolean;
 }
 
 export async function listInvoices(filters: InvoiceFilters = {}) {
@@ -26,6 +28,8 @@ export async function listInvoices(filters: InvoiceFilters = {}) {
   if (filters.category) params.set("category", filters.category);
   if (filters.payment_status) params.set("payment_status", filters.payment_status);
   if (filters.payment_condition) params.set("payment_condition", filters.payment_condition);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.include_drafts !== undefined) params.set("include_drafts", String(filters.include_drafts));
   const query = params.toString();
   return apiFetch<{ invoices: Invoice[]; total: number }>(`/invoices${query ? `?${query}` : ""}`);
 }
@@ -223,6 +227,22 @@ export async function exportInvoices(
   return res.blob();
 }
 
+/* ── Hard Delete (drafts only) ─────────────── */
+
+export async function hardDeleteInvoice(invoiceId: string) {
+  return apiFetch<{ message: string }>(`/invoices/${invoiceId}/hard-delete`, {
+    method: "DELETE",
+  });
+}
+
+export async function bulkHardDelete(invoiceIds: string[]) {
+  return apiFetch<{ message: string; count: number }>("/api/invoices/bulk-hard-delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ invoice_ids: invoiceIds }),
+  });
+}
+
 /* ── Trash / Soft Delete ───────────────────── */
 
 export async function listTrashedInvoices(skip = 0, limit = 100) {
@@ -281,6 +301,8 @@ export interface PendingUpload {
   processed: boolean;
   created_at: string;
   expires_at: string;
+  upload_link_id?: string | null;
+  file_url?: string | null;
 }
 
 export async function createPendingUpload(file: File) {
@@ -327,4 +349,81 @@ export async function verifyInvoice(invoiceId: string) {
   return apiFetch<{ message: string; invoice: Invoice }>(`/invoices/${invoiceId}/verify`, {
     method: "POST",
   });
+}
+
+/* ── Upload Links ─────────────────────────── */
+
+export interface UploadLink {
+  id: string;
+  tenant_id: string;
+  organization_id: string;
+  created_by_user_id: string | null;
+  client_email: string;
+  token: string;
+  max_files: number;
+  uploaded_count: number;
+  is_active: boolean;
+  created_at: string;
+  expires_at: string;
+}
+
+export async function listUploadLinks() {
+  return apiFetch<{ upload_links: UploadLink[] }>("/pending-uploads/links");
+}
+
+export async function createUploadLink(payload: {
+  client_email: string;
+  max_files: number;
+  expires_in_hours: number;
+}) {
+  return apiFetch<{ upload_link: UploadLink; url: string }>("/pending-uploads/links", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteUploadLink(linkId: string) {
+  return apiFetch<{ message: string }>(`/pending-uploads/links/${linkId}`, {
+    method: "DELETE",
+  });
+}
+
+export interface PublicLinkInfo {
+  organization_name: string;
+  max_files: number;
+  uploaded_count: number;
+  expires_at: string;
+  pending_uploads?: PendingUpload[];
+}
+
+export async function getPublicLinkInfo(token: string) {
+  return apiFetch<PublicLinkInfo>(`/pending-uploads/public/${token}`);
+}
+
+export async function createPublicPendingUpload(token: string, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<{ pending_upload: PendingUpload }>(`/pending-uploads/public/${token}/upload`, {
+    method: "POST",
+    body: formData,
+  });
+}
+export async function deletePublicPendingUpload(token: string, pendingId: string) {
+  return apiFetch<{ message: string }>(`/pending-uploads/public/${token}/${pendingId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function processPublicPendingUploads(token: string) {
+  return apiFetch<{ message: string; success_count: number; errors: string[] }>(
+    `/pending-uploads/public/${token}/process`,
+    {
+      method: "POST",
+    }
+  );
+}
+
+export async function getLinkInvoices(linkId: string) {
+  return apiFetch<{ invoices: Invoice[] }>(`/pending-uploads/links/${linkId}/invoices`);
 }

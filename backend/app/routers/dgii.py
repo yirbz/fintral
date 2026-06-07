@@ -1054,10 +1054,25 @@ async def dgii_export(
 
     as_xls = body.output_format == "xls"
 
+    modificatories: List[Invoice] = []
+    if body.format in ("dgii_606", "dgii_607"):
+        mod_query = ctx.db.query(Invoice).filter(
+            Invoice.tenant_id == ctx.tenant_id,
+            Invoice.organization_id == ctx.org_id,
+            Invoice.ecf_type.in_(["33", "34"]),
+            Invoice.status == "verified",
+            Invoice.is_deleted.is_(False),
+        )
+        if date_from:
+            mod_query = mod_query.filter(Invoice.invoice_date >= date_from)
+        if date_to:
+            mod_query = mod_query.filter(Invoice.invoice_date <= date_to)
+        modificatories = mod_query.all()
+
     try:
         if body.format == "dgii_606":
             if body.output_format == "dgii_txt":
-                output = export_service.export_dgii_606_txt(invoices, report_rnc=report_rnc, period=period)
+                output = export_service.export_dgii_606_txt(invoices, report_rnc=report_rnc, period=period, modificatories=modificatories)
                 filename = f"DGII_F_606_{report_rnc or 'RNC'}_{period}.txt"
                 return StreamingResponse(
                     io.BytesIO(output),
@@ -1075,7 +1090,7 @@ async def dgii_export(
 
         elif body.format == "dgii_607":
             if body.output_format == "dgii_txt":
-                output = export_service.export_dgii_607_txt(invoices, report_rnc=report_rnc, period=period)
+                output = export_service.export_dgii_607_txt(invoices, report_rnc=report_rnc, period=period, modificatories=modificatories)
                 filename = f"DGII_F_607_{report_rnc or 'RNC'}_{period}.txt"
                 return StreamingResponse(
                     io.BytesIO(output),
