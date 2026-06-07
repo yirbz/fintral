@@ -18,13 +18,11 @@ import {
   Globe,
   KeyRound,
   RefreshCw,
-  BadgeCheck,
 } from "lucide-react";
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
-import { billingApi, testAlanubeConnection, type VerificationStatus } from "@/lib/api/billing";
-import { CertificationWizard } from "@/components/billing/certification-wizard";
+import { billingApi, testAlanubeConnection } from "@/lib/api/billing";
 import { getStatistics } from "@/lib/api/statistics";
 import { getSettings, saveSettings } from "@/lib/api/settings";
 import type { StatisticsPayload } from "@/lib/types";
@@ -35,13 +33,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 const ECF_TYPE_MAP: Record<number, string> = {
@@ -130,22 +121,14 @@ function PlanUsageSection({ stats }: { stats: StatisticsPayload | undefined }) {
 }
 
 function CertificationSection() {
-  const queryClient = useQueryClient();
   const verQuery = useQuery({
     queryKey: ["billing", "verification-status"],
     queryFn: () => billingApi.getVerificationStatus(),
   });
-  const [wizardOpen, setWizardOpen] = useState(false);
 
   const isAuthorized = verQuery.data?.is_ecf_authorized;
   const taxId = verQuery.data?.tax_id;
   const orgName = verQuery.data?.name;
-  const verStatus = verQuery.data as VerificationStatus | undefined;
-
-  const handleWizardComplete = useCallback(() => {
-    setWizardOpen(false);
-    queryClient.invalidateQueries({ queryKey: ["billing", "verification-status"] });
-  }, [queryClient]);
 
   if (verQuery.isLoading) {
     return (
@@ -157,111 +140,91 @@ function CertificationSection() {
   }
 
   return (
-    <>
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center gap-2 mb-0.5">
-            <ShieldCheck className="size-4 text-primary" />
-            <p className="text-xs font-medium text-primary">DGII</p>
-          </div>
-          <CardTitle className="text-sm font-heading">Certificación Electrónica</CardTitle>
-          <CardDescription className="text-xs">
-            Estado de tu empresa como emisor electrónico ante la DGII.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className={cn(
-            "rounded-lg border p-4 flex items-start justify-between gap-4",
-            isAuthorized
-              ? "border-green-200 bg-green-50/50 dark:border-green-900/30 dark:bg-green-950/10"
-              : "border-amber-200 bg-amber-50/50 dark:border-amber-900/30 dark:bg-amber-950/10"
-          )}>
-            <div className="flex items-start gap-3">
-              {isAuthorized ? (
-                <CheckCircle2 className="size-5 text-green-600 shrink-0 mt-0.5" />
-              ) : (
-                <AlertTriangle className="size-5 text-amber-500 shrink-0 mt-0.5" />
-              )}
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium">{isAuthorized ? "Verificado" : "No verificado"}</p>
-                  <Badge variant={isAuthorized ? "default" : "outline"} className={cn(
-                    "text-[10px] h-4 px-1.5",
-                    isAuthorized ? "bg-green-500/10 text-green-600 border-green-500/20" : ""
-                  )}>
-                    {isAuthorized ? "emisor electrónico" : "pendiente"}
-                  </Badge>
-                </div>
-                {orgName && <p className="text-xs text-muted-foreground mt-0.5">{orgName}</p>}
-                {taxId && <p className="text-[11px] font-mono text-muted-foreground/60 mt-0.5">RNC {taxId}</p>}
-                {!isAuthorized && (
-                  <p className="text-[11px] text-muted-foreground mt-1.5">
-                    Completa la verificación para emitir comprobantes electrónicos (e-CF) tipo 31-34, 43-47.
-                  </p>
-                )}
-              </div>
-            </div>
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2 mb-0.5">
+          <ShieldCheck className="size-4 text-primary" />
+          <p className="text-xs font-medium text-primary">DGII</p>
+        </div>
+        <CardTitle className="text-sm font-heading">Certificación Electrónica</CardTitle>
+        <CardDescription className="text-xs">
+          Estado de tu empresa como emisor electrónico ante la DGII.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div className={cn(
+          "rounded-lg border p-4 flex items-start justify-between gap-4",
+          isAuthorized
+            ? "border-green-200 bg-green-50/50 dark:border-green-900/30 dark:bg-green-950/10"
+            : "border-amber-200 bg-amber-50/50 dark:border-amber-900/30 dark:bg-amber-950/10"
+        )}>
+          <div className="flex items-start gap-3">
             {isAuthorized ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-[11px] h-7 shrink-0"
-                disabled
-              >
-                Verificado
-              </Button>
+              <CheckCircle2 className="size-5 text-green-600 shrink-0 mt-0.5" />
             ) : (
-              <Button
-                variant="default"
-                size="sm"
-                className="text-[11px] h-7 shrink-0"
-                onClick={() => setWizardOpen(true)}
-              >
-                Configurar certificación
-              </Button>
+              <AlertTriangle className="size-5 text-amber-500 shrink-0 mt-0.5" />
             )}
-          </div>
-
-          <div className="rounded-lg border border-border/60 p-3">
-            <p className="text-xs font-medium text-foreground mb-2">Tipos de comprobantes disponibles</p>
-            <div className="flex flex-wrap gap-1.5">
-              {[31, 32, 33, 34, 43, 44, 45, 46, 47].map((type) => (
-                <Badge
-                  key={type}
-                  variant="outline"
-                  className={cn(
-                    "text-[10px] font-normal",
-                    isAuthorized ? "" : "opacity-40"
-                  )}
-                >
-                  E{type} — {ECF_TYPE_MAP[type]?.split(" ")[0] ?? type}
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium">{isAuthorized ? "Verificado" : "No verificado"}</p>
+                <Badge variant={isAuthorized ? "default" : "outline"} className={cn(
+                  "text-[10px] h-4 px-1.5",
+                  isAuthorized ? "bg-green-500/10 text-green-600 border-green-500/20" : ""
+                )}>
+                  {isAuthorized ? "emisor electrónico" : "pendiente"}
                 </Badge>
-              ))}
+              </div>
+              {orgName && <p className="text-xs text-muted-foreground mt-0.5">{orgName}</p>}
+              {taxId && <p className="text-[11px] font-mono text-muted-foreground/60 mt-0.5">RNC {taxId}</p>}
+              {!isAuthorized && (
+                <p className="text-[11px] text-muted-foreground mt-1.5">
+                  Completa la verificación para emitir comprobantes electrónicos (e-CF) tipo 31-34, 43-47.
+                </p>
+              )}
             </div>
           </div>
-        </CardContent>
-      </Card>
-
-      <Dialog open={wizardOpen} onOpenChange={setWizardOpen}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-sm">
-              <BadgeCheck className="size-4 text-primary" />
-              Certificación Electrónica DGII
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Registra tu empresa como emisor electrónico ante la Dirección General de Impuestos Internos.
-            </DialogDescription>
-          </DialogHeader>
-          {verStatus && (
-            <CertificationWizard
-              initialStatus={verStatus}
-              onComplete={handleWizardComplete}
-            />
+          {isAuthorized ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-[11px] h-7 shrink-0"
+              disabled
+            >
+              Verificado
+            </Button>
+          ) : (
+            <Button
+              variant="default"
+              size="sm"
+              className="text-[11px] h-7 shrink-0"
+              onClick={() => {
+                window.location.href = "/billing/settings";
+              }}
+            >
+              Configurar certificación
+            </Button>
           )}
-        </DialogContent>
-      </Dialog>
-    </>
+        </div>
+
+        <div className="rounded-lg border border-border/60 p-3">
+          <p className="text-xs font-medium text-foreground mb-2">Tipos de comprobantes disponibles</p>
+          <div className="flex flex-wrap gap-1.5">
+            {[31, 32, 33, 34, 43, 44, 45, 46, 47].map((type) => (
+              <Badge
+                key={type}
+                variant="outline"
+                className={cn(
+                  "text-[10px] font-normal",
+                  isAuthorized ? "" : "opacity-40"
+                )}
+              >
+                E{type} — {ECF_TYPE_MAP[type]?.split(" ")[0] ?? type}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
