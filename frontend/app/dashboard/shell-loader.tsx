@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { RealtimeProvider } from "@/hooks/use-realtime";
+import { OrgProvider } from "@/hooks/use-org";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
@@ -171,7 +172,8 @@ export function ShellLoader({ children }: { children: React.ReactNode }) {
 
   return (
     <RealtimeProvider>
-      <SidebarProvider
+      <OrgProvider>
+        <SidebarProvider
         style={
           {
             "--sidebar-width": "18rem",
@@ -187,6 +189,7 @@ export function ShellLoader({ children }: { children: React.ReactNode }) {
           </div>
         </SidebarInset>
       </SidebarProvider>
-    </RealtimeProvider>
+    </OrgProvider>
+  </RealtimeProvider>
   );
 }

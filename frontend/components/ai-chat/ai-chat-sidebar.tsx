@@ -36,7 +36,8 @@ export function AiChatSidebar() {
   // Focus input when sidebar opens
   useEffect(() => {
     if (open) {
-      setTimeout(() => inputRef.current?.focus(), 100);
+      const timer = setTimeout(() => inputRef.current?.focus(), 100);
+      return () => clearTimeout(timer);
     }
   }, [open]);
 

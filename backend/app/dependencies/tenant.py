@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import is_token_expired
 from app.database import get_db
-from app.dependencies.auth import FallbackUser, get_current_user_from_cookie
+from app.dependencies.auth import FallbackUser, get_current_user
 from app.models import Organization, Tenant, User, UserOrganization
 
 
@@ -54,7 +54,7 @@ async def require_tenant(
     2. org_id query parameter
     3. First org the user has access to (default)
     """
-    user = await get_current_user_from_cookie(request, db)
+    user = await get_current_user(request, db)
     if not user:
         token = request.cookies.get("access_token")
         if token and is_token_expired(token):
@@ -108,7 +108,18 @@ async def require_tenant(
             user_org = None
 
         if not user_org:
-            raise HTTPException(status_code=403, detail="Sin acceso a esta organización")
+            # Stale X-Organization-Id from localStorage — fallback to first available org
+            try:
+                user_org = (
+                    db.query(UserOrganization)
+                    .filter(UserOrganization.user_id == user.id)
+                    .first()
+                )
+            except OperationalError:
+                user_org = None
+            if not user_org:
+                raise HTTPException(status_code=403, detail="Sin acceso a ninguna organización")
+            org_id = user_org.organization_id
     else:
         # Fallback: first org the user has access to
         try:
@@ -162,7 +173,7 @@ async def optional_tenant(
 ) -> Optional[TenantContext]:
     """Like require_tenant but returns None instead of 401 for unauthenticated requests.
     Used for pages that show different content for logged-in vs anonymous users."""
-    user = await get_current_user_from_cookie(request, db)
+    user = await get_current_user(request, db)
     if not user:
         return None
 
