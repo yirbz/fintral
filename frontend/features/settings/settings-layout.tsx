@@ -13,6 +13,7 @@ import {
   CreditCard,
   Globe,
   KeyRound,
+  Users,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useSession } from "@/hooks/use-session";
@@ -27,6 +28,7 @@ type SectionDef = {
 const SECTIONS: SectionDef[] = [
   { id: "profile", label: "Perfil", icon: User },
   { id: "organization", label: "Organización", icon: Building2 },
+  { id: "team", label: "Equipo", icon: Users },
   { id: "preferences", label: "Preferencias", icon: Settings2 },
   { id: "password", label: "Contraseña", icon: KeyRound },
   { id: "notifications", label: "Notificaciones", icon: Bell },
