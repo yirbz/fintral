@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { bulkPermanentDelete as permanentDeleteApi, cancelInvoice, deleteInvoice, getInvoice, getOptimizedImage, processInvoice, restoreInvoice, uncancelInvoice, updateInvoice } from "@/lib/api/invoices";
 import { getBankAccounts } from "@/lib/api/payments";
 import { formatDate, getItbisDetail } from "@/lib/utils/date";
-import type { Invoice } from "@/lib/types";
+import type { ChildModificatory, Invoice } from "@/lib/types";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -394,7 +394,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
 
   const invoice = query.data!;
   const isTrashed = !!invoice.deleted_at;
-  const isLocked = invoice.is_electronic || invoice.status === "verified";
+  const isLocked = !!invoice.original_xml_data || invoice.status === "verified";
   const discardChanges = () => {
     let pm = null;
     let wr = false;
@@ -595,7 +595,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
             <div className="text-xs text-muted-foreground">
               <span className="font-semibold text-foreground">Datos fiscales bloqueados</span>
               {" — "}
-              {invoice.is_electronic
+              {invoice.original_xml_data
                 ? "Esta factura electrónica (e-CF) está respaldada por un XML firmado digitalmente. Los valores extraídos del comprobante son inmutables."
                 : "Esta factura ya fue verificada. Los datos fiscales están bloqueados para preservar la integridad del reporte."}
               {" "}Puedes modificar la categoría, descripción y metadatos operativos.
@@ -1287,8 +1287,89 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                 <span className="font-medium text-foreground">Total</span>
                 <span className="font-mono tabular-nums font-semibold text-foreground">{amount}</span>
               </div>
+              {invoice.child_modificatories && invoice.child_modificatories.length > 0 && (
+                <>
+                  <div className="h-px bg-border" />
+                  <div className="flex justify-between py-1">
+                    <span className="text-muted-foreground">Ajustes aplicados</span>
+                    <span className="font-mono tabular-nums text-xs text-muted-foreground">
+                      {invoice.child_modificatories.reduce((sum: number, adj: ChildModificatory) => {
+                        const sign = adj.ecf_type === "34" ? -1 : adj.ecf_type === "33" ? 1 : 0;
+                        return sum + sign * Math.abs(adj.total_amount || 0);
+                      }, 0) > 0 ? "+" : ""}
+                      {new Intl.NumberFormat("es-DO", { style: "currency", currency: invoice.currency || "DOP" }).format(
+                        invoice.child_modificatories.reduce((sum: number, adj: ChildModificatory) => {
+                          const sign = adj.ecf_type === "34" ? -1 : adj.ecf_type === "33" ? 1 : 0;
+                          return sum + sign * Math.abs(adj.total_amount || 0);
+                        }, 0)
+                      )}
+                    </span>
+                  </div>
+                  <div className="h-px bg-border" />
+                  <div className="flex justify-between py-1">
+                    <span className="font-medium text-foreground">Balance actual</span>
+                    <span className="font-mono tabular-nums font-semibold text-foreground">
+                      {new Intl.NumberFormat("es-DO", { style: "currency", currency: invoice.currency || "DOP" }).format(
+                        (invoice.total_amount || 0) + invoice.child_modificatories.reduce((sum: number, adj: ChildModificatory) => {
+                          const sign = adj.ecf_type === "34" ? -1 : adj.ecf_type === "33" ? 1 : 0;
+                          return sum + sign * Math.abs(adj.total_amount || 0);
+                        }, 0)
+                      )}
+                    </span>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
+
+          {/* ── Ajustes Aplicados (Notas de Crédito/Débito) ── */}
+          {invoice.child_modificatories && invoice.child_modificatories.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Ajustes aplicados</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-2">
+                {invoice.child_modificatories.map((adj: ChildModificatory) => {
+                  const isCredit = adj.ecf_type === "34" || (adj.invoice_number || "").startsWith("B04");
+                  return (
+                    <div key={adj.id} className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/20 p-3 text-xs">
+                      <div className="flex items-center gap-2">
+                        {isCredit ? (
+                          <MinusCircle className="size-4 text-red-500 shrink-0" />
+                        ) : (
+                          <PlusCircle className="size-4 text-amber-500 shrink-0" />
+                        )}
+                        <div>
+                          <span className="font-medium text-foreground">
+                            {isCredit ? "Nota de Crédito" : "Nota de Débito"}
+                          </span>
+                          <span className="text-muted-foreground ml-1.5">
+                            {adj.invoice_number}
+                          </span>
+                          {adj.modification_reason && (
+                            <span className="text-muted-foreground/60 ml-1.5 text-[10px]">
+                              · Razón {adj.modification_reason}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {adj.invoice_date && (
+                          <span className="text-muted-foreground text-[10px]">
+                            {new Date(adj.invoice_date + "T12:00:00").toLocaleDateString("es-DO", { day: "numeric", month: "short" })}
+                          </span>
+                        )}
+                        <span className={`font-mono tabular-nums font-medium ${isCredit ? "text-red-600" : "text-amber-600"}`}>
+                          {isCredit ? "-" : "+"}
+                          {new Intl.NumberFormat("es-DO", { style: "currency", currency: invoice.currency || "DOP" }).format(Math.abs(adj.total_amount || 0))}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
 
           {/* ── Metadatos Operativos ── */}
           <Card>

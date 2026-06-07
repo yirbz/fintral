@@ -8,7 +8,8 @@ import {
   Calendar,
   AlertCircle,
   TrendingDown,
-  ArrowUpRight
+  ArrowUpRight,
+  FileSpreadsheet
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -19,11 +20,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { ReportPreviewDialog } from "@/components/report-preview-dialog";
 import type { Invoice } from "@/lib/types";
 
 export default function CxpPage() {
   const queryClient = useQueryClient();
   const { formatDate, formatCurrency } = useUserPreferences();
+  const [isReportOpen, setIsReportOpen] = useState(false);
 
   // Queries
   const { data: summary, isLoading, error } = useQuery({
@@ -147,6 +150,17 @@ export default function CxpPage() {
             <p className="text-xs text-muted-foreground mt-0.5">
               Gestiona tus deudas comerciales, plazos de proveedores e inventario multibanco.
             </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setIsReportOpen(true)}
+              className="h-8 text-xs gap-1.5 font-medium border-primary/20 hover:border-primary hover:bg-primary/5 text-primary"
+            >
+              <FileSpreadsheet className="size-3.5" />
+              Vista Previa & Exportar
+            </Button>
           </div>
         </div>
       </div>
@@ -348,6 +362,12 @@ export default function CxpPage() {
           </Card>
         </div>
       </div>
+
+      <ReportPreviewDialog
+        isOpen={isReportOpen}
+        onClose={() => setIsReportOpen(false)}
+        reportType="ap"
+      />
     </div>
   );
 }

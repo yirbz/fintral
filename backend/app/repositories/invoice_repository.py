@@ -58,12 +58,19 @@ class InvoiceRepository:
         quality: Optional[str] = None,
         payment_status: Optional[str] = None,
         payment_condition: Optional[str] = None,
+        status: Optional[str] = None,
+        include_drafts: bool = False,
     ) -> tuple[list[Invoice], int]:
         query = db.query(Invoice).filter(
             Invoice.tenant_id == tenant_id,
             Invoice.organization_id == org_id,
             Invoice.is_deleted.is_(False),
         )
+
+        if status:
+            query = query.filter(Invoice.status == status)
+        elif not include_drafts:
+            query = query.filter(Invoice.status != "draft")
 
         if transaction_type:
             query = query.filter(Invoice.transaction_type == transaction_type)
@@ -269,6 +276,7 @@ class InvoiceRepository:
             Invoice.is_deleted.is_(False),
             Invoice.cancelled_at.is_(None),
             Invoice.is_electronic.is_(False),
+            Invoice.status != "draft",
         )
 
         # Override: IDs explícitos tienen prioridad máxima
@@ -335,6 +343,7 @@ class InvoiceRepository:
             Invoice.organization_id == org_id,
             Invoice.is_deleted.is_(False),
             Invoice.processed.is_(True),
+            Invoice.status != "draft",
         )
         if transaction_type:
             query = query.filter(Invoice.transaction_type == transaction_type)

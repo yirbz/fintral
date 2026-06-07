@@ -67,8 +67,13 @@ export interface Invoice {
   rnc_comprador: string | null;
   is_electronic: boolean;
   ingestion_source: string | null;
-  status: string; // draft | verified | voided
+  status: string; // draft | pending_review | verified | voided
   parent_invoice_id: string | null;
+  modified_ncf: string | null;
+  modification_reason: string | null;
+  is_modificatory: boolean;
+  modificatory_sign: number;
+  child_modificatories: ChildModificatory[];
 
   tags: string[];
   internal_notes: string | null;
@@ -190,4 +195,29 @@ export interface RealtimeEvent {
   message: string;
   timestamp: string;
   data?: Record<string, unknown>;
+}
+
+export interface ChildModificatory {
+  id: string;
+  invoice_number: string | null;
+  ecf_type: string | null;
+  total_amount: number | null;
+  invoice_date: string | null;
+  modification_reason: string | null;
+  is_modificatory: boolean;
+  status: string;
+  created_at: string | null;
+}
+
+export interface MatchCandidate {
+  invoice_id: string;
+  invoice_number: string | null;
+  vendor_name: string | null;
+  vendor_tax_id: string | null;
+  invoice_date: string | null;
+  total_amount: number | null;
+  tax_amount: number | null;
+  currency: string | null;
+  match_score: number;
+  match_reasons: string[];
 }

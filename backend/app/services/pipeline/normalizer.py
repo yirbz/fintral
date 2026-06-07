@@ -3,7 +3,6 @@ import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
-from app.utils.dates import utc_today
 
 CANONICAL_SCHEMA = {
     "vendor_name": str,
@@ -32,6 +31,9 @@ CANONICAL_SCHEMA = {
     "source_type": str,
     "ecf_type": Optional[str],
     "audit_warnings": list,
+    "is_credit_note": Optional[bool],
+    "indicador_nota_credito": Optional[str],
+    "motivo_modificacion": Optional[str],
 
     "eNCF": Optional[str],
     "tipo_pago": Optional[str],
@@ -126,6 +128,9 @@ class Normalizer:
             "source_type": source_type,
             "ecf_type": self._clean_string(data.get("ecf_type")),
             "rnc_comprador": self._normalize_rnc(data.get("rnc_comprador")),
+            "is_credit_note": bool(data.get("is_credit_note")) if data.get("is_credit_note") is not None else None,
+            "indicador_nota_credito": self._clean_string(data.get("indicador_nota_credito")),
+            "motivo_modificacion": self._clean_string(data.get("motivo_modificacion")),
             "vendor_tax_id_comprador": self._normalize_rnc(data.get("vendor_tax_id_comprador")),
 
             # Emisor extra fields

@@ -8,6 +8,7 @@ Usage:
 from .dgii_submission import DgiiSubmission
 from .invoice_dgii_status import InvoiceDgiiStatus
 from .invoice import Invoice
+# from .credit_note import CreditNote  # DEPRECATED — unified into Invoice model
 from .notification import Notification
 from .pending_upload import PendingUpload
 from .organization import Organization
@@ -26,9 +27,11 @@ from .bank_account import BankAccount
 from .client import Client
 from .product import Product
 from .ecf_sequence import EcfSequence
+from .ledger_entry import LedgerEntry
 from .subscription_plan import SubscriptionPlan
 from .organization_subscription import OrganizationSubscription
 from .usage_record import UsageRecord, UsageAlert
+from .upload_link import UploadLink
 
 __all__ = [
     "AccountMapping",
@@ -39,6 +42,7 @@ __all__ = [
     "EcfSequence",
     "ExportProfile",
     "InvoiceDgiiStatus",
+    "LedgerEntry",
     "Invoice",
     "IntegrationConnection",
     "Invitation",
@@ -58,4 +62,5 @@ __all__ = [
     "OrganizationSubscription",
     "UsageRecord",
     "UsageAlert",
+    "UploadLink",
 ]

@@ -10,7 +10,11 @@ import PyPDF2
 from io import BytesIO
 from typing import Optional
 from app.services.cost_control import CostControlService
-from app.config import OPENAI_API_KEY, OLLAMA_HOST, OLLAMA_MODEL, GEMINI_API_URL, GEMINI_MODEL, SUPABASE_URL
+from app.config import OPENAI_API_KEY, AI_MODEL_NAME, SUPABASE_URL
+from app.services.llm_processor import OLLAMA_HOST, OLLAMA_MODEL
+
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+GEMINI_MODEL = AI_MODEL_NAME
 from app.database import SessionLocal
 from app.models import Setting, UserSetting
 from app.utils.dates import utc_now, utc_today
@@ -251,7 +255,7 @@ class OpenAIInvoiceProcessor:
             - Si la imagen es muy borrosa o ilegible (no puedes leer la mayoría del texto), añade "Documento poco legible".
             - Si NO hay NCF visible en absoluto en la factura, añade "Falta NCF".
             - Si el ITBIS calculado no coincide con el 18% del monto gravable, añade "Posible error en ITBIS".
-            - Si la fecha de emisión es muy antigua (> 6 meses desde la fecha actual), añade "Factura antigua".
+            - Si la fecha de emisión es del año anterior o más antigua, añade "Factura antigua".
             - Si ves propinas o cargos no deducibles (alcohol, entretenimiento), menciónalo.
 
             PROHIBIDO TERMINANTEMENTE — NUNCA añadas estos warnings:
@@ -890,7 +894,7 @@ class OpenAIInvoiceProcessor:
             - Si la imagen es muy borrosa o ilegible, añade "Documento poco legible".
             - Si NO hay NCF visible en absoluto, añade "Falta NCF".
             - Si el ITBIS calculado no coincide con el 18% del monto gravable, añade "Posible error en ITBIS".
-            - Si la fecha de emisión es muy antigua (> 6 meses desde la fecha actual), añade "Factura antigua".
+            - Si la fecha de emisión es del año anterior o más antigua, añade "Factura antigua".
             - Si ves propinas o cargos no deducibles (alcohol, entretenimiento), menciónalo.
 
             PROHIBIDO TERMINANTEMENTE — NUNCA añadas estos warnings:

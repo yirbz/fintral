@@ -17,6 +17,7 @@ class Invoice(Base):
         Index("ix_invoices_vendor_date", "tenant_id", "organization_id", "vendor_tax_id", "invoice_date"),
         Index("ix_invoices_ncf", "tenant_id", "organization_id", "invoice_number"),
         Index("ix_invoices_source", "tenant_id", "organization_id", "source_type"),
+        Index("ix_invoices_parent", "parent_invoice_id"),
     )
 
     id = Column(GUID, primary_key=True, default=uuid7)
@@ -65,15 +66,19 @@ class Invoice(Base):
     source_type = Column(String(20))  # xml, pdf_text, pdf_image, image_ocr, image_ai, xlsx, manual
     quality_report = Column(Text, nullable=True)  # JSON with quality analysis
     original_xml_data = Column(Text)  # Raw XML content for e-CF invoices
-    ecf_type = Column(String(2))  # e-CF type code (31-47)
+    ecf_type = Column(String(2))  # e-CF type code (31-47, 33=debit, 34=credit)
     batch_id = Column(GUID, nullable=True)  # Groups XLSX bulk imports
 
     # Hybrid ingestion layer (e-CF vs physical NCF)
     rnc_comprador = Column(String, nullable=True)  # Buyer RNC (DGII comprador)
     is_electronic = Column(Boolean, default=False, nullable=False)  # True for e-CF, False for physical NCF
     ingestion_source = Column(String(20), nullable=True)  # xml_upload, whatsapp_ocr, manual_entry, email_api
-    status = Column(String(20), default="draft", nullable=False, index=True)  # draft, verified, voided
-    parent_invoice_id = Column(GUID, ForeignKey("invoices.id"), nullable=True, index=True)
+    status = Column(String(20), default="draft", nullable=False, index=True)  # draft, pending_review, verified, voided
+
+    # Comprobantes modificatorios (Notas de Crédito/Débito — es同一 tabla)
+    parent_invoice_id = Column(GUID, ForeignKey("invoices.id", ondelete="RESTRICT"), nullable=True, index=True)
+    modified_ncf = Column(String, nullable=True, index=True)  # NCF/e-CF de la factura padre
+    modification_reason = Column(String(2), nullable=True)  # DGII codes 01-10
 
     # Operational metadata
     accounting_account_id = Column(String, nullable=True)
@@ -85,6 +90,7 @@ class Invoice(Base):
     due_date = Column(DateTime(timezone=True), nullable=True)
     payment_date = Column(DateTime(timezone=True), nullable=True)
     bank_account_id = Column(GUID, ForeignKey("bank_accounts.id", ondelete="SET NULL"), nullable=True)
+    upload_link_id = Column(GUID, ForeignKey("upload_links.id", ondelete="SET NULL"), nullable=True, index=True)
 
 
     # Metadatos
@@ -103,8 +109,30 @@ class Invoice(Base):
 
     # Relationships
     organization = relationship("Organization", back_populates="invoices")
-    parent_invoice = relationship("Invoice", remote_side="Invoice.id", backref="child_invoices")
+    parent_invoice = relationship("Invoice", remote_side=[id], back_populates="child_invoices", lazy="select")
+    child_invoices = relationship("Invoice", back_populates="parent_invoice", lazy="select")
     bank_account = relationship("BankAccount", lazy="select")
+
+    @property
+    def is_modificatory(self) -> bool:
+        """True if this invoice is a credit or debit note."""
+        if self.ecf_type in ("33", "34"):
+            return True
+        ncf = (self.invoice_number or "").strip().upper()
+        if ncf.startswith("B03") or ncf.startswith("B04"):
+            return True
+        if ncf.startswith("E33") or ncf.startswith("E34"):
+            return True
+        return False
+
+    @property
+    def modificatory_sign(self) -> int:
+        """Financial sign: -1 for credit notes, +1 for debit notes, 0 for regular invoices."""
+        if self.ecf_type == "34" or (self.invoice_number or "").strip().upper().startswith(("B04", "E34")):
+            return -1
+        if self.ecf_type == "33" or (self.invoice_number or "").strip().upper().startswith(("B03", "E33")):
+            return 1
+        return 0
 
     def to_dict(self):
         file_url = None
@@ -113,6 +141,24 @@ class Invoice(Base):
             file_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{self.file_path.lstrip('/')}"
             if self.processed_path:
                 processed_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{self.processed_path.lstrip('/')}"
+
+        children = []
+        if self.child_invoices:
+            for child in self.child_invoices:
+                if not child.is_deleted:
+                    children.append({
+                        "id": str(child.id),
+                        "invoice_number": child.invoice_number,
+                        "ecf_type": child.ecf_type,
+                        "total_amount": child.total_amount,
+                        "invoice_date": child.invoice_date.isoformat() if child.invoice_date else None,
+                        "modification_reason": child.modification_reason,
+                        "is_modificatory": child.is_modificatory,
+                        "modificatory_sign": child.modificatory_sign,
+                        "status": child.status,
+                        "created_at": child.created_at.isoformat() if child.created_at else None,
+                    })
+
         return {
             "id": str(self.id),
             "filename": self.filename,
@@ -154,6 +200,11 @@ class Invoice(Base):
             "ingestion_source": self.ingestion_source,
             "status": self.status,
             "parent_invoice_id": str(self.parent_invoice_id) if self.parent_invoice_id else None,
+            "modified_ncf": self.modified_ncf,
+            "modification_reason": self.modification_reason,
+            "is_modificatory": self.is_modificatory,
+            "modificatory_sign": self.modificatory_sign,
+            "child_modificatories": children,
             "accounting_account_id": self.accounting_account_id,
             "cost_center_id": self.cost_center_id,
             "tags": json.loads(self.tags) if self.tags else [],
@@ -164,6 +215,7 @@ class Invoice(Base):
             "payment_date": self.payment_date.isoformat() if self.payment_date else None,
             "bank_account_id": str(self.bank_account_id) if self.bank_account_id else None,
             "batch_id": str(self.batch_id) if self.batch_id else None,
+            "upload_link_id": str(self.upload_link_id) if self.upload_link_id else None,
             "is_deleted": self.is_deleted,
             "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
             "cancelled_at": self.cancelled_at.isoformat() if self.cancelled_at else None,

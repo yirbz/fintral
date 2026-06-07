@@ -592,6 +592,7 @@ class TestSubmissionReportSnapshot:
                 transaction_type="expense",
                 invoice_date=utc_now(),
                 processed=True,
+                status="verified",
                 cancelled_at=utc_now(),
                 cancellation_type="01",
             )

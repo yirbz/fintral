@@ -2,12 +2,13 @@
 
 import { Suspense } from "react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Activity,
   ChartPie,
   Clock,
   FileText,
+  LifeBuoy,
   Loader2,
   LogOut,
   Search,
@@ -21,7 +22,7 @@ import { useState, useMemo } from "react";
 
 import { useSession } from "@/hooks/use-session";
 import { useRealtime } from "@/hooks/use-realtime";
-import { Input } from "@/components/ui/input";
+import { GlobalSearch } from "@/components/global-search";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -44,6 +45,7 @@ const NAV_ITEMS = [
   { href: "/dashboard/upload", label: "Pipeline", icon: Upload },
   { href: "/dashboard/reports", label: "Analítica", icon: ChartPie },
   { href: "/dashboard/history", label: "Historial", icon: Clock },
+  { href: "/dashboard/help", label: "Ayuda", icon: LifeBuoy },
   { href: "/dashboard/settings", label: "Ajustes", icon: Settings }
 ];
 
@@ -59,9 +61,7 @@ function getInitials(name: string): string {
 function SidebarInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const search = useSearchParams();
   const { connected } = useRealtime();
-  const [term, setTerm] = useState(search.get("search") ?? "");
   const session = useSession();
 
   const title = useMemo(() => {
@@ -86,6 +86,7 @@ function SidebarInner({ children }: { children: React.ReactNode }) {
 
   return (
     <ShadcnSidebar.SidebarProvider defaultOpen={true}>
+      <GlobalSearch />
       <ShadcnSidebar.Sidebar collapsible="icon" className="border-r-0">
         {/* Logo */}
         <ShadcnSidebar.SidebarHeader className="px-4 pt-5 pb-4">
@@ -163,24 +164,20 @@ function SidebarInner({ children }: { children: React.ReactNode }) {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <div className="relative hidden items-center sm:flex">
-                <Search className="absolute left-3 size-3.5 text-muted-foreground" />
-                <Input
-                  className="h-8 w-56 rounded-lg border-border bg-muted/50 pl-9 pr-12 text-xs placeholder:text-muted-foreground/60"
-                  placeholder="Buscar..."
-                  value={term}
-                  onChange={(event) => setTerm(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && term.trim()) {
-                      router.push(`/dashboard/invoices?search=${encodeURIComponent(term.trim())}`);
-                    }
-                  }}
-                />
-                <div className="absolute right-2 flex items-center gap-0.5 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              <button
+                type="button"
+                onClick={() => router.push("/dashboard/search")}
+                className="relative hidden items-center sm:flex cursor-pointer"
+              >
+                <Search className="absolute left-3 size-3.5 text-muted-foreground pointer-events-none" />
+                <div className="h-8 w-56 rounded-lg border border-border bg-muted/50 pl-9 pr-12 text-xs flex items-center text-muted-foreground/60 pointer-events-none text-left">
+                  Buscar...
+                </div>
+                <div className="absolute right-2 flex items-center gap-0.5 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground pointer-events-none">
                   <Command className="size-2.5" />
                   <span>K</span>
                 </div>
-              </div>
+              </button>
 
               <Badge variant="secondary" className="gap-1.5 font-normal">
                 <span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground/40"}`} />

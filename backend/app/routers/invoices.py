@@ -25,7 +25,6 @@ from app.repositories import InvoiceRepository
 from app.schemas import (
     BulkActionRequest,
     CancelInvoiceRequest,
-    CreditNoteCreate,
     ExportRequest,
     ManualInvoiceCreate,
     WebhookPushRequest,
@@ -588,6 +587,8 @@ async def get_invoices(
     quality: Optional[str] = None,
     payment_status: Optional[str] = None,
     payment_condition: Optional[str] = None,
+    status: Optional[str] = None,
+    include_drafts: bool = False,
     ctx: TenantContext = Depends(require_tenant),
 ):
     processed_bool = None
@@ -607,6 +608,8 @@ async def get_invoices(
         quality=quality,
         payment_status=payment_status,
         payment_condition=payment_condition,
+        status=status,
+        include_drafts=include_drafts,
     )
 
     return {
@@ -660,6 +663,47 @@ async def get_invoice(
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
     return _serialize_invoices_with_dgii_status(ctx, [invoice])[0]
+
+
+@router.get("/invoices/{invoice_id}/file")
+async def get_invoice_file(
+    invoice_id: str,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    invoice = invoice_repo.get_including_trashed(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+
+    if not invoice.file_path:
+        raise HTTPException(status_code=404, detail="Archivo no adjunto o sin ruta de almacenamiento")
+
+    from app.services.supabase_storage import download_file
+
+    file_data = download_file(invoice.file_path)
+    if not file_data:
+        raise HTTPException(status_code=404, detail="No se pudo descargar el archivo del almacenamiento")
+
+    content_type = "application/octet-stream"
+    ext = os.path.splitext(invoice.filename or "")[1].lower()
+    if ext == ".pdf":
+        content_type = "application/pdf"
+    elif ext in [".jpg", ".jpeg"]:
+        content_type = "image/jpeg"
+    elif ext == ".png":
+        content_type = "image/png"
+    elif ext == ".xml":
+        content_type = "application/xml"
+    elif ext in [".xlsx", ".xls"]:
+        content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+    return StreamingResponse(
+        io.BytesIO(file_data),
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f"inline; filename={invoice.filename or 'document'}"
+        }
+    )
+
 
 
 @router.get("/invoice/{invoice_id}/optimized-image")
@@ -766,30 +810,6 @@ def revalidate_invoice(invoice: Invoice, db: Session, org_rnc: Optional[str] = N
 
     # Run validation
     validated = post_extraction_validator.validate(data, org_rnc=org_rnc)
-
-    # Auto-link parent invoice
-    ncf_code = ncf_clean[1:3] if (ncf_clean and len(ncf_clean) >= 3 and ncf_clean[1:3].isdigit()) else None
-    if invoice.ecf_type in ("33", "34") or ncf_code in ("03", "04"):
-        if ncf_modified:
-            original = (
-                db.query(Invoice)
-                .filter(
-                    Invoice.tenant_id == invoice.tenant_id,
-                    Invoice.organization_id == invoice.organization_id,
-                    Invoice.invoice_number == ncf_modified,
-                    Invoice.is_deleted.is_(False),
-                )
-                .first()
-            )
-            if original:
-                invoice.parent_invoice_id = original.id
-            else:
-                invoice.parent_invoice_id = None
-        else:
-            invoice.parent_invoice_id = None
-    else:
-        invoice.parent_invoice_id = None
-
     return validated.get("audit_warnings", [])
 
 
@@ -804,7 +824,7 @@ async def update_invoice(
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
     # Guard Clause of Inmutabilidad for e-CF
-    is_locked = invoice.is_electronic or invoice.status == "verified"
+    is_locked = (invoice.is_electronic and bool(invoice.original_xml_data)) or invoice.status == "verified"
     attempted_fiscal = FISCAL_CORE_FIELDS & invoice_data.keys()
 
     if is_locked and attempted_fiscal:
@@ -999,7 +1019,7 @@ async def verify_invoice(
     invoice = invoice_repo.get(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
-    if invoice.is_electronic:
+    if invoice.is_electronic and bool(invoice.original_xml_data):
         raise HTTPException(
             status_code=400, detail="Las facturas electrónicas se verifican automáticamente al procesarse"
         )
@@ -1032,65 +1052,6 @@ async def verify_invoice(
 
     invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
     return {"message": "Factura verificada exitosamente", "invoice": invoice.to_dict()}
-
-
-@router.post("/invoices/{invoice_id}/credit-note")
-async def create_credit_note(
-    invoice_id: str,
-    payload: CreditNoteCreate,
-    ctx: TenantContext = Depends(require_tenant),
-):
-    """Create a credit/debit note linked to a verified or electronic invoice."""
-    original = invoice_repo.get(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
-    if not original:
-        raise HTTPException(status_code=404, detail="Factura original no encontrada")
-
-    credit = Invoice(
-        tenant_id=ctx.tenant_id,
-        organization_id=ctx.org_id,
-        filename=f"credit_note_{original.invoice_number}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
-        file_type="manual",
-        vendor_name=original.vendor_name,
-        invoice_number=f"NC-{original.invoice_number}",
-        invoice_date=datetime.now(),
-        total_amount=payload.total_amount,
-        tax_amount=payload.tax_amount,
-        currency=original.currency,
-        transaction_type="expense" if original.transaction_type == "income" else "income",
-        category=original.category,
-        description=payload.description or f"Nota de Crédito — {original.invoice_number}",
-        vendor_tax_id=original.vendor_tax_id,
-        vendor_country=original.vendor_country,
-        line_items_data=json.dumps(payload.line_items, ensure_ascii=False) if payload.line_items else None,
-        source_type="manual",
-        is_electronic=False,
-        status="verified",
-        parent_invoice_id=original.id,
-        processed=True,
-        confidence_score=1.0,
-        goods_services_type=original.goods_services_type,
-    )
-    invoice_repo.create(ctx.db, credit)
-    ctx.db.flush()
-
-    record(
-        db=ctx.db,
-        tenant_id=ctx.tenant_id,
-        organization_id=ctx.org_id,
-        organization_name=ctx.organization.name,
-        actor_id=str(ctx.user.id),
-        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
-        actor_email=ctx.user.email,
-        action="credit_note.created",
-        resource_type="invoice",
-        resource_id=str(credit.id),
-        summary=f"Nota de Crédito creada para factura '{original.invoice_number}'",
-        details=f"Monto: {payload.total_amount} {original.currency}. Motivo: {payload.motivo or 'N/A'}",
-        snapshot_before=None,
-        snapshot_after=_invoice_snapshot(credit),
-    )
-
-    return {"message": "Nota de Crédito creada exitosamente", "invoice": credit.to_dict()}
 
 
 @router.post("/invoices")
@@ -1642,6 +1603,115 @@ async def bulk_permanent_delete_invoices(
         "message": f"{len(invoices)} factura(s) marcada(s) como eliminada(s). Los registros se conservan en BD para cumplimiento DGII.{preserved_msg}",
         "count": len(invoices),
     }
+
+
+@router.delete("/invoices/{invoice_id}/hard-delete")
+async def hard_delete_draft_invoice(
+    invoice_id: str,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    invoice = ctx.db.query(Invoice).filter(
+        Invoice.id == invoice_id,
+        Invoice.tenant_id == ctx.tenant_id,
+        Invoice.organization_id == ctx.org_id,
+    ).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+    if invoice.status != "draft":
+        raise HTTPException(status_code=400, detail="Solo se pueden eliminar definitivamente facturas en estado borrador")
+    if invoice.original_xml_data:
+        raise HTTPException(status_code=400, detail="No se pueden eliminar facturas con datos XML firmados")
+
+    snapshot = _invoice_snapshot(invoice)
+
+    # Clean up storage files (best-effort)
+    try:
+        if invoice.file_path and INVOICES_PREFIX in invoice.file_path:
+            delete_invoice_folder(ctx.tenant_id, ctx.org_id, invoice.id)
+        elif invoice.file_path:
+            supabase_delete(invoice.file_path)
+            if invoice.processed_path:
+                supabase_delete(invoice.processed_path)
+    except Exception:
+        logger.exception("Storage cleanup error for invoice %s (non-fatal)", invoice.id)
+
+    ctx.db.delete(invoice)
+    ctx.db.commit()
+
+    record(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
+        actor_email=ctx.user.email,
+        action="invoice.hard_deleted",
+        resource_type="invoice",
+        resource_id=str(invoice_id),
+        summary=f"Factura borrador '{invoice.invoice_number}' eliminada definitivamente de la BD",
+        details=f"Proveedor: {invoice.vendor_name}, Total: {invoice.total_amount} {invoice.currency or ''}",
+        snapshot_before=snapshot,
+    )
+
+    invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
+    logger.info("Draft invoice hard-deleted: id=%s, filename=%s, user=%s", invoice_id, invoice.filename, ctx.user.id)
+    return {"message": "Factura borrador eliminada definitivamente"}
+
+
+@router.post("/api/invoices/bulk-hard-delete")
+async def bulk_hard_delete_drafts(
+    action: BulkActionRequest,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    if not action.invoice_ids:
+        return {"message": "No se seleccionaron facturas", "count": 0}
+
+    invoices = ctx.db.query(Invoice).filter(
+        Invoice.id.in_(action.invoice_ids),
+        Invoice.tenant_id == ctx.tenant_id,
+        Invoice.organization_id == ctx.org_id,
+        Invoice.status == "draft",
+        Invoice.original_xml_data.is_(None),
+    ).all()
+
+    snapshots = {str(inv.id): _invoice_snapshot(inv) for inv in invoices}
+
+    for invoice in invoices:
+        try:
+            if invoice.file_path and INVOICES_PREFIX in invoice.file_path:
+                delete_invoice_folder(ctx.tenant_id, ctx.org_id, invoice.id)
+            elif invoice.file_path:
+                supabase_delete(invoice.file_path)
+                if invoice.processed_path:
+                    supabase_delete(invoice.processed_path)
+        except Exception:
+            logger.exception("Storage cleanup error for invoice %s (non-fatal)", invoice.id)
+
+        ctx.db.delete(invoice)
+
+    ctx.db.commit()
+
+    skipped = len(action.invoice_ids) - len(invoices)
+    summary = f"{len(invoices)} factura(s) borrador eliminada(s) definitivamente"
+    if skipped:
+        summary += f", {skipped} omitida(s) (no borrador o electronica)"
+
+    record(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=ctx.organization.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
+        actor_email=ctx.user.email,
+        action="invoice.bulk_hard_deleted",
+        resource_type="invoice",
+        summary=summary,
+    )
+
+    invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
+    return {"message": summary, "count": len(invoices)}
 
 
 @router.post("/api/invoices/export")

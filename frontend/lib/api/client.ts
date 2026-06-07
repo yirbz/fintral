@@ -15,7 +15,12 @@ type RequestInitWithRaw = RequestInit & { raw?: boolean };
 function isOnPublicPage(): boolean {
   if (typeof window === "undefined") return true;
   const path = window.location.pathname;
-  return path.startsWith("/login") || path.startsWith("/logout") || path.startsWith("/signup");
+  return (
+    path.startsWith("/login") ||
+    path.startsWith("/logout") ||
+    path.startsWith("/signup") ||
+    path.startsWith("/upload/public")
+  );
 }
 
 function getStoredOrgId(): string | null {

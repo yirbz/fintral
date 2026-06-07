@@ -66,6 +66,7 @@ class StatisticsService:
             Invoice.tenant_id == tenant_id,
             Invoice.organization_id == org_id,
             Invoice.is_deleted.is_(False),
+            Invoice.status != "draft",
         ]
 
         if IS_POSTGRES:
@@ -101,6 +102,7 @@ class StatisticsService:
             Invoice.tenant_id == tenant_id,
             Invoice.organization_id == org_id,
             Invoice.is_deleted.is_(False),
+            Invoice.status != "draft",
         ]
 
         if days <= 31:
@@ -166,6 +168,7 @@ class StatisticsService:
                 Invoice.processed.is_(True),
                 Invoice.category.isnot(None),
                 Invoice.is_deleted.is_(False),
+                Invoice.status != "draft",
             )
             .group_by(Invoice.category)
             .order_by(func.sum(Invoice.total_amount).desc())
@@ -187,6 +190,7 @@ class StatisticsService:
             Invoice.organization_id == org_id,
             Invoice.processed.is_(True),
             Invoice.is_deleted.is_(False),
+            Invoice.status != "draft",
         ]
 
         income_amount = (
@@ -231,6 +235,7 @@ class StatisticsService:
             Invoice.tenant_id == tenant_id,
             Invoice.organization_id == org_id,
             Invoice.is_deleted.is_(False),
+            Invoice.status != "draft",
         ]
         base_query = db.query(Invoice).filter(*base_filter)
         total_invoices = base_query.count()

@@ -65,6 +65,7 @@ const data = {
       url: "/dashboard/invoices/trash",
       icon: <Trash2Icon />,
     },
+    // Notas de crédito/débito unificadas en facturas
     {
       title: "Captura",
       url: "/dashboard/upload",
@@ -84,12 +85,12 @@ const data = {
     },
     {
       title: "Ayuda",
-      url: "/help",
+      url: "/dashboard/help",
       icon: <CircleHelpIcon />,
     },
     {
       title: "Buscar",
-      url: "/search",
+      url: "/dashboard/search",
       icon: <SearchIcon />,
     },
   ],

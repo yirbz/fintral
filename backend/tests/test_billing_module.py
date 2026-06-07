@@ -24,6 +24,8 @@ def test_billing_crud_endpoints(db_session, test_tenant, test_user, test_org):
     org.is_ecf_authorized = True
     db_session.commit()
 
+    from app.services.seed_plans import seed_plans
+    seed_plans()
     from app.factory import create_app
     app = create_app()
     # Setup dependency override
