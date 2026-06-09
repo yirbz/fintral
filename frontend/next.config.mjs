@@ -1,3 +1,5 @@
+import { createMDX } from 'fumadocs-mdx/next'
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
@@ -45,4 +47,6 @@ const nextConfig = {
   }
 };
 
-export default nextConfig;
+const withMDX = createMDX()
+
+export default withMDX(nextConfig);

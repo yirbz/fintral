@@ -14,6 +14,7 @@ import { GrowingExpenseCard } from "@/components/landing/GrowingExpenseCard";
 import { BillingMetricsCard } from "@/components/landing/BillingMetricsCard";
 import { IntegrationsGrid } from "@/components/landing/IntegrationsGrid";
 import { CountUp } from "@/components/landing/CountUp";
+import { PricingSection } from "@/components/plans/PricingSection";
 import { useScrollReveal } from "@/hooks/useScrollReveal";
 
 function StickyNav() {
@@ -47,12 +48,13 @@ function StickyNav() {
           <Link href="#" className="shrink-0">
             <Logo variant="dark" size="md" />
           </Link>
-          <nav className="hidden md:flex items-center gap-8 text-[14px] font-medium text-[#273951]">
-            <Link href="#features" className="hover:text-[#0EA5E9] transition-colors">Características</Link>
-            <Link href="#integrations" className="hover:text-[#0EA5E9] transition-colors">Integraciones</Link>
-            <Link href="#testimonials" className="hover:text-[#0EA5E9] transition-colors">Testimonios</Link>
-          </nav>
-          <Link href="#cta">
+            <nav className="hidden md:flex items-center gap-8 text-[14px] font-medium text-[#273951]">
+              <Link href="#features" className="hover:text-[#0EA5E9] transition-colors">Características</Link>
+              <Link href="#integrations" className="hover:text-[#0EA5E9] transition-colors">Integraciones</Link>
+              <Link href="/plans" className="hover:text-[#0EA5E9] transition-colors">Planes</Link>
+              <Link href="/docs" className="hover:text-[#0EA5E9] transition-colors">Docs</Link>
+            </nav>
+            <Link href="#cta">
             <Button className="rounded-full bg-[#0d253d] text-white hover:bg-[#1c1e54] font-medium px-5 py-4 h-auto text-[13px] shadow-sm transition-all active:scale-[0.97]">
               Comenzar gratis
             </Button>
@@ -109,7 +111,8 @@ export default function LandingPage() {
             <nav className="hidden md:flex items-center gap-10 text-[15px] font-medium text-[#273951]">
               <Link href="#features" className="hover:text-[#0EA5E9] transition-colors">Características</Link>
               <Link href="#integrations" className="hover:text-[#0EA5E9] transition-colors">Integraciones</Link>
-              <Link href="#testimonials" className="hover:text-[#0EA5E9] transition-colors">Testimonios</Link>
+              <Link href="/plans" className="hover:text-[#0EA5E9] transition-colors">Planes</Link>
+              <Link href="/docs" className="hover:text-[#0EA5E9] transition-colors">Docs</Link>
             </nav>
             <div className="hidden sm:flex items-center gap-4">
               <Link href="#cta">
@@ -307,6 +310,11 @@ export default function LandingPage() {
         </section>
       </RevealSection>
 
+      {/* PRICING */}
+      <RevealSection>
+        <PricingSection />
+      </RevealSection>
+
       {/* TESTIMONIAL */}
       <RevealSection>
         <section id="testimonials" className="py-24 bg-[#f6f9fc]">
@@ -394,7 +402,7 @@ export default function LandingPage() {
       {/* FOOTER */}
       <footer className="border-t border-[#e3e8ee] bg-white py-12">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-10">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-8 mb-10">
             <div className="col-span-2 md:col-span-1">
               <Logo variant="dark" size="md" />
               <p className="text-[12px] text-[#64748d] mt-3 leading-relaxed">
@@ -408,6 +416,14 @@ export default function LandingPage() {
                 <li>Validación NCF DGII</li>
                 <li>Reporte 606 automático</li>
                 <li>Exportación a ERP</li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#0d253d] mb-3">Recursos</h4>
+              <ul className="space-y-2 text-[13px] text-[#64748d]">
+                <li><Link href="/plans" className="hover:text-[#533afd] transition-colors">Planes</Link></li>
+                <li><Link href="/docs" className="hover:text-[#533afd] transition-colors">Documentación</Link></li>
+                <li><Link href="/plans/terms" className="hover:text-[#533afd] transition-colors">Términos y condiciones</Link></li>
               </ul>
             </div>
             <div>
