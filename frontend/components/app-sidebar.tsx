@@ -36,6 +36,7 @@ import {
   Grid as GridIcon,
   PlusCircle as PlusCircleIcon,
   ArrowLeftRight as ArrowLeftRightIcon,
+  Edit3 as Edit3Icon,
 } from "lucide-react"
 
 const data = {
@@ -180,6 +181,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       title: "Nueva Factura",
       url: getLink("/quick"),
       icon: <PlusCircleIcon />,
+    },
+    {
+      title: "Corregir Facturas",
+      url: getLink("/emit"),
+      icon: <Edit3Icon />,
     },
     {
       title: "Clientes",
