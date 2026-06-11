@@ -1,0 +1,108 @@
+# Staging environment — pre-production mirror
+# Usage: doppler run --project fintral --config stg -- docker compose -f docker-compose.staging.yml up -d
+#
+# Points to staging cloud services (Supabase, etc.)
+# Secrets come from Doppler config "stg" — never from .env files.
+
+services:
+  redis:
+    image: redis:7
+    container_name: fintral-redis-stg
+    ports:
+      - "6382:6379"
+    volumes:
+      - redis_stg_data:/data
+    networks:
+      - fintral-stg
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fintral-backend-stg
+    env_file: []
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-STAGING}
+      - BACKEND_PORT=${BACKEND_PORT:-8000}
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      # Removed: SUPABASE_ANON_KEY — not used by backend (dead code)
+      - SUPABASE_STORAGE_BUCKET=${SUPABASE_STORAGE_BUCKET:-invoices}
+      - REDIS_URL=redis://redis:6379/0
+      - APP_JWT_SECRET_KEY=${APP_JWT_SECRET_KEY:-${SECRET_KEY}}
+      - AI_MODEL_API_KEY=${AI_MODEL_API_KEY:-${OPENAI_API_KEY}}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - PUBLIC_APP_URL=${PUBLIC_APP_URL:-http://localhost:3000}
+      - QUICKBOOKS_CLIENT_ID=${QUICKBOOKS_CLIENT_ID}
+      - QUICKBOOKS_CLIENT_SECRET=${QUICKBOOKS_CLIENT_SECRET}
+      - QUICKBOOKS_REDIRECT_URI=${QUICKBOOKS_REDIRECT_URI}
+      - XERO_CLIENT_ID=${XERO_CLIENT_ID}
+      - XERO_CLIENT_SECRET=${XERO_CLIENT_SECRET}
+      - XERO_REDIRECT_URI=${XERO_REDIRECT_URI}
+      - ALANUBE_API_URL=${ALANUBE_API_URL}
+      - ALANUBE_JWT=${ALANUBE_JWT}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend/static:/app/static
+    expose:
+      - "8000"
+    networks:
+      - fintral-stg
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        BACKEND_URL: http://backend:8000
+    container_name: fintral-frontend-stg
+    environment:
+      - BACKEND_URL=http://backend:8000
+      - NEXT_PUBLIC_ENVIRONMENT=STAGING
+      - NEXT_PUBLIC_APP_URL=${PUBLIC_APP_URL:-http://localhost:3000}
+    depends_on:
+      - backend
+    expose:
+      - "3000"
+    networks:
+      - fintral-stg
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: fintral-nginx-stg
+    depends_on:
+      - backend
+      - frontend
+    environment:
+      BACKEND_UPSTREAM: ${BACKEND_UPSTREAM:-backend:8000}
+      FRONTEND_UPSTREAM: ${FRONTEND_UPSTREAM:-frontend:3000}
+    ports:
+      - "${PROXY_PORT:-8002}:80"
+    volumes:
+      - ./nginx/nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+    command: >
+      sh -c "envsubst '\${BACKEND_UPSTREAM}\${FRONTEND_UPSTREAM}'
+      < /etc/nginx/templates/nginx.conf.template
+      > /etc/nginx/nginx.conf
+      && nginx -g 'daemon off;'"
+    networks:
+      - fintral-stg
+
+networks:
+  fintral-stg:
+    name: fintral-stg
+    driver: bridge
+
+volumes:
+  redis_stg_data:

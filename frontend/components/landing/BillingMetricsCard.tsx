@@ -78,9 +78,9 @@ export function BillingMetricsCard() {
           />
         ))}
       </div>
-      <div className="flex justify-between text-[10px] text-[#64748d]">
+      <div className="flex justify-between text-[10px] text-[#64748d] gap-2">
         {DAYS.map((d) => (
-          <span key={d}>{d}</span>
+          <span key={d} className="w-full text-center">{d}</span>
         ))}
       </div>
     </div>

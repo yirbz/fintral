@@ -10,6 +10,8 @@ PDF_EXTENSIONS = {".pdf"}
 XML_EXTENSIONS = {".xml"}
 XLSX_EXTENSIONS = {".xlsx", ".xls"}
 
+ECF_TIPOS = {"31", "32", "33", "34", "41", "43", "44", "45", "46", "47"}
+
 
 class FileClassifier:
     """Classifies uploaded files and determines processing strategy."""
@@ -19,14 +21,14 @@ class FileClassifier:
         Classify a file and return (source_type, strategy).
         
         Returns:
-            source_type: xml, pdf_text, pdf_image, image_ocr, image_ai, xlsx, manual
+            source_type: xml/ecf, pdf_text, pdf_image, image_ocr, image_ai, xlsx, manual
             strategy: The processing strategy to use
         """
         filename = os.path.basename(file_path)
         ext = os.path.splitext(filename)[1].lower()
         
         if ext in XML_EXTENSIONS:
-            return "xml", "xml_processor"
+            return self._classify_xml(file_path)
         
         if ext in XLSX_EXTENSIONS:
             return "xlsx", "xlsx_processor"
@@ -56,6 +58,22 @@ class FileClassifier:
                     return "pdf_image", "image_preprocessor"
         except Exception:
             return "pdf_image", "image_preprocessor"
+
+    def _classify_xml(self, file_path: str) -> Tuple[str, str]:
+        """Classify XML: detect DGII e-CF vs other XML formats."""
+        try:
+            from lxml import etree
+            tree = etree.parse(file_path)
+            root = tree.getroot()
+            for elem in root.iter():
+                if elem.tag.startswith("{"):
+                    elem.tag = elem.tag.split("}", 1)[1]
+            tipos = root.xpath("//TipoeCF/text()")
+            if tipos and str(tipos[0]).strip() in ECF_TIPOS:
+                return "ecf", "ecf_parser"
+        except Exception:
+            pass
+        return "xml", "xml_processor"
 
     def _classify_image(self, file_path: str) -> Tuple[str, str]:
         """Classify image: attempt OCR first, then AI."""

@@ -1,7 +1,7 @@
-import { SettingsPage } from "@/features/settings/settings-page";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-export default function SettingsRoutePage() {
-  return <SettingsPage />;
+export default function SettingsRoot() {
+  redirect("/dashboard/settings/profile");
 }

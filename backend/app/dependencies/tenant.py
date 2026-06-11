@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import is_token_expired
 from app.database import get_db
-from app.dependencies.auth import FallbackUser, get_current_user_from_cookie
+from app.dependencies.auth import FallbackUser, get_current_user
 from app.models import Organization, Tenant, User, UserOrganization
 
 
@@ -29,6 +29,7 @@ class TenantContext:
     org_id: UUID
     organization: Organization
     role: str  # owner / admin / member / viewer
+    permissions: list[str] | None = None  # explicit permission overrides; None = use role defaults
 
 
 @dataclass
@@ -53,7 +54,7 @@ async def require_tenant(
     2. org_id query parameter
     3. First org the user has access to (default)
     """
-    user = await get_current_user_from_cookie(request, db)
+    user = await get_current_user(request, db)
     if not user:
         token = request.cookies.get("access_token")
         if token and is_token_expired(token):
@@ -75,6 +76,12 @@ async def require_tenant(
             organization=fake_org,
             role="owner",
         )
+
+    # Check if tenant is deleted
+    if user.tenant and user.tenant.deleted_at:
+        raise HTTPException(status_code=401, detail="No disponible")
+
+    import json
 
     # Determine which org the user wants to work with
     org_id_str = (
@@ -101,8 +108,18 @@ async def require_tenant(
             user_org = None
 
         if not user_org:
-            raise HTTPException(status_code=403, detail="Sin acceso a esta organización")
-        role = user_org.role
+            # Stale X-Organization-Id from localStorage — fallback to first available org
+            try:
+                user_org = (
+                    db.query(UserOrganization)
+                    .filter(UserOrganization.user_id == user.id)
+                    .first()
+                )
+            except OperationalError:
+                user_org = None
+            if not user_org:
+                raise HTTPException(status_code=403, detail="Sin acceso a ninguna organización")
+            org_id = user_org.organization_id
     else:
         # Fallback: first org the user has access to
         try:
@@ -117,14 +134,13 @@ async def require_tenant(
         if not user_org:
             raise HTTPException(status_code=403, detail="Sin acceso a ninguna organización")
         org_id = user_org.organization_id
-        role = user_org.role
 
     # Critical: validate org belongs to same tenant as user
     try:
         org = (
             db.query(Organization)
             .filter(
-                Organization.id == org_id,
+                Organization.id == user_org.organization_id,
                 Organization.tenant_id == user.tenant_id,
                 Organization.is_active.is_(True),
             )
@@ -136,6 +152,9 @@ async def require_tenant(
     if not org:
         raise HTTPException(status_code=403, detail="Organización no encontrada o inactiva")
 
+    raw = user_org.permissions
+    permissions = json.loads(raw) if raw else None
+
     return TenantContext(
         db=db,
         user=user,
@@ -143,7 +162,8 @@ async def require_tenant(
         tenant_id=user.tenant_id,
         org_id=org.id,
         organization=org,
-        role=role,
+        role=user_org.role,
+        permissions=permissions,
     )
 
 
@@ -153,7 +173,7 @@ async def optional_tenant(
 ) -> Optional[TenantContext]:
     """Like require_tenant but returns None instead of 401 for unauthenticated requests.
     Used for pages that show different content for logged-in vs anonymous users."""
-    user = await get_current_user_from_cookie(request, db)
+    user = await get_current_user(request, db)
     if not user:
         return None
 
@@ -172,6 +192,12 @@ async def optional_tenant(
             organization=fake_org,
             role="owner",
         )
+
+    # Check if tenant is deleted (account frozen)
+    if user.tenant and user.tenant.deleted_at:
+        return None
+
+    import json
 
     try:
         user_org = (
@@ -201,6 +227,9 @@ async def optional_tenant(
     if not org:
         return None
 
+    raw = user_org.permissions
+    permissions = json.loads(raw) if raw else None
+
     return TenantContext(
         db=db,
         user=user,
@@ -209,6 +238,7 @@ async def optional_tenant(
         org_id=org.id,
         organization=org,
         role=user_org.role,
+        permissions=permissions,
     )
 
 

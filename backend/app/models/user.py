@@ -1,4 +1,4 @@
-from datetime import datetime
+from app.utils.dates import utc_now
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String
 from sqlalchemy.orm import relationship
@@ -16,9 +16,14 @@ class User(Base):
     supabase_uid = Column(String, unique=True, nullable=True, index=True)
     hashed_password = Column(String, nullable=True)
     full_name = Column(String)
+    job_title = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
+    avatar_url = Column(String, nullable=True)
+    verification_code = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
 
     # Relationships
     tenant = relationship("Tenant", back_populates="users")

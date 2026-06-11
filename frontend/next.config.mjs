@@ -1,7 +1,16 @@
+
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  httpAgentOptions: {
+    keepAlive: true,
+  },
+  serverExternalPackages: [],
+  experimental: {
+    proxyTimeout: 120_000,
+  },
   images: {
     remotePatterns: [
       {
@@ -21,6 +30,7 @@ const nextConfig = {
   async rewrites() {
     const backend = process.env.BACKEND_URL || "http://localhost:8000";
     return [
+      { source: "/openapi.json", destination: `${backend}/openapi.json` },
       { source: "/api/:path*", destination: `${backend}/api/:path*` },
       { source: "/token", destination: `${backend}/token` },
       { source: "/logout", destination: `${backend}/logout` },
@@ -32,7 +42,8 @@ const nextConfig = {
       { source: "/categories", destination: `${backend}/categories` },
       { source: "/export/:path*", destination: `${backend}/export/:path*` },
       { source: "/evolution/:path*", destination: `${backend}/evolution/:path*` },
-      { source: "/websocket/:path*", destination: `${backend}/websocket/:path*` }
+      { source: "/websocket/:path*", destination: `${backend}/websocket/:path*` },
+      { source: "/pending-uploads/:path*", destination: `${backend}/pending-uploads/:path*` }
     ];
   }
 };

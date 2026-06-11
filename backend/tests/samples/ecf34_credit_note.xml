@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ECF xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.dgii.gov.do/ecf/v1">
+  <Encabezado>
+    <Version>1.0</Version>
+    <IdDoc>
+      <TipoeCF>34</TipoeCF>
+      <eNCF>E340000000001</eNCF>
+      <IndicadorNotaCredito>1</IndicadorNotaCredito>
+      <IndicadorMontoGravado>1</IndicadorMontoGravado>
+      <TipoPago>2</TipoPago>
+      <TotalPaginas>1</TotalPaginas>
+      <TablaFormasPago>
+        <FormaDePago>
+          <FormaPago>1</FormaPago>
+          <MontoPago>-1176.00</MontoPago>
+        </FormaDePago>
+      </TablaFormasPago>
+    </IdDoc>
+    <Emisor>
+      <RNCEmisor>130907579</RNCEmisor>
+      <RazonSocialEmisor>ALTICE DOMINICANA SA</RazonSocialEmisor>
+      <NombreComercial>Altice</NombreComercial>
+      <DireccionEmisor>Avenida Winston Churchill 77, Santo Domingo</DireccionEmisor>
+      <Municipio>Distrito Nacional</Municipio>
+      <Provincia>Distrito Nacional</Provincia>
+      <CorreoEmisor>facturacion@altice.com.do</CorreoEmisor>
+      <ActividadEconomica>Telecomunicaciones</ActividadEconomica>
+      <FechaEmision>2026-06-04</FechaEmision>
+    </Emisor>
+    <Comprador>
+      <RNCComprador>484244309</RNCComprador>
+      <RazonSocialComprador>NUESTRA EMPRESA SRL</RazonSocialComprador>
+      <DireccionComprador>Avenida Lope de Vega 456, Santo Domingo</DireccionComprador>
+      <CorreoComprador>contabilidad@nuestraempresa.com.do</CorreoComprador>
+    </Comprador>
+    <Totales>
+      <MontoGravadoTotal>-1000.00</MontoGravadoTotal>
+      <MontoGravadoI1>-800.00</MontoGravadoI1>
+      <MontoGravadoI2>-200.00</MontoGravadoI2>
+      <MontoGravadoI3>0.00</MontoGravadoI3>
+      <MontoExento>0.00</MontoExento>
+      <ITBIS1>18</ITBIS1>
+      <ITBIS2>16</ITBIS2>
+      <ITBIS3>0</ITBIS3>
+      <TotalITBIS>-176.00</TotalITBIS>
+      <TotalITBIS1>-144.00</TotalITBIS1>
+      <TotalITBIS2>-32.00</TotalITBIS2>
+      <TotalITBIS3>0.00</TotalITBIS3>
+      <MontoTotal>-1176.00</MontoTotal>
+      <MontoPeriodo>-1176.00</MontoPeriodo>
+      <SaldoAnterior>0.00</SaldoAnterior>
+      <MontoAvancePago>0.00</MontoAvancePago>
+      <ValorPagar>-1176.00</ValorPagar>
+      <TotalITBISRetenido>0.00</TotalITBISRetenido>
+      <TotalISRRetencion>0.00</TotalISRRetencion>
+    </Totales>
+  </Encabezado>
+  <DetallesItems>
+    <Item>
+      <NumeroLinea>1</NumeroLinea>
+      <IndicadorFacturacion>1</IndicadorFacturacion>
+      <NombreItem>Servicio Telefonía Fija</NombreItem>
+      <IndicadorBienoServicio>2</IndicadorBienoServicio>
+      <DescripcionItem>Mensualidad plan voz e internet residencial</DescripcionItem>
+      <CantidadItem>10</CantidadItem>
+      <UnidadMedida>Unidad</UnidadMedida>
+      <PrecioUnitarioItem>80.00</PrecioUnitarioItem>
+      <MontoItem>800.00</MontoItem>
+    </Item>
+    <Item>
+      <NumeroLinea>2</NumeroLinea>
+      <IndicadorFacturacion>2</IndicadorFacturacion>
+      <NombreItem>Servicio Asistencia Técnica</NombreItem>
+      <IndicadorBienoServicio>2</IndicadorBienoServicio>
+      <DescripcionItem>Soporte técnico dedicado</DescripcionItem>
+      <CantidadItem>1</CantidadItem>
+      <UnidadMedida>Servicio</UnidadMedida>
+      <PrecioUnitarioItem>200.00</PrecioUnitarioItem>
+      <MontoItem>200.00</MontoItem>
+    </Item>
+  </DetallesItems>
+  <InformacionReferencia>
+    <NCFModificado>E310000000001</NCFModificado>
+    <TipoModificacion>1</TipoModificacion>
+    <FechaNCFModificado>2026-06-04</FechaNCFModificado>
+    <MotivoModificacion>Anulacion completa de factura por cancelacion de operacion</MotivoModificacion>
+  </InformacionReferencia>
+  <FechaHoraFirma>2026-06-04T16:45:00</FechaHoraFirma>
+</ECF>
