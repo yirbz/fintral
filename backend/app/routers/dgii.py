@@ -3,6 +3,7 @@ Router dedicado a exportaciones y gestión DGII (606, 607, 608).
 Expone endpoints con filtros ricos pensados para el flujo del contador:
 filtrar por rango de fechas, categorías, tipo de bienes/servicios, proveedor.
 """
+import html
 import io
 import json
 import logging
@@ -10,7 +11,8 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -72,6 +74,97 @@ class CreateDgiiSubmissionRequest(BaseModel):
 
 
 
+
+
+# ── Citizen lookup ──────────────────────────────────────────────────────────
+
+_CEDULA_URL = "https://dgii.gov.do/app/WebApps/ConsultasWeb2/ConsultasWeb/consultas/ciudadanos.aspx"
+_DGII_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+_VIEWSTATE_RE = re.compile(r'id="__VIEWSTATE" value="([^"]+)"')
+_VIEWSTATEGEN_RE = re.compile(r'id="__VIEWSTATEGENERATOR" value="([^"]+)"')
+_EVENTVALIDATION_RE = re.compile(r'id="__EVENTVALIDATION" value="([^"]+)"')
+_UPDATE_PANEL_RE = re.compile(r"updatePanel\|upMainMaster\|([\s\S]*?)(?=\|8\|hiddenField|$)")
+
+
+def _extract_form_fields(html: str) -> dict[str, str]:
+    viewstate = _VIEWSTATE_RE.search(html)
+    viewstate_gen = _VIEWSTATEGEN_RE.search(html)
+    event_validation = _EVENTVALIDATION_RE.search(html)
+    return {
+        "__VIEWSTATE": viewstate.group(1) if viewstate else "",
+        "__VIEWSTATEGENERATOR": viewstate_gen.group(1) if viewstate_gen else "",
+        "__EVENTVALIDATION": event_validation.group(1) if event_validation else "",
+    }
+
+
+def _parse_ajax_response(response: str) -> str:
+    match = _UPDATE_PANEL_RE.search(response)
+    return match.group(1).strip() if match else ""
+
+
+def _extract_ciudadano_name(content: str) -> str | None:
+    table_match = re.search(r'<table[^>]*id="cphMain_dvResultadoCedula"[^>]*>([\s\S]*?)</table>', content)
+    if table_match:
+        rows = re.findall(r'<tr[^>]*>([\s\S]*?)</tr>', table_match.group(1))
+        for row in rows:
+            cells = re.findall(r'<td[^>]*>([\s\S]*?)</td>', row)
+            if len(cells) >= 2:
+                label = re.sub(r'<[^>]*>', '', cells[0]).strip().lower()
+                if 'nombre' in label or 'razon' in label:
+                    raw = re.sub(r'<[^>]*>', '', cells[1])
+                    return re.sub(r'\s+', ' ', html.unescape(raw.strip()))
+    return None
+
+
+@router.get("/ciudadano")
+async def dgii_ciudadano_lookup(
+    cedula: str = Query(..., min_length=11, max_length=11, description="Cédula de identidad (11 dígitos)"),
+):
+    """Busca un ciudadano por cédula en el portal de la DGII y devuelve su nombre."""
+    if not cedula.isdigit():
+        raise HTTPException(status_code=400, detail="La cédula debe contener solo dígitos")
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+        try:
+            html = await client.get(
+                _CEDULA_URL,
+                headers={"User-Agent": _DGII_USER_AGENT},
+            )
+            html.raise_for_status()
+
+            fields = _extract_form_fields(html.text)
+            if not fields["__VIEWSTATE"]:
+                raise HTTPException(status_code=502, detail="No se pudo extraer el formulario de la DGII")
+
+            fields["ctl00$cphMain$txtCedula"] = cedula
+            fields["ctl00$cphMain$btnBuscarCedula"] = "Buscar"
+            fields["__ASYNCPOST"] = "true"
+
+            resp = await client.post(
+                _CEDULA_URL,
+                data=fields,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "User-Agent": _DGII_USER_AGENT,
+                },
+            )
+            resp.raise_for_status()
+
+            content = _parse_ajax_response(resp.text)
+            if not content:
+                return {"cedula": cedula, "name": None, "found": False}
+
+            name = _extract_ciudadano_name(content)
+            if name:
+                return {"cedula": cedula, "name": name, "found": True}
+            return {"cedula": cedula, "name": None, "found": False}
+
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Error al consultar la DGII: {exc}",
+            ) from exc
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────

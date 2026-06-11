@@ -48,6 +48,13 @@ interface ChartAreaInteractiveProps {
   volumeHistory?: VolumePoint[]
 }
 
+function fmt(dateStr: string) {
+  return new Date(dateStr + "T12:00:00").toLocaleDateString("es-DO", {
+    month: "short",
+    day: "numeric",
+  })
+}
+
 export function ChartAreaInteractive({ volumeHistory = EMPTY_VOLUME }: ChartAreaInteractiveProps) {
   const isMobile = useIsMobile()
   const [timeRange, setTimeRange] = React.useState("30d")
@@ -67,12 +74,6 @@ export function ChartAreaInteractive({ volumeHistory = EMPTY_VOLUME }: ChartArea
   }, [volumeHistory, timeRange])
 
   const totalInRange = filteredData.reduce((s, p) => s + p.count, 0)
-
-  const fmt = (dateStr: string) =>
-    new Date(dateStr + "T12:00:00").toLocaleDateString("es-DO", {
-      month: "short",
-      day: "numeric",
-    })
 
   return (
     <Card className="@container/card">

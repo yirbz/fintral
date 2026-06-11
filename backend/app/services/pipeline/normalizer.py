@@ -188,6 +188,7 @@ class Normalizer:
             "subtotales": data.get("subtotales", []),
             "formas_pago": data.get("formas_pago", []),
             "original_xml_data": data.get("original_xml_data"),
+            "electronic_seal": data.get("electronic_seal"),
         }
 
         # Clean/infer payment_condition

@@ -183,7 +183,12 @@ function groupByDate(events: AuditEvent[]): { label: string; events: AuditEvent[
   }
 
   const order = ["Hoy", "Ayer", "Esta semana", "Semana pasada", "Anterior"];
-  return order.filter((l) => groups.has(l)).map((label) => ({ label, events: groups.get(label)! }));
+  return order.reduce<{ label: string; events: AuditEvent[] }[]>((acc, label) => {
+    if (groups.has(label)) {
+      acc.push({ label, events: groups.get(label)! });
+    }
+    return acc;
+  }, []);
 }
 
 function countErrors(events: AuditEvent[]): number {

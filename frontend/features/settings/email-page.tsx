@@ -24,8 +24,8 @@ function findSetting(editable: SettingsPayload, category: string, key: string): 
 
 export function EmailPage() {
   const queryClient = useQueryClient();
-  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings });
-  const editable = settingsQuery.data ?? ({} as SettingsPayload);
+  const {data: settingsQuery_data} = useQuery({ queryKey: ["settings"], queryFn: getSettings });
+  const editable = settingsQuery_data ?? ({} as SettingsPayload);
   const [showKeys, setShowKeys] = useState<Set<string>>(new Set());
 
   function updateSetting(category: string, key: string, value: string | number | boolean) {

@@ -1,5 +1,6 @@
 from .evolution_service import EvolutionService
 from .invoice_processing_service import InvoiceProcessingService
+from .mio_service import MioService
 from .settings_service import SettingsService
 from .statistics_service import StatisticsService
 from .alanube import AlanubeService
@@ -11,6 +12,7 @@ __all__ = [
     "StatisticsService",
     "SettingsService",
     "EvolutionService",
+    "MioService",
     "AlanubeService",
     "BaseAlertHook",
     "Alert",

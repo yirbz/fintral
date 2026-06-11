@@ -1,3 +1,5 @@
+
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
@@ -28,6 +30,7 @@ const nextConfig = {
   async rewrites() {
     const backend = process.env.BACKEND_URL || "http://localhost:8000";
     return [
+      { source: "/openapi.json", destination: `${backend}/openapi.json` },
       { source: "/api/:path*", destination: `${backend}/api/:path*` },
       { source: "/token", destination: `${backend}/token` },
       { source: "/logout", destination: `${backend}/logout` },

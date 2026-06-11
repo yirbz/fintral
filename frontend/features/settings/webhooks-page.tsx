@@ -29,7 +29,7 @@ function TrashIcon({ className }: { className?: string }) {
 
 export function WebhooksPage() {
   const queryClient = useQueryClient();
-  const webhooksQuery = useQuery({ queryKey: ["webhooks"], queryFn: getWebhooks });
+  const {data: webhooksQuery_data, isLoading: webhooksQuery_isLoading} = useQuery({ queryKey: ["webhooks"], queryFn: getWebhooks });
 
   const [newWebhookUrl, setNewWebhookUrl] = useState("");
   const [newWebhookEvent, setNewWebhookEvent] = useState("invoice.processed");
@@ -47,9 +47,9 @@ export function WebhooksPage() {
     }
   }
 
-  const webhooks = (webhooksQuery.data as WebhookEndpoint[] | undefined) ?? [];
+  const webhooks = (webhooksQuery_data as WebhookEndpoint[] | undefined) ?? [];
 
-  if (webhooksQuery.isLoading) {
+  if (webhooksQuery_isLoading) {
     return (
       <Card>
         <CardHeader>

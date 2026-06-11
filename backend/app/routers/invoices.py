@@ -4,12 +4,12 @@ import logging
 import os
 import re
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 from app.services.audit_logger import record
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 import io
 from sqlalchemy import desc
@@ -30,6 +30,7 @@ from app.schemas import (
     WebhookPushRequest,
 )
 from app.services import InvoiceProcessingService
+from app.services.alanube import AlanubeService
 from app.services.pipeline.categorizer import DGII_CATEGORY_LABELS, get_dgii_code
 from app.services.pipeline.image_preprocessor import image_preprocessor
 from app.services.supabase_storage import (
@@ -1380,6 +1381,7 @@ async def cancel_invoice(
     before = _invoice_snapshot(invoice)
     invoice.cancelled_at = datetime.utcnow()
     invoice.cancellation_type = body.cancellation_type or "01"
+    invoice.status = "voided"
     ctx.db.commit()
     ctx.db.refresh(invoice)
 
@@ -1443,6 +1445,667 @@ async def uncancel_invoice(
     )
 
     return {"message": "Anulación revertida exitosamente", "invoice": invoice.to_dict()}
+
+
+class VoidInvoiceRequest(BaseModel):
+    cancellation_type: str = "01"
+    reason: Optional[str] = None
+
+
+@router.post("/invoices/{invoice_id}/void")
+async def void_invoice(
+    invoice_id: str,
+    body: VoidInvoiceRequest,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """
+    Void an electronic invoice by issuing a Nota de Crédito (E34) via Alanube.
+    Only for verified e-CF invoices with signed XML.
+    """
+    invoice = invoice_repo.get(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+    if not invoice.is_electronic:
+        raise HTTPException(status_code=400, detail="Solo se pueden anular facturas electrónicas (e-CF)")
+    if not invoice.original_xml_data:
+        raise HTTPException(status_code=400, detail="Esta factura no tiene XML firmado. Use la acción Anular estándar.")
+    if invoice.cancelled_at or invoice.status == "voided":
+        raise HTTPException(status_code=400, detail="La factura ya está anulada")
+    if invoice.status != "verified":
+        raise HTTPException(status_code=400, detail="La factura debe estar verificada para emitir una anulación electrónica")
+
+    from app.models import EcfSequence
+
+    sequence = (
+        ctx.db.query(EcfSequence)
+        .filter(
+            EcfSequence.tenant_id == ctx.tenant_id,
+            EcfSequence.organization_id == ctx.org_id,
+            EcfSequence.ecf_type == 34,
+            EcfSequence.is_active.is_(True),
+        )
+        .first()
+    )
+    if not sequence:
+        raise HTTPException(
+            status_code=400,
+            detail="No hay una secuencia E34 (Nota de Crédito) activa. Cargue una en Facturación → Secuencias.",
+        )
+    if sequence.current_number >= sequence.end_number:
+        raise HTTPException(
+            status_code=400,
+            detail="La secuencia E34 está agotada. Cargue un nuevo rango en Facturación → Secuencias.",
+        )
+
+    sequence.current_number += 1
+    encf = f"{sequence.prefix}34{sequence.current_number:010d}"
+
+    org = ctx.organization
+    sender_rnc = re.sub(r"[^0-9]", "", org.tax_id or "") or "132109122"
+    sender_name = org.name or "Fintral"
+
+    # Reconstruct line items from original invoice
+    items = []
+    if invoice.line_items:
+        for li in invoice.line_items:
+            items.append({
+                "description": li.get("name", "") or li.get("description", ""),
+                "quantity": float(li.get("quantity", 1)),
+                "unit_price": float(li.get("unit_price", 0)),
+                "discount_rate": float(li.get("discount_rate", 0)),
+                "tax_rate": float(li.get("tax_rate", 18)),
+                "good_service_indicator": int(li.get("good_service_indicator", 1)),
+            })
+
+    if not items:
+        items.append({
+            "description": "Anulación total",
+            "quantity": 1,
+            "unit_price": invoice.total_amount or 0,
+            "discount_rate": 0,
+            "tax_rate": 18,
+            "good_service_indicator": 1,
+        })
+
+    buyer_rnc = invoice.rnc_comprador or "132109122"
+    buyer_name = "Consumidor Final"
+    buyer_address = ""
+
+    raw_data = {}
+    if invoice.raw_extracted_data:
+        try:
+            raw_data = json.loads(invoice.raw_extracted_data)
+            buyer_name = raw_data.get("buyer_name", "Consumidor Final")
+            buyer_address = raw_data.get("buyer_address", "")
+        except Exception:
+            pass
+
+    from app.routers.billing import EmitLineItem, _build_emit_alanube_payload
+
+    emit_items = [EmitLineItem(**it) for it in items]
+
+    alanube_payload, subtotal, itbis_total, total_amount = _build_emit_alanube_payload(
+        encf=encf,
+        sequence=sequence,
+        ecf_type=34,
+        sender_rnc=sender_rnc,
+        sender_name=sender_name,
+        buyer_name=buyer_name,
+        buyer_rnc=buyer_rnc,
+        items=emit_items,
+        income_type=1,
+        payment_type=1,
+        reference_ecf=invoice.invoice_number,
+        reference_date=invoice.invoice_date.date() if invoice.invoice_date else None,
+        modification_code=1,
+        sender_address=org.fiscal_address,
+        sender_municipality=org.municipality,
+        sender_province=org.province,
+        sender_phone=[org.phone] if org.phone else None,
+        sender_email=org.email_contact,
+        sender_website=org.website,
+        sender_economic_activity=org.economic_activity,
+        buyer_address=buyer_address,
+        stamp_date=datetime.utcnow().date().isoformat(),
+    )
+
+    # Add creditNoteIndicator for E34
+    alanube_payload["idDoc"]["creditNoteIndicator"] = 0
+
+    # Create child invoice (credit note)
+    child_raw_data = {
+        "ecf_type": "34",
+        "parent_invoice_id": str(invoice.id),
+        "modified_ncf": invoice.invoice_number,
+        "modification_reason": body.cancellation_type,
+        "buyer_name": buyer_name,
+        "buyer_rnc": buyer_rnc,
+        "void_reason": body.reason or "Anulación total",
+    }
+
+    child_line_items = [
+        {
+            "line": idx + 1,
+            "name": it.description,
+            "quantity": it.quantity,
+            "unit_price": it.unit_price,
+            "discount_rate": it.discount_rate,
+            "tax_rate": it.tax_rate,
+            "total": round((it.quantity * it.unit_price * (1 - it.discount_rate / 100)) * (1 + it.tax_rate / 100), 2),
+        }
+        for idx, it in enumerate(emit_items)
+    ]
+
+    child_invoice = Invoice(
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        filename=f"Nota de Crédito - {invoice.invoice_number or ''}",
+        file_type="xml",
+        vendor_name=sender_name,
+        vendor_tax_id=sender_rnc,
+        rnc_comprador=buyer_rnc,
+        invoice_number=encf,
+        invoice_date=datetime.utcnow(),
+        total_amount=total_amount,
+        tax_amount=itbis_total,
+        currency="DOP",
+        transaction_type="income",
+        source_type="billing",
+        ecf_type="34",
+        is_electronic=True,
+        processed=False,
+        status="draft",
+        parent_invoice_id=invoice.id,
+        modified_ncf=invoice.invoice_number,
+        modification_reason=body.cancellation_type,
+        line_items_data=json.dumps(child_line_items, ensure_ascii=False),
+        raw_extracted_data=json.dumps(child_raw_data, ensure_ascii=False),
+    )
+    ctx.db.add(child_invoice)
+    ctx.db.flush()
+
+    # Emit to Alanube
+    alanube_service = AlanubeService()
+    try:
+        res = await alanube_service.emit_document(
+            ecf_type=34,
+            payload=alanube_payload,
+            company_id=org.alanube_company_id,
+        )
+
+        track_id = res.get("id") or res.get("trackId")
+        pdf_url = res.get("pdfUrl") or res.get("pdf_url")
+        xml_url = res.get("xmlUrl") or res.get("xml_url")
+        security_code = res.get("securityCode") or res.get("security_code")
+        legal_status = res.get("legalStatus") or res.get("legal_status") or "ACCEPTED"
+
+        child_raw_data.update({
+            "security_code": security_code,
+            "track_id": track_id,
+            "legal_status": legal_status,
+            "pdf_url": pdf_url,
+            "xml_url": xml_url,
+            "qr_url": f"https://dgii.gov.do/consulta/ecf?rnc={sender_rnc}&encf={encf}&trackId={track_id}" if track_id else None,
+        })
+        child_invoice.raw_extracted_data = json.dumps(child_raw_data, ensure_ascii=False)
+        child_invoice.file_path = xml_url
+        child_invoice.processed_path = pdf_url
+        child_invoice.status = "verified"
+        child_invoice.processed = True
+        child_invoice.updated_at = datetime.utcnow()
+
+        # Mark parent as voided
+        invoice.cancelled_at = datetime.utcnow()
+        invoice.cancellation_type = body.cancellation_type or "01"
+        invoice.status = "voided"
+        invoice.updated_at = datetime.utcnow()
+
+        ctx.db.commit()
+        ctx.db.refresh(invoice)
+        ctx.db.refresh(child_invoice)
+
+    except Exception as e:
+        ctx.db.rollback()
+        logger.exception("Error voiding invoice via Alanube")
+        raise HTTPException(status_code=502, detail=f"Error al emitir la anulación: {str(e)}")
+
+    record(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        organization_name=org.name,
+        actor_id=str(ctx.user.id),
+        actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
+        actor_email=ctx.user.email,
+        action="invoice.voided",
+        resource_type="invoice",
+        resource_id=str(invoice_id),
+        summary=f"Factura e-CF '{invoice.invoice_number}' anulada vía Nota de Crédito {encf}",
+        details=f"Tipo anulación: {body.cancellation_type or '01'}",
+    )
+
+    return {
+        "message": "Factura anulada exitosamente. Se emitió una Nota de Crédito Electrónica (E34).",
+        "invoice": invoice.to_dict(),
+        "credit_note": child_invoice.to_dict(),
+    }
+
+
+class CorrectInvoiceRequest(BaseModel):
+    correction_type: str = Field(..., pattern=r"^(text|amount)$")
+    items: Optional[List[dict]] = None
+    reason: Optional[str] = None
+    new_total_amount: Optional[float] = None
+    new_tax_amount: Optional[float] = None
+
+
+@router.post("/invoices/{invoice_id}/correct")
+async def correct_invoice(
+    invoice_id: str,
+    body: CorrectInvoiceRequest,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """
+    Correct an electronic invoice.
+    - text: Re-emit with modificationCode=2 (same items, corrected metadata)
+    - amount: Issue a Nota de Débito (E33) for increases or Nota de Crédito (E34) for decreases
+    """
+    invoice = invoice_repo.get(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+    if not invoice.is_electronic:
+        raise HTTPException(status_code=400, detail="Solo se pueden corregir facturas electrónicas (e-CF)")
+    if not invoice.original_xml_data:
+        raise HTTPException(status_code=400, detail="Esta factura no tiene XML firmado.")
+    if invoice.cancelled_at or invoice.status == "voided":
+        raise HTTPException(status_code=400, detail="No se puede corregir una factura anulada")
+
+    from app.models import EcfSequence
+
+    org = ctx.organization
+    sender_rnc = re.sub(r"[^0-9]", "", org.tax_id or "") or "132109122"
+    sender_name = org.name or "Fintral"
+
+    buyer_rnc = invoice.rnc_comprador or "132109122"
+    buyer_name = "Consumidor Final"
+    if invoice.raw_extracted_data:
+        try:
+            rd = json.loads(invoice.raw_extracted_data)
+            buyer_name = rd.get("buyer_name", "Consumidor Final")
+        except Exception:
+            pass
+
+    if body.correction_type == "text":
+        # Re-emit with modificationCode=2 (text correction)
+        ecf_type = int(invoice.ecf_type) if invoice.ecf_type else 31
+
+        sequence = (
+            ctx.db.query(EcfSequence)
+            .filter(
+                EcfSequence.tenant_id == ctx.tenant_id,
+                EcfSequence.organization_id == ctx.org_id,
+                EcfSequence.ecf_type == ecf_type,
+                EcfSequence.is_active.is_(True),
+            )
+            .first()
+        )
+        if not sequence:
+            raise HTTPException(status_code=400, detail=f"No hay una secuencia activa para e-CF tipo {ecf_type}.")
+        if sequence.current_number >= sequence.end_number:
+            raise HTTPException(status_code=400, detail=f"La secuencia e-CF tipo {ecf_type} está agotada.")
+
+        sequence.current_number += 1
+        encf = f"{sequence.prefix}{ecf_type:02d}{sequence.current_number:010d}"
+
+        items = []
+        if body.items:
+            items = body.items
+        elif invoice.line_items:
+            for li in invoice.line_items:
+                items.append({
+                    "description": li.get("name", "") or li.get("description", ""),
+                    "quantity": float(li.get("quantity", 1)),
+                    "unit_price": float(li.get("unit_price", 0)),
+                    "discount_rate": float(li.get("discount_rate", 0)),
+                    "tax_rate": float(li.get("tax_rate", 18)),
+                    "good_service_indicator": 1,
+                })
+
+        if not items:
+            items.append({
+                "description": "Corrección de factura",
+                "quantity": 1,
+                "unit_price": invoice.total_amount or 0,
+                "discount_rate": 0,
+                "tax_rate": 18,
+                "good_service_indicator": 1,
+            })
+
+        from app.routers.billing import EmitLineItem, _build_emit_alanube_payload
+
+        emit_items = [EmitLineItem(**it) for it in items]
+
+        alanube_payload, subtotal, itbis_total, total_amount = _build_emit_alanube_payload(
+            encf=encf,
+            sequence=sequence,
+            ecf_type=ecf_type,
+            sender_rnc=sender_rnc,
+            sender_name=sender_name,
+            buyer_name=buyer_name,
+            buyer_rnc=buyer_rnc,
+            items=emit_items,
+            income_type=1,
+            payment_type=1,
+            reference_ecf=invoice.invoice_number,
+            reference_date=invoice.invoice_date.date() if invoice.invoice_date else None,
+            modification_code=2,
+            sender_address=org.fiscal_address,
+            sender_municipality=org.municipality,
+            sender_province=org.province,
+            sender_phone=[org.phone] if org.phone else None,
+            sender_email=org.email_contact,
+            sender_website=org.website,
+            sender_economic_activity=org.economic_activity,
+            stamp_date=datetime.utcnow().date().isoformat(),
+        )
+
+        corrected_raw_data = {
+            "ecf_type": str(ecf_type),
+            "corrected_from": invoice.invoice_number,
+            "modification_code": 2,
+            "reason": body.reason or "Corrección de texto",
+        }
+
+        corrected_line_items = [
+            {
+                "line": idx + 1,
+                "name": it.description,
+                "quantity": it.quantity,
+                "unit_price": it.unit_price,
+                "discount_rate": it.discount_rate,
+                "tax_rate": it.tax_rate,
+                "total": round((it.quantity * it.unit_price * (1 - it.discount_rate / 100)) * (1 + it.tax_rate / 100), 2),
+            }
+            for idx, it in enumerate(emit_items)
+        ]
+
+        corrected_invoice = Invoice(
+            tenant_id=ctx.tenant_id,
+            organization_id=ctx.org_id,
+            filename=f"Corrección - {invoice.invoice_number or ''}",
+            file_type="xml",
+            vendor_name=sender_name,
+            vendor_tax_id=sender_rnc,
+            rnc_comprador=buyer_rnc,
+            invoice_number=encf,
+            invoice_date=datetime.utcnow(),
+            total_amount=total_amount,
+            tax_amount=itbis_total,
+            currency="DOP",
+            transaction_type="income",
+            source_type="billing",
+            ecf_type=str(ecf_type),
+            is_electronic=True,
+            processed=False,
+            status="draft",
+            parent_invoice_id=invoice.id,
+            modified_ncf=invoice.invoice_number,
+            modification_reason="04",
+            line_items_data=json.dumps(corrected_line_items, ensure_ascii=False),
+            raw_extracted_data=json.dumps(corrected_raw_data, ensure_ascii=False),
+        )
+        ctx.db.add(corrected_invoice)
+        ctx.db.flush()
+
+        alanube_service = AlanubeService()
+        try:
+            res = await alanube_service.emit_document(
+                ecf_type=ecf_type,
+                payload=alanube_payload,
+                company_id=org.alanube_company_id,
+            )
+
+            track_id = res.get("id") or res.get("trackId")
+            pdf_url = res.get("pdfUrl") or res.get("pdf_url")
+            xml_url = res.get("xmlUrl") or res.get("xml_url")
+            security_code = res.get("securityCode") or res.get("security_code")
+            legal_status = res.get("legalStatus") or res.get("legal_status") or "ACCEPTED"
+
+            corrected_raw_data.update({
+                "security_code": security_code,
+                "track_id": track_id,
+                "legal_status": legal_status,
+                "pdf_url": pdf_url,
+                "xml_url": xml_url,
+            })
+            corrected_invoice.raw_extracted_data = json.dumps(corrected_raw_data, ensure_ascii=False)
+            corrected_invoice.file_path = xml_url
+            corrected_invoice.processed_path = pdf_url
+            corrected_invoice.status = "verified"
+            corrected_invoice.processed = True
+            corrected_invoice.updated_at = datetime.utcnow()
+
+            ctx.db.commit()
+            ctx.db.refresh(corrected_invoice)
+
+        except Exception as e:
+            ctx.db.rollback()
+            logger.exception("Error correcting invoice via Alanube")
+            raise HTTPException(status_code=502, detail=f"Error al emitir la corrección: {str(e)}")
+
+        record(
+            db=ctx.db,
+            tenant_id=ctx.tenant_id,
+            organization_id=ctx.org_id,
+            organization_name=org.name,
+            actor_id=str(ctx.user.id),
+            actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
+            actor_email=ctx.user.email,
+            action="invoice.corrected_text",
+            resource_type="invoice",
+            resource_id=str(invoice_id),
+            summary=f"Factura e-CF '{invoice.invoice_number}' corregida → {encf}",
+            details="Corrección de texto, modificationCode=2",
+        )
+
+        return {
+            "message": "Factura corregida exitosamente. Se emitió un nuevo e-CF con los datos corregidos.",
+            "corrected_invoice": corrected_invoice.to_dict(),
+        }
+
+    elif body.correction_type == "amount":
+        # Determine if increase (debit note) or decrease (credit note)
+        if body.new_total_amount is None and body.items is None:
+            raise HTTPException(status_code=400, detail="Debe especificar new_total_amount o items para la corrección de monto.")
+
+        new_total = body.new_total_amount if body.new_total_amount is not None else invoice.total_amount
+        old_total = invoice.total_amount or 0
+        difference = new_total - old_total
+
+        if abs(difference) < 0.01:
+            raise HTTPException(status_code=400, detail="El monto nuevo es igual al original. No hay diferencia que corregir.")
+
+        is_increase = difference > 0
+        mod_ecf_type = 33 if is_increase else 34
+        mod_label = "Nota de Débito (E33)" if is_increase else "Nota de Crédito (E34)"
+        mod_code = 3
+
+        diff_amount = abs(difference)
+
+        sequence = (
+            ctx.db.query(EcfSequence)
+            .filter(
+                EcfSequence.tenant_id == ctx.tenant_id,
+                EcfSequence.organization_id == ctx.org_id,
+                EcfSequence.ecf_type == mod_ecf_type,
+                EcfSequence.is_active.is_(True),
+            )
+            .first()
+        )
+        if not sequence:
+            raise HTTPException(status_code=400, detail=f"No hay una secuencia activa para e-CF tipo {mod_ecf_type}.")
+        if sequence.current_number >= sequence.end_number:
+            raise HTTPException(status_code=400, detail=f"La secuencia e-CF tipo {mod_ecf_type} está agotada.")
+
+        sequence.current_number += 1
+        is_electronic_seq = sequence.prefix == "E"
+        if is_electronic_seq:
+            encf = f"{sequence.prefix}{mod_ecf_type:02d}{sequence.current_number:010d}"
+        else:
+            encf = f"{sequence.prefix}{mod_ecf_type:02d}{sequence.current_number:08d}"
+
+        from app.routers.billing import EmitLineItem, _build_emit_alanube_payload
+
+        items = []
+        if body.items:
+            items = body.items
+        else:
+            items.append({
+                "description": f"{'Aumento' if is_increase else 'Disminución'} de monto",
+                "quantity": 1,
+                "unit_price": diff_amount,
+                "discount_rate": 0,
+                "tax_rate": 18,
+                "good_service_indicator": 1,
+            })
+
+        emit_items = [EmitLineItem(**it) for it in items]
+
+        alanube_payload, subtotal, itbis_total, total_amount = _build_emit_alanube_payload(
+            encf=encf,
+            sequence=sequence,
+            ecf_type=mod_ecf_type,
+            sender_rnc=sender_rnc,
+            sender_name=sender_name,
+            buyer_name=buyer_name,
+            buyer_rnc=buyer_rnc,
+            items=emit_items,
+            income_type=1,
+            payment_type=1,
+            reference_ecf=invoice.invoice_number,
+            reference_date=invoice.invoice_date.date() if invoice.invoice_date else None,
+            modification_code=mod_code,
+            sender_address=org.fiscal_address,
+            sender_municipality=org.municipality,
+            sender_province=org.province,
+            sender_phone=[org.phone] if org.phone else None,
+            sender_email=org.email_contact,
+            sender_website=org.website,
+            sender_economic_activity=org.economic_activity,
+            stamp_date=datetime.utcnow().date().isoformat(),
+        )
+
+        if mod_ecf_type == 34:
+            alanube_payload["idDoc"]["creditNoteIndicator"] = 0
+
+        mod_raw_data = {
+            "ecf_type": str(mod_ecf_type),
+            "parent_invoice_id": str(invoice.id),
+            "modified_ncf": invoice.invoice_number,
+            "modification_code": mod_code,
+            "difference": diff_amount,
+            "is_increase": is_increase,
+            "reason": body.reason or f"{'Aumento' if is_increase else 'Disminución'} de monto",
+        }
+
+        mod_line_items = [
+            {
+                "line": idx + 1,
+                "name": it.description,
+                "quantity": it.quantity,
+                "unit_price": it.unit_price,
+                "discount_rate": it.discount_rate,
+                "tax_rate": it.tax_rate,
+                "total": round((it.quantity * it.unit_price * (1 - it.discount_rate / 100)) * (1 + it.tax_rate / 100), 2),
+            }
+            for idx, it in enumerate(emit_items)
+        ]
+
+        mod_invoice = Invoice(
+            tenant_id=ctx.tenant_id,
+            organization_id=ctx.org_id,
+            filename=f"{'Nota de Débito' if is_increase else 'Nota de Crédito'} - {invoice.invoice_number or ''}",
+            file_type="xml",
+            vendor_name=sender_name,
+            vendor_tax_id=sender_rnc,
+            rnc_comprador=buyer_rnc,
+            invoice_number=encf,
+            invoice_date=datetime.utcnow(),
+            total_amount=total_amount,
+            tax_amount=itbis_total,
+            currency="DOP",
+            transaction_type="income",
+            source_type="billing",
+            ecf_type=str(mod_ecf_type),
+            is_electronic=True,
+            processed=False,
+            status="draft",
+            parent_invoice_id=invoice.id,
+            modified_ncf=invoice.invoice_number,
+            modification_reason="04",
+            line_items_data=json.dumps(mod_line_items, ensure_ascii=False),
+            raw_extracted_data=json.dumps(mod_raw_data, ensure_ascii=False),
+        )
+        ctx.db.add(mod_invoice)
+        ctx.db.flush()
+
+        alanube_service = AlanubeService()
+        try:
+            res = await alanube_service.emit_document(
+                ecf_type=mod_ecf_type,
+                payload=alanube_payload,
+                company_id=org.alanube_company_id,
+            )
+
+            track_id = res.get("id") or res.get("trackId")
+            pdf_url = res.get("pdfUrl") or res.get("pdf_url")
+            xml_url = res.get("xmlUrl") or res.get("xml_url")
+            security_code = res.get("securityCode") or res.get("security_code")
+            legal_status = res.get("legalStatus") or res.get("legal_status") or "ACCEPTED"
+
+            mod_raw_data.update({
+                "security_code": security_code,
+                "track_id": track_id,
+                "legal_status": legal_status,
+                "pdf_url": pdf_url,
+                "xml_url": xml_url,
+            })
+            mod_invoice.raw_extracted_data = json.dumps(mod_raw_data, ensure_ascii=False)
+            mod_invoice.file_path = xml_url
+            mod_invoice.processed_path = pdf_url
+            mod_invoice.status = "verified"
+            mod_invoice.processed = True
+            mod_invoice.updated_at = datetime.utcnow()
+
+            ctx.db.commit()
+            ctx.db.refresh(mod_invoice)
+
+        except Exception as e:
+            ctx.db.rollback()
+            logger.exception("Error emitting modificatory invoice via Alanube")
+            raise HTTPException(status_code=502, detail=f"Error al emitir {mod_label}: {str(e)}")
+
+        record(
+            db=ctx.db,
+            tenant_id=ctx.tenant_id,
+            organization_id=ctx.org_id,
+            organization_name=org.name,
+            actor_id=str(ctx.user.id),
+            actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
+            actor_email=ctx.user.email,
+            action="invoice.corrected_amount",
+            resource_type="invoice",
+            resource_id=str(invoice_id),
+            summary=f"Factura e-CF '{invoice.invoice_number}' corregida (monto) → {encf}",
+            details=f"{mod_label}, diferencia: {diff_amount:.2f}",
+        )
+
+        return {
+            "message": f"Corrección de monto emitida exitosamente como {mod_label}.",
+            "modificatory_invoice": mod_invoice.to_dict(),
+        }
+
+    raise HTTPException(status_code=400, detail="Tipo de corrección inválido. Use 'text' o 'amount'.")
 
 
 @router.post("/api/invoices/bulk-cancel")

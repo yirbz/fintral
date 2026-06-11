@@ -7,7 +7,8 @@ const config: Config = {
     "./components/**/*.{ts,tsx}",
     "./features/**/*.{ts,tsx}",
     "./hooks/**/*.{ts,tsx}",
-    "./lib/**/*.{ts,tsx}"
+    "./lib/**/*.{ts,tsx}",
+    "./content/**/*.mdx"
   ],
   theme: {
     extend: {
@@ -56,11 +57,11 @@ const config: Config = {
           ring: "hsl(var(--sidebar-ring))",
         },
         brand: {
-          primary: "#533afd",
-          "primary-deep": "#4434d4",
-          "primary-press": "#2e2b8c",
-          "primary-soft": "#665efd",
-          "primary-subdued": "#b9b9f9",
+          primary: "#0EA5E9",
+          "primary-deep": "#0284C7",
+          "primary-press": "#0369A1",
+          "primary-soft": "#38BDF8",
+          "primary-subdued": "#E0F2FE",
           "dark-900": "#1c1e54",
           ink: "#0d253d",
           "ink-secondary": "#273951",

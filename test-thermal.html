@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Test Recibo Térmico</title></head>
+<body>
+
+<!-- ════════════════════════════════════════ -->
+<!-- EJEMPLO 1: e-CF (con QR)             -->
+<!-- ════════════════════════════════════════ -->
+<div class="ticket">
+  <div class="header">
+    <div class="business-name">EMPRESA DE PRUEBA SRL</div>
+    <div class="badge">EMISOR ELECTRÓNICO AUTORIZADO</div>
+    <div class="rnc">RNC: 132-109122-1</div>
+    <div class="address">Av. Prueba 123, Santo Domingo, RD</div>
+    <div class="phone">Tel: 809-555-0100</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <table class="meta">
+    <tr><td>FECHA:</td><td>08/06/2026, 02:30 PM</td></tr>
+    <tr><td>NCF/e-CF:</td><td class="bold">E320000000001</td></tr>
+    <tr><td>TIPO:</td><td>Factura de Consumo</td></tr>
+    <tr><td>CONDICIÓN:</td><td>CONTADO</td></tr>
+    <tr><td>ESTADO DGII:</td><td class="bold">ACCEPTED</td></tr>
+  </table>
+
+  <div class="divider"></div>
+
+  <div class="buyer">
+    <div class="buyer-title">ADQUIRIENTE:</div>
+    <div>Consumidor Final</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="items">
+    <div class="items-header">
+      <span class="c-concept">CONCEPTO</span>
+      <span class="c-cant">CANT</span>
+      <span class="c-punit">P/UNIT</span>
+      <span class="c-total">TOTAL</span>
+    </div>
+
+    <div class="item">
+      <div class="item-name">Producto de Prueba A</div>
+      <div class="item-detail">
+        <span class="c-concept"></span>
+        <span class="c-cant">2</span>
+        <span class="c-punit">RD$500.00</span>
+        <span class="c-total">RD$1,000.00</span>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="item-name">Servicio de Consultoría</div>
+      <div class="item-detail">
+        <span class="c-concept">(-0%)</span>
+        <span class="c-cant">1</span>
+        <span class="c-punit">RD$2,500.00</span>
+        <span class="c-total">RD$2,500.00</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <table class="totals">
+    <tr><td>SUBTOTAL:</td><td>RD$3,500.00</td></tr>
+    <tr><td>ITBIS:</td><td>RD$630.00</td></tr>
+    <tr class="total-row"><td>TOTAL A PAGAR:</td><td>RD$4,130.00</td></tr>
+  </table>
+
+  <div class="divider"></div>
+
+  <div class="qr-section">
+    <div class="qr-box">
+      <div class="qr-placeholder">
+        <svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+          <rect width="100" height="100" fill="white" stroke="#333" stroke-width="1"/>
+          <g fill="#111">
+            <rect x="5" y="5" width="15" height="15"/>
+            <rect x="25" y="5" width="5" height="15"/>
+            <rect x="70" y="5" width="15" height="15"/>
+            <rect x="5" y="25" width="15" height="5"/>
+
+            <rect x="5" y="70" width="15" height="15"/>
+            <rect x="25" y="70" width="5" height="15"/>
+            <rect x="70" y="70" width="15" height="15"/>
+            <rect x="70" y="25" width="15" height="5"/>
+            <rect x="35" y="25" width="10" height="10"/>
+            <rect x="50" y="40" width="15" height="10"/>
+            <rect x="35" y="45" width="10" height="15"/>
+            <rect x="30" y="35" width="5" height="5"/>
+          </g>
+        </svg>
+      </div>
+      <div class="qr-label">Escanear para verificar en la DGII</div>
+    </div>
+    <div class="security">
+      CÓDIGO DE SEGURIDAD: <strong>MYUVCT</strong><br>
+      TRACK ID: <strong>01H2ABC123DEF456</strong>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="footer">
+    <div class="footer-badge">DOCUMENTO ELECTRÓNICO FIRMADO</div>
+    <p>Esta es una representación impresa de un Comprobante Fiscal Electrónico (e-CF) emitido conforme a la Ley de Facturación Electrónica de la República Dominicana.</p>
+    <p class="thanks">¡Gracias por preferirnos!</p>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════ -->
+<!-- EJEMPLO 2: FÍSICO (sin QR ni badge)  -->
+<!-- ════════════════════════════════════════ -->
+<div class="ticket separator-line">
+  <div class="header">
+    <div class="business-name">EMPRESA DE PRUEBA SRL</div>
+    <div class="rnc">RNC: 132-109122-1</div>
+    <div class="address">Av. Prueba 123, Santo Domingo, RD</div>
+    <div class="phone">Tel: 809-555-0100</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <table class="meta">
+    <tr><td>FECHA:</td><td>08/06/2026, 02:30 PM</td></tr>
+    <tr><td>NCF/e-CF:</td><td class="bold">B0200000001</td></tr>
+    <tr><td>TIPO:</td><td>Factura de Consumo</td></tr>
+    <tr><td>CONDICIÓN:</td><td>CONTADO</td></tr>
+  </table>
+
+  <div class="divider"></div>
+
+  <div class="buyer">
+    <div class="buyer-title">ADQUIRIENTE:</div>
+    <div>Consumidor Final</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="items">
+    <div class="items-header">
+      <span class="c-concept">CONCEPTO</span>
+      <span class="c-cant">CANT</span>
+      <span class="c-punit">P/UNIT</span>
+      <span class="c-total">TOTAL</span>
+    </div>
+
+    <div class="item">
+      <div class="item-name">Producto de Prueba B</div>
+      <div class="item-detail">
+        <span class="c-concept"></span>
+        <span class="c-cant">3</span>
+        <span class="c-punit">RD$200.00</span>
+        <span class="c-total">RD$600.00</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <table class="totals">
+    <tr><td>SUBTOTAL:</td><td>RD$600.00</td></tr>
+    <tr><td>ITBIS:</td><td>RD$108.00</td></tr>
+    <tr class="total-row"><td>TOTAL A PAGAR:</td><td>RD$708.00</td></tr>
+  </table>
+
+  <div class="divider"></div>
+
+  <div class="footer">
+    <div class="footer-badge footer-badge-physical">COMPROBANTE FÍSICO</div>
+    <p>Esta es una representación impresa de un comprobante fiscal físico (NCF) registrado conforme a la normativa de la DGII.</p>
+    <p class="thanks">¡Gracias por preferirnos!</p>
+  </div>
+</div>
+
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #eee;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 40px;
+    padding: 40px 20px;
+  }
+
+  .separator-line {
+    margin-top: 20px;
+    padding-top: 20px;
+  }
+
+  /* ── TICKET (80mm) ── */
+  .ticket {
+    width: 80mm;
+    background: white;
+    padding: 3mm;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 9.5pt;
+    line-height: 1.2;
+    color: black;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+    page-break-after: always;
+  }
+
+  .header { text-align: center; margin-bottom: 0; }
+
+  .business-name {
+    font-size: 11pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    line-height: 1.1;
+    margin-bottom: 2px;
+  }
+
+  .badge {
+    font-size: 8pt;
+    font-weight: bold;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #555;
+    margin-bottom: 1px;
+  }
+
+  .rnc { font-size: 8.5pt; color: #555; }
+  .address { font-size: 8pt; color: #777; }
+  .phone { font-size: 8pt; color: #777; }
+
+  .divider {
+    border-top: 1px dashed #999;
+    margin: 2.5mm 0;
+  }
+
+  .meta { width: 100%; font-size: 9pt; }
+  .meta td { padding: 0.5mm 0; }
+  .meta td:last-child { text-align: right; }
+  .bold { font-weight: bold; }
+
+  .buyer-title { font-weight: bold; text-transform: uppercase; font-size: 9pt; margin-bottom: 0.5mm; }
+
+  .items { margin: 0; }
+  .items-header {
+    display: flex;
+    font-weight: bold;
+    font-size: 9pt;
+    border-bottom: 1px solid #999;
+    padding-bottom: 0.5mm;
+    margin-bottom: 1mm;
+  }
+  .item { margin-bottom: 1.5mm; }
+  .item-name { font-weight: 600; font-size: 9pt; }
+  .item-detail { display: flex; font-size: 8.5pt; color: #666; }
+
+  .c-concept { width: 36%; }
+  .c-cant { width: 16%; text-align: right; }
+  .c-punit { width: 20%; text-align: right; }
+  .c-total { width: 28%; text-align: right; font-weight: 600; color: black; }
+
+  .totals { width: 100%; font-size: 9pt; }
+  .totals td { padding: 0.5mm 0; }
+  .totals td:last-child { text-align: right; }
+  .total-row td {
+    font-weight: bold;
+    font-size: 10pt;
+    border-top: 1px solid #666;
+    padding-top: 0.5mm;
+  }
+
+  .qr-section { text-align: center; }
+  .qr-box { display: inline-flex; flex-direction: column; align-items: center; border: 1px solid #999; padding: 2mm; margin-bottom: 1mm; }
+  .qr-placeholder { margin-bottom: 0.5mm; }
+  .qr-label { font-size: 7pt; color: #777; text-transform: uppercase; }
+  .security { text-align: left; font-size: 7.5pt; color: #666; margin-top: 1mm; }
+  .security strong { color: black; }
+
+  .footer { text-align: center; font-size: 7pt; color: #777; }
+  .footer-badge { font-size: 8pt; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 1mm; }
+  .footer-badge-physical { color: #555; }
+  .thanks { font-size: 8pt; font-weight: bold; color: #444; margin-top: 1mm; }
+
+  p { margin-bottom: 0.5mm; }
+
+  /* ── PRINT STYLES ── */
+  @media print {
+    @page { size: 80mm auto; margin: 0; }
+    body { background: white; padding: 0; gap: 0; }
+    .ticket { box-shadow: none; page-break-after: always; }
+  }
+</style>
+
+</body>
+</html>

@@ -24,6 +24,44 @@ import {
 import { toast } from "sonner";
 import { VerificationBanner } from "@/components/billing/verification-banner";
 
+function formatCurrency(amount: number) {
+  return new Intl.NumberFormat("es-DO", {
+    style: "currency",
+    currency: "DOP",
+  }).format(amount);
+}
+
+function getStatusBadge(status: string) {
+  switch (status) {
+    case "verified":
+      return (
+        <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 flex items-center gap-1 w-fit text-[11px] h-5 px-2">
+          <CheckCircle2 className="size-3" /> Aprobado DGII
+        </Badge>
+      );
+    case "draft":
+      return (
+        <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 flex items-center gap-1 w-fit text-[11px] h-5 px-2">
+          <Clock className="size-3" /> Borrador
+        </Badge>
+      );
+    case "pending":
+      return (
+        <Badge className="bg-sky-500/10 text-sky-500 border-sky-500/20 flex items-center gap-1 w-fit text-[11px] h-5 px-2">
+          <Loader2 className="size-3 animate-spin" /> Procesando
+        </Badge>
+      );
+    case "rejected":
+      return (
+        <Badge className="bg-rose-500/10 text-rose-500 border-rose-500/20 flex items-center gap-1 w-fit text-[11px] h-5 px-2">
+          <AlertCircle className="size-3" /> Rechazado
+        </Badge>
+      );
+    default:
+      return <Badge variant="secondary">{status}</Badge>;
+  }
+}
+
 export default function BillingDashboard() {
   const [invoices, setInvoices] = useState<BillingInvoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,43 +121,7 @@ export default function BillingDashboard() {
   const draftCount = invoices.filter((inv) => inv.status === "draft").length;
   const verifiedCount = invoices.filter((inv) => inv.status === "verified").length;
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("es-DO", {
-      style: "currency",
-      currency: "DOP",
-    }).format(amount);
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "verified":
-        return (
-          <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 flex items-center gap-1 w-fit text-[11px] h-5 px-2">
-            <CheckCircle2 className="size-3" /> Aprobado DGII
-          </Badge>
-        );
-      case "draft":
-        return (
-          <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 flex items-center gap-1 w-fit text-[11px] h-5 px-2">
-            <Clock className="size-3" /> Borrador
-          </Badge>
-        );
-      case "pending":
-        return (
-          <Badge className="bg-sky-500/10 text-sky-500 border-sky-500/20 flex items-center gap-1 w-fit text-[11px] h-5 px-2">
-            <Loader2 className="size-3 animate-spin" /> Procesando
-          </Badge>
-        );
-      case "rejected":
-        return (
-          <Badge className="bg-rose-500/10 text-rose-500 border-rose-500/20 flex items-center gap-1 w-fit text-[11px] h-5 px-2">
-            <AlertCircle className="size-3" /> Rechazado
-          </Badge>
-        );
-      default:
-        return <Badge variant="secondary">{status}</Badge>;
-    }
-  };
+  
 
   return (
     <div className="flex-1 space-y-6 p-4 md:p-8 pt-6">

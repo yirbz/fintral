@@ -11,6 +11,13 @@ import { Badge } from "@/components/ui/badge";
 import { PlusCircle, Edit2, Trash2, Tag, Percent, DollarSign, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
+function formatCurrency(amount: number) {
+  return new Intl.NumberFormat("es-DO", {
+    style: "currency",
+    currency: "DOP",
+  }).format(amount);
+}
+
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -103,13 +110,6 @@ export default function ProductsPage() {
     } catch (err: any) {
       toast.error("Error al eliminar producto: " + (err.message || "Error desconocido"));
     }
-  };
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("es-DO", {
-      style: "currency",
-      currency: "DOP",
-    }).format(amount);
   };
 
   return (

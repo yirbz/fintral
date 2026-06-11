@@ -6,6 +6,16 @@ from lxml import etree
 
 from app.services.pipeline.base import BaseProcessor, ProcessingResult
 from app.services.pipeline.classifier import XML_EXTENSIONS
+try:
+    from app.services.pipeline.ecf_signature_validator import validate_ecf_signature
+    _SIGNATURE_VALIDATION_AVAILABLE = True
+except ImportError:
+    logger = logging.getLogger(__name__)
+    logger.warning("signxml not available — electronic seal validation disabled")
+    _SIGNATURE_VALIDATION_AVAILABLE = False
+
+    def validate_ecf_signature(xml_bytes: bytes, emitter_rnc: Optional[str] = None) -> dict:
+        return {"valid": True, "warning": "No se pudo validar la firma digital (librería no disponible)"}
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +81,14 @@ class ECFParser(BaseProcessor):
                     confidence=0.0,
                 )
 
+            # Validate electronic seal (Sellado Electrónico) before stripping namespaces
+            emitter_rnc = self._extract_emitter_rnc(root)
+            seal_result = validate_ecf_signature(xml_content, emitter_rnc=emitter_rnc)
+            logger.info(
+                "Electronic seal validation for %s: valid=%s, error=%s",
+                file_path, seal_result.get("valid"), seal_result.get("error"),
+            )
+
             self._strip_ns(root)
 
             warnings = self._validate_xsd(root, ecf_type)
@@ -78,6 +96,7 @@ class ECFParser(BaseProcessor):
 
             data = {"ecf_type": ecf_type, "ecf_type_name": ECF_TYPES.get(ecf_type, "Desconocido")}
             data["original_xml_data"] = xml_content.decode("utf-8")
+            data["electronic_seal"] = seal_result
             if warnings:
                 data["xsd_warnings"] = warnings
 
@@ -88,11 +107,15 @@ class ECFParser(BaseProcessor):
             self._parse_informacion_referencia(data, xp)
             self._parse_paginacion(data, xp)
 
+            if not seal_result.get("valid"):
+                error_msg = seal_result.get("error", "Firma digital no válida")
+                warnings.append(error_msg)
+
             return ProcessingResult(
                 success=True,
                 data=data,
                 source_type="ecf",
-                confidence=1.0,
+                confidence=0.3 if not seal_result.get("valid") else 1.0,
                 warnings=warnings,
             )
 
@@ -118,6 +141,14 @@ class ECFParser(BaseProcessor):
         if tipo_elem is not None and tipo_elem.text:
             val = tipo_elem.text.strip()
             return val if val in ECF_TYPES else None
+        return None
+
+    @staticmethod
+    def _extract_emitter_rnc(root: etree._Element) -> Optional[str]:
+        """Extract emitter RNC from the XML before namespace stripping."""
+        rnc_el = root.find(".//{*}RNCEmisor")
+        if rnc_el is not None and rnc_el.text:
+            return rnc_el.text.strip()
         return None
 
     def _load_schema(self, ecf_type: str) -> Optional[etree.XMLSchema]:

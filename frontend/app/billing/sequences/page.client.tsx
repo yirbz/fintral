@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { billingApi, EcfSequence, EcfSequenceCreate, SequenceAlert, type InvoiceTypeInfo } from "@/lib/api/billing";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,8 +29,12 @@ function TypeSelector({
   });
 
   const filtered = (types ?? []).filter((t) => {
-    if (t.ecf_type >= 31) return isEcfAuthorized;
-    return [1, 2, 4, 15].includes(t.ecf_type);
+    const isElectronic = t.code.startsWith("E") || t.ecf_type >= 31;
+    if (isEcfAuthorized) {
+      return isElectronic;
+    } else {
+      return !isElectronic;
+    }
   });
 
   const selected = (types ?? []).find((t) => t.ecf_type === value);
@@ -92,7 +96,85 @@ function TypeSelector({
   );
 }
 
+function getEcfTypeName(type: number) {
+  switch (type) {
+    // e-CF (Electronic)
+    case 31:
+      return "Factura de Crédito Fiscal Electrónica (e-CF 31)";
+    case 32:
+      return "Factura de Consumo Electrónica (e-CF 32)";
+    case 33:
+      return "Nota de Débito Electrónica (e-CF 33)";
+    case 34:
+      return "Nota de Crédito Electrónica (e-CF 34)";
+    case 41:
+      return "Comprobante de Compras Electrónico (e-CF 41)";
+    case 43:
+      return "Comprobante de Gastos Menores Electrónico (e-CF 43)";
+    case 44:
+      return "Comprobante de Regímenes Especiales Electrónico (e-CF 44)";
+    case 45:
+      return "Comprobante Gubernamental Electrónico (e-CF 45)";
+    case 46:
+      return "Comprobante para Exportación Electrónico (e-CF 46)";
+    case 47:
+      return "Comprobante para Pagos al Exterior Electrónico (e-CF 47)";
+    // NCF (Physical)
+    case 1:
+      return "Factura de Crédito Fiscal Física (NCF 01)";
+    case 2:
+      return "Factura de Consumo Física (NCF 02)";
+    case 3:
+      return "Nota de Débito Física (NCF 03)";
+    case 4:
+      return "Nota de Crédito Física (NCF 04)";
+    case 11:
+      return "Registro de Proveedores Informales Físico (NCF 11)";
+    case 12:
+      return "Registro Único de Ingresos Físico (NCF 12)";
+    case 13:
+      return "Comprobante de Gastos Menores Físico (NCF 13)";
+    case 14:
+      return "Comprobante de Regímenes Especiales Físico (NCF 14)";
+    case 15:
+      return "Comprobante Gubernamental Físico (NCF 15)";
+    case 16:
+      return "Comprobante para Exportación Físico (NCF 16)";
+    case 17:
+      return "Comprobante para Pagos al Exterior Físico (NCF 17)";
+    default:
+      return `Comprobante Tipo ${type}`;
+  }
+}
+
+function getSequenceStatus(seq: EcfSequence) {
+  const total = seq.end_number - seq.start_number + 1;
+  const consumed = Math.max(0, seq.current_number - seq.start_number + 1);
+  const percent = Math.min(100, Math.round((consumed / total) * 100));
+  const remaining = total - consumed;
+  
+  const isExpired = seq.expiry_date ? new Date(seq.expiry_date) < new Date() : false;
+  const isCloseToExpiration = seq.expiry_date 
+    ? (new Date(seq.expiry_date).getTime() - new Date().getTime()) < (30 * 24 * 60 * 60 * 1000) && !isExpired
+    : false;
+    
+  const isExhausted = seq.current_number >= seq.end_number;
+  const isCritical = remaining < (total * 0.1) && !isExhausted;
+  
+  return {
+    total,
+    consumed,
+    percent,
+    remaining,
+    isExpired,
+    isCloseToExpiration,
+    isExhausted,
+    isCritical
+  };
+}
+
 export default function SequencesPage() {
+  const queryClient = useQueryClient();
   const [sequences, setSequences] = useState<EcfSequence[]>([]);
   const [loading, setLoading] = useState(true);
   const [alerts, setAlerts] = useState<SequenceAlert[]>([]);
@@ -163,9 +245,13 @@ export default function SequencesPage() {
     e.preventDefault();
   
     // 0. ECF Authorization Validation
-    const isEcfType = [31, 32, 34, 43].includes(form.ecf_type);
-    if (isEcfType && !isEcfAuthorized) {
-      toast.error("Tu organización debe estar certificada ante la DGII para cargar rangos electrónicos.");
+    const isEcfType = form.ecf_type >= 31 || form.prefix.toUpperCase() === "E";
+    if (isEcfAuthorized && !isEcfType) {
+      toast.error("Una organización emisora electrónica solo puede cargar secuencias electrónicas (e-CF).");
+      return;
+    }
+    if (!isEcfAuthorized && isEcfType) {
+      toast.error("Una organización de facturación física solo puede cargar secuencias físicas (NCF).");
       return;
     }
 
@@ -246,6 +332,7 @@ export default function SequencesPage() {
       await billingApi.createSequence(form);
       toast.success("Rango de numeración creado exitosamente");
       setDialogOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["invoice-types"] });
       fetchSequences();
     } catch (err: any) {
       toast.error("Error al registrar rango: " + (err.message || "Error desconocido"));
@@ -258,60 +345,14 @@ export default function SequencesPage() {
     try {
       await billingApi.updateSequence(id, { is_active: !currentStatus });
       toast.success(`Rango ${!currentStatus ? "activado" : "desactivado"} con éxito`);
+      queryClient.invalidateQueries({ queryKey: ["invoice-types"] });
       fetchSequences();
     } catch (err: any) {
       toast.error("Error al actualizar estado del rango: " + (err.message || "Error desconocido"));
     }
   };
 
-  const getEcfTypeName = (type: number) => {
-    switch (type) {
-      case 31:
-        return "Factura de Crédito Fiscal Electrónica (e-CF 31)";
-      case 32:
-        return "Factura de Consumo Electrónica (e-CF 32)";
-      case 34:
-        return "Nota de Crédito Electrónica (e-CF 34)";
-      case 43:
-        return "Comprobante de Gastos Menores Electrónico (e-CF 43)";
-      case 1:
-        return "Factura de Crédito Fiscal Física (NCF 01)";
-      case 2:
-        return "Factura de Consumo Física (NCF 02)";
-      case 4:
-        return "Nota de Crédito Física (NCF 04)";
-      case 15:
-        return "Comprobante Gubernamental Físico (NCF 15)";
-      default:
-        return `Comprobante Tipo ${type}`;
-    }
-  };
-
-  const getSequenceStatus = (seq: EcfSequence) => {
-    const total = seq.end_number - seq.start_number + 1;
-    const consumed = Math.max(0, seq.current_number - seq.start_number + 1);
-    const percent = Math.min(100, Math.round((consumed / total) * 100));
-    const remaining = total - consumed;
-    
-    const isExpired = seq.expiry_date ? new Date(seq.expiry_date) < new Date() : false;
-    const isCloseToExpiration = seq.expiry_date 
-      ? (new Date(seq.expiry_date).getTime() - new Date().getTime()) < (30 * 24 * 60 * 60 * 1000) && !isExpired
-      : false;
-      
-    const isExhausted = seq.current_number >= seq.end_number;
-    const isCritical = remaining < (total * 0.1) && !isExhausted; // less than 10% remaining
-    
-    return {
-      total,
-      consumed,
-      percent,
-      remaining,
-      isExpired,
-      isCloseToExpiration,
-      isExhausted,
-      isCritical
-    };
-  };
+  
 
   return (
     <div className="flex-1 space-y-6 p-4 md:p-8 pt-6">

@@ -28,4 +28,5 @@ numpy>=1.18.0,<2
 resend>=2.0.0
 alembic>=1.13.0
 python-stdnum>=1.20
+signxml>=4.4.0
 

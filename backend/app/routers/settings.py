@@ -188,6 +188,7 @@ async def get_organization(
         "fiscal_address": org.fiscal_address,
         "municipality": org.municipality,
         "province": org.province,
+        "is_ecf_authorized": org.is_ecf_authorized,
         "created_at": org.created_at.isoformat() if org.created_at else None,
         "updated_at": org.updated_at.isoformat() if org.updated_at else None,
         "member_count": len(members),

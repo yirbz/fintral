@@ -14,12 +14,12 @@ import Link from "next/link";
 import { DgiiDashboardWidget } from "@/features/dgii/dgii-dashboard-widget";
 
 export function DashboardPage() {
-  const stats = useQuery({ queryKey: ["statistics", "30d"], queryFn: () => getStatistics("30d") });
-  const invoices = useQuery({ queryKey: ["invoices", "dashboard"], queryFn: () => listInvoices() });
+  const {data: stats_data, isFetching: stats_isFetching, isLoading: stats_isLoading} = useQuery({ queryKey: ["statistics", "30d"], queryFn: () => getStatistics("30d") });
+  const {data: invoices_data, isLoading: invoices_isLoading} = useQuery({ queryKey: ["invoices", "dashboard"], queryFn: () => listInvoices() });
   const { events, connected } = useRealtime();
-  const loading = stats.isLoading || stats.isFetching;
+  const loading = stats_isLoading || stats_isFetching;
 
-  const data = stats.data;
+  const data = stats_data;
 
   return (
     <div className="flex flex-col gap-5">
@@ -95,7 +95,7 @@ export function DashboardPage() {
                 <CardTitle className="text-sm font-heading">Actividad reciente</CardTitle>
                 <CardDescription className="text-xs">Últimas facturas procesadas</CardDescription>
               </div>
-              {!invoices.isLoading && (invoices.data?.invoices ?? []).length > 0 && (
+              {!invoices_isLoading && (invoices_data?.invoices ?? []).length > 0 && (
                 <Link href="/dashboard/invoices">
                   <Button variant="ghost" size="xs" className="gap-1 text-muted-foreground hover:text-primary">
                     Ver todo
@@ -106,7 +106,7 @@ export function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            {invoices.isLoading ? (
+            {invoices_isLoading ? (
               <div className="flex flex-col gap-1.5 py-2">
                 {Array.from({ length: 5 }).map((_, i) => (
                   <div key={i} className="flex items-center justify-between px-3 py-2.5">
@@ -121,7 +121,7 @@ export function DashboardPage() {
                   </div>
                 ))}
               </div>
-            ) : (invoices.data?.invoices ?? []).length === 0 ? (
+            ) : (invoices_data?.invoices ?? []).length === 0 ? (
               <div className="flex flex-col items-center justify-center py-14 text-center">
                 <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
                   <FileText className="size-6 text-primary" />
@@ -139,7 +139,7 @@ export function DashboardPage() {
               </div>
             ) : (
               <div className="flex flex-col">
-                {(invoices.data?.invoices ?? []).slice(0, 8).map((invoice, idx) => (
+                {(invoices_data?.invoices ?? []).slice(0, 8).map((invoice, idx) => (
                   <Link
                     href={`/dashboard/invoices/${invoice.id}`}
                     className="group -mx-2 flex items-center justify-between rounded-lg px-3 py-2.5 text-xs transition-colors hover:bg-accent"

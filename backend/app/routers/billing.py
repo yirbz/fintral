@@ -1199,15 +1199,12 @@ async def list_invoice_types(ctx: TenantContext = Depends(require_tenant)):
         is_electronic = code.startswith("E")
         requires_certification = is_electronic
 
-        if is_electronic:
-            seq = active_by_type.get(ecf_type)
-            has_valid_sequence = seq is not None and seq.current_number < seq.end_number
+        seq = active_by_type.get(ecf_type)
+        has_valid_sequence = seq is not None and seq.current_number < seq.end_number
 
+        if is_electronic:
             if IS_DEVELOPMENT and not has_valid_sequence and ecf_type in (31, 32):
                 has_valid_sequence = True
-        else:
-            seq = None
-            has_valid_sequence = True
 
         is_available = (not requires_certification or is_authorized) and has_valid_sequence
 
@@ -1510,9 +1507,7 @@ async def start_set_test(ctx: TenantContext = Depends(require_tenant)):
             detail="Debe registrar la empresa y subir un certificado digital válido antes de iniciar las pruebas.",
         )
 
-    rnc = ctx.organization.alanube_company_id or ctx.organization.tax_id or "132109122"
-    set_test_payload = {
-        "idCompany": rnc,
+    set_test_payload: dict = {
         "itemExample": {
             "billingIndicator": 1,
             "itemName": "Servicio de Integracion",
@@ -1521,6 +1516,9 @@ async def start_set_test(ctx: TenantContext = Depends(require_tenant)):
             "unitPriceItem": 1000,
         },
     }
+
+    if ctx.organization.alanube_company_id:
+        set_test_payload["idCompany"] = ctx.organization.alanube_company_id
 
     alanube_service = AlanubeService()
     try:
@@ -1689,6 +1687,7 @@ async def alanube_webhook(request: Request, x_api_key: Optional[str] = Header(No
             except json.JSONDecodeError:
                 pass
 
+        document_stamp_url = payload.get("documentStampUrl")
         raw_data.update(
             {
                 "alanube_document_id": alanube_doc_id,
@@ -1698,7 +1697,8 @@ async def alanube_webhook(request: Request, x_api_key: Optional[str] = Header(No
                 "xml_url": payload.get("xml"),
                 "signature_date": payload.get("signatureDate"),
                 "security_code": payload.get("securityCode"),
-                "document_stamp_url": payload.get("documentStampUrl"),
+                "document_stamp_url": document_stamp_url,
+                "qr_url": document_stamp_url,
                 "sequence_consumed": payload.get("sequenceConsumed", False),
             }
         )
@@ -1741,6 +1741,8 @@ async def alanube_webhook(request: Request, x_api_key: Optional[str] = Header(No
                 logger.info(f"Webhook: invoice {invoice.id} already {invoice.status}, updating metadata only")
         elif legal_status in ("REJECTED", "FAILED"):
             invoice.status = "voided"
+            invoice.cancelled_at = datetime.utcnow()
+            invoice.cancellation_type = invoice.cancellation_type or "01"
             logger.warning(f"Webhook: invoice {invoice.id} voided (NCF {encf}) — {json.dumps(error_info or {})}")
 
         invoice.raw_extracted_data = json.dumps(raw_data, ensure_ascii=False)
@@ -2027,68 +2029,61 @@ async def transmit_invoice(invoice_id: str, ctx: TenantContext = Depends(require
         except Exception:
             pass
 
-    # Build detailed itemDetails payload for Alanube API
-    item_details = []
-    subtotal = 0.0
-    itbis_total = 0.0
-
-    for idx, item in enumerate(items_list):
-        qty = item.get("quantity") or 1.0
-        price = item.get("unit_price") or 0.0
-        disc_rate = item.get("discount_rate") or 0.0
-        tax_rate = item.get("tax_rate") or 18.0
-
-        gross = qty * price
-        disc_amt = gross * (disc_rate / 100.0)
-        net = gross - disc_amt
-        tax_amt = net * (tax_rate / 100.0)
-
-        subtotal += net
-        itbis_total += tax_amt
-
-        item_details.append(
-            {
-                "line": idx + 1,
-                "name": item.get("name") or "Item",
-                "quantity": qty,
-                "price": price,
-                "discount": disc_amt,
-                "itbis": tax_amt,
-            }
+    # ── Build Alanube payload using the shared builder ──
+    emit_items = [
+        EmitLineItem(
+            description=item.get("name") or "Item",
+            quantity=item.get("quantity") or 1.0,
+            unit_price=item.get("unit_price") or 0.0,
+            discount_rate=item.get("discount_rate") or 0.0,
+            tax_rate=item.get("tax_rate") or 18.0,
+            good_service_indicator=item.get("good_service_indicator", 1),
         )
+        for item in items_list
+    ]
 
-    total = subtotal + itbis_total
+    income_type = int(raw_data.get("income_type", "01"))
+    payment_type = raw_data.get("payment_type") or 1
+    payment_method = raw_data.get("payment_method")
+    payment_splits = raw_data.get("payment_splits")
 
-    # Build the structural JSON payload for Alanube
-    alanube_payload = {
-        "idDoc": {
-            "encf": encf,
-            "sequenceDueDate": due_date_str,
-            "incomeType": 1,
-            "paymentType": raw_data.get("payment_type") or 1,
-            "paymentFormsTable": [
-                {
-                    "paymentMethod": raw_data.get("payment_method") or 1,
-                    "paymentAmount": total,
-                }
-            ],
-        },
-        "sender": {"rnc": sender_rnc, "name": sender_name},
-        "buyer": {"rnc": buyer_rnc, "name": buyer_name},
-        "totals": {
-            "subtotal": subtotal,
-            "discount": 0.0,
-            "taxableAmount": subtotal,
-            "itbis": itbis_total,
-            "total": total,
-        },
-        "itemDetails": item_details,
-    }
+    # raw_data may have ISO date string; parse to date object if present
+    ref_date = None
+    ref_raw = raw_data.get("reference_date")
+    if ref_raw:
+        try:
+            ref_date = date.fromisoformat(ref_raw) if isinstance(ref_raw, str) else ref_raw
+        except Exception:
+            pass
 
-    # If reference e-CF is provided (E33/E34)
-    if raw_data.get("reference_ecf") and raw_data.get("reference_date"):
-        alanube_payload["idDoc"]["referenceEcf"] = raw_data["reference_ecf"]
-        alanube_payload["idDoc"]["referenceDate"] = raw_data["reference_date"]
+    org = ctx.organization
+    sender_phone_list = [org.phone] if org.phone else None
+    alanube_payload, subtotal, itbis_total, total_amount = _build_emit_alanube_payload(
+        encf=encf,
+        sequence=sequence,
+        ecf_type=ecf_type,
+        sender_rnc=sender_rnc,
+        sender_name=sender_name,
+        buyer_name=buyer_name,
+        buyer_rnc=buyer_rnc,
+        items=emit_items,
+        income_type=income_type,
+        payment_type=payment_type,
+        payment_method=payment_method,
+        payment_splits=payment_splits,
+        reference_ecf=raw_data.get("reference_ecf"),
+        reference_date=ref_date,
+        modification_code=raw_data.get("modification_code"),
+        sender_address=org.fiscal_address or sender_name,
+        sender_municipality=org.municipality,
+        sender_province=org.province,
+        sender_phone=sender_phone_list,
+        sender_email=org.email_contact,
+        sender_website=org.website,
+        sender_economic_activity=org.economic_activity,
+        buyer_address=None,
+        stamp_date=datetime.utcnow().date().isoformat(),
+    )
 
     if not is_electronic:
         # Bypass Alanube API for traditional/physical NCFs (handled locally)
@@ -2132,16 +2127,27 @@ async def transmit_invoice(invoice_id: str, ctx: TenantContext = Depends(require
     # Call Alanube Service
     alanube_service = AlanubeService()
     try:
-        # Emit document to Alanube API
-        res = await alanube_service.emit_document(ecf_type=ecf_type, payload=alanube_payload)
+        # Emit document to Alanube API (pass company_id for multi-tenant emission)
+        res = await alanube_service.emit_document(
+            ecf_type=ecf_type,
+            payload=alanube_payload,
+            company_id=ctx.organization.alanube_company_id,
+        )
 
         # Retrieve signed metadata links from response
-        # Standard Alanube output returns: securityCode, trackId, legalStatus, pdfUrl, xmlUrl
+        # Standard Alanube output returns: securityCode, trackId, legalStatus, pdfUrl, xmlUrl, documentStampUrl
         track_id = res.get("id") or res.get("trackId")
         pdf_url = res.get("pdfUrl") or res.get("pdf_url")
         xml_url = res.get("xmlUrl") or res.get("xml_url")
         security_code = res.get("securityCode") or res.get("security_code")
         legal_status = res.get("legalStatus") or res.get("legal_status") or "ACCEPTED"
+        document_stamp_url = res.get("documentStampUrl") or res.get("document_stamp_url")
+
+        # Build QR URL: prefer Alanube's official documentStampUrl, fall back to DGII portal
+        qr_url = document_stamp_url or (
+            f"https://dgii.gov.do/consulta/ecf?rnc={sender_rnc}&encf={encf}&trackId={track_id}"
+            if track_id else None
+        )
 
         # Update raw metadata to include Alanube response details
         raw_data.update(
@@ -2151,7 +2157,8 @@ async def transmit_invoice(invoice_id: str, ctx: TenantContext = Depends(require
                 "legal_status": legal_status,
                 "pdf_url": pdf_url,
                 "xml_url": xml_url,
-                "qr_url": f"https://dgii.gov.do/consulta/ecf?rnc={sender_rnc}&encf={encf}&trackId={track_id}",
+                "document_stamp_url": document_stamp_url,
+                "qr_url": qr_url,
             }
         )
 
@@ -2405,7 +2412,7 @@ def _build_emit_alanube_payload(
         },
     }
 
-    payload["sender"]["address"] = sender_address or sender_name
+    payload["sender"]["address"] = sender_address or f"{sender_name}, Santo Domingo"
     if sender_municipality:
         payload["sender"]["municipality"] = sender_municipality
     if sender_province:
@@ -2863,6 +2870,12 @@ async def emit_invoice(payload: EmitRequest, ctx: TenantContext = Depends(requir
 
         is_async = response_code in ("AEP2006", "AEP2XXX", "AP19101") or not track_id
 
+        document_stamp_url = res.get("documentStampUrl") or res.get("document_stamp_url")
+        qr_url = document_stamp_url or (
+            f"https://dgii.gov.do/consulta/ecf?rnc={sender_rnc}&encf={encf}&trackId={track_id}"
+            if track_id else None
+        )
+
         raw_data.update(
             {
                 "security_code": security_code,
@@ -2870,9 +2883,8 @@ async def emit_invoice(payload: EmitRequest, ctx: TenantContext = Depends(requir
                 "legal_status": legal_status,
                 "pdf_url": pdf_url,
                 "xml_url": xml_url,
-                "qr_url": f"https://dgii.gov.do/consulta/ecf?rnc={sender_rnc}&encf={encf}&trackId={track_id}"
-                if track_id
-                else None,
+                "document_stamp_url": document_stamp_url,
+                "qr_url": qr_url,
                 "async": is_async,
             }
         )

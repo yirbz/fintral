@@ -14,6 +14,7 @@ import {
   Globe,
   KeyRound,
   Users,
+  ShieldCheck,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useSession } from "@/hooks/use-session";
@@ -37,6 +38,7 @@ const SECTIONS: SectionDef[] = [
   { id: "webhooks", label: "Webhooks", icon: Webhook },
   { id: "integraciones", label: "Integraciones", icon: Globe },
   { id: "billing", label: "Facturación", icon: CreditCard },
+  { id: "certification", label: "Certificación", icon: ShieldCheck },
 ];
 
 export function SettingsLayout({ children }: { children: React.ReactNode }) {

@@ -33,15 +33,29 @@ interface NcfSelectorProps {
 }
 
 export function NcfSelector({ value, onChange, disabled, filterQuickMode, electronicOnly }: NcfSelectorProps) {
-  const { data: typesData, isLoading, error } = useQuery({
+  const { data: typesData, isLoading: isTypesLoading, error } = useQuery({
     queryKey: ["invoice-types"],
     queryFn: billingApi.getInvoiceTypes,
   });
 
+  const { data: verification, isLoading: isVerLoading } = useQuery({
+    queryKey: ["billing-verification-status"],
+    queryFn: billingApi.getVerificationStatus,
+  });
+
+  const isEcfAuthorized = verification?.is_ecf_authorized || false;
+  const isLoading = isTypesLoading || isVerLoading;
+
   const types = (typesData ?? []).filter((t) => {
     if (filterQuickMode && !t.supports_quick_mode) return false;
     if (electronicOnly && t.ecf_type < 31) return false;
-    return true;
+    
+    const isElectronic = t.code.startsWith("E") || t.ecf_type >= 31;
+    if (isEcfAuthorized) {
+      return isElectronic;
+    } else {
+      return !isElectronic;
+    }
   });
 
   const selected = types.find((t) => t.ecf_type === value);

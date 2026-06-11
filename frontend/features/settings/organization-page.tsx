@@ -876,7 +876,7 @@ function CreateOrgDialog({ onSuccess }: { onSuccess: () => void }) {
 function PendingInvitations({ orgId }: { orgId: string }) {
   const queryClient = useQueryClient();
 
-  const invitesQuery = useQuery({
+  const {data: invitesQuery_data} = useQuery({
     queryKey: ["org-invitations", orgId],
     queryFn: () => listInvitations(orgId),
     enabled: !!orgId,
@@ -893,7 +893,7 @@ function PendingInvitations({ orgId }: { orgId: string }) {
     },
   });
 
-  const invites = invitesQuery.data ?? [];
+  const invites = invitesQuery_data ?? [];
 
   if (invites.length === 0) return null;
 
@@ -942,7 +942,7 @@ export function OrganizationPage() {
   const { activeOrgId, userOrgs, switchOrg, refreshOrgs } = useOrg();
   const queryClient = useQueryClient();
 
-  const orgQuery = useQuery({
+  const {data: orgQuery_data} = useQuery({
     queryKey: ["organization-settings"],
     queryFn: getOrganization,
   });
@@ -960,8 +960,8 @@ export function OrganizationPage() {
 
   // Populate form fields when data loads
   useEffect(() => {
-    if (!orgQuery.data) return;
-    const d = orgQuery.data;
+    if (!orgQuery_data) return;
+    const d = orgQuery_data;
     setName(d.name || "");
     setTaxId(d.tax_id || "");
     setPhone(d.phone || "");
@@ -971,12 +971,12 @@ export function OrganizationPage() {
     setFiscalAddress(d.fiscal_address || "");
     setMunicipality(d.municipality || "");
     setProvince(d.province || "");
-  }, [orgQuery.data]);
+  }, [orgQuery_data]);
 
   // Track dirty state
   useEffect(() => {
-    if (!orgQuery.data) return;
-    const d = orgQuery.data;
+    if (!orgQuery_data) return;
+    const d = orgQuery_data;
     const dirty =
       name !== (d.name || "") ||
       taxId !== (d.tax_id || "") ||
@@ -1025,11 +1025,11 @@ export function OrganizationPage() {
   });
 
   // Members from org settings
-  const members = orgQuery.data?.members ?? [];
-  const memberCount = orgQuery.data?.member_count ?? 0;
-  const updatedAt = relativeTime(orgQuery.data?.updated_at ?? null);
+  const members = orgQuery_data?.members ?? [];
+  const memberCount = orgQuery_data?.member_count ?? 0;
+  const updatedAt = relativeTime(orgQuery_data?.updated_at ?? null);
   const currentUserId = session.data?.user?.id;
-  const currentOrgId = activeOrgId ?? orgQuery.data?.id;
+  const currentOrgId = activeOrgId ?? orgQuery_data?.id;
 
   // Member management mutations
   const removeMutation = useMutation({
@@ -1191,7 +1191,7 @@ export function OrganizationPage() {
                     RNC / Tax ID
                   </Label>
                   <div className="relative">
-                    {orgQuery.data?.tax_id ? (
+                    {orgQuery_data?.tax_id ? (
                       <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
                     ) : (
                       <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
@@ -1201,9 +1201,9 @@ export function OrganizationPage() {
                       onChange={(e) => setTaxId(e.target.value.replace(/\D/g, ""))}
                       placeholder="000000000"
                       maxLength={11}
-                      disabled={!!orgQuery.data?.tax_id}
+                      disabled={!!orgQuery_data?.tax_id}
                       className={`pl-8 pr-14 font-mono tracking-wider ${
-                        orgQuery.data?.tax_id
+                        orgQuery_data?.tax_id
                           ? "bg-muted cursor-not-allowed opacity-80"
                           : ""
                       } ${
@@ -1214,7 +1214,7 @@ export function OrganizationPage() {
                           : ""
                       }`}
                     />
-                    {!orgQuery.data?.tax_id && (
+                    {!orgQuery_data?.tax_id && (
                       <span
                         className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono ${
                           taxId.length === 9 || taxId.length === 11
@@ -1229,7 +1229,7 @@ export function OrganizationPage() {
                     )}
                   </div>
                   <p className="mt-1 text-[10px] text-muted-foreground">
-                    {orgQuery.data?.tax_id
+                    {orgQuery_data?.tax_id
                       ? "El RNC/Cédula está bloqueado y no puede ser modificado por cumplimiento fiscal."
                       : "9 dígitos (empresa/persona jurídica) · 11 dígitos (cédula/persona física) · Validación DGII"}
                   </p>

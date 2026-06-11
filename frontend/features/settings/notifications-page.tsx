@@ -35,8 +35,8 @@ function NotificationToggle({ label, description, defaultChecked, onChange }: {
 
 export function NotificationsPage() {
   const queryClient = useQueryClient();
-  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings });
-  const editable = settingsQuery.data ?? ({} as SettingsPayload);
+  const {data: settingsQuery_data} = useQuery({ queryKey: ["settings"], queryFn: getSettings });
+  const editable = settingsQuery_data ?? ({} as SettingsPayload);
 
   function updateSetting(category: string, key: string, value: string | number | boolean) {
     findSetting(editable, category, key).value = value;

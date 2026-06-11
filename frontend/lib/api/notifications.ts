@@ -7,6 +7,10 @@ export async function getNotifications(unreadOnly = false, limit = 20) {
   );
 }
 
+export async function readNotification(id: string) {
+  return apiFetch<{ status: string }>(`/api/notifications/${id}/read`, { method: "POST" });
+}
+
 export async function readAllNotifications() {
   return apiFetch<{ status: string }>("/api/notifications/read-all", { method: "POST" });
 }
