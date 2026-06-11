@@ -170,6 +170,7 @@ export function AiChatSidebar() {
                 {SUGGESTIONS.map((s, i) => (
                   <button
                     key={i}
+                    type="button"
                     onClick={() => handleSend(s)}
                     className="rounded-lg border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   >

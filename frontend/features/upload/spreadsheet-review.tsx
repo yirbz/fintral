@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -78,42 +78,38 @@ export function SpreadsheetReview({ draftInvoices, onSuccess }: SpreadsheetRevie
   });
 
   // Set default selected ID to the first draft
-  useEffect(() => {
-    if (draftInvoices.length > 0 && (!selectedId || !draftInvoices.some((inv) => inv.id === selectedId))) {
-      setSelectedId(draftInvoices[0].id);
-    }
-  }, [draftInvoices, selectedId]);
+  if (draftInvoices.length > 0 && (!selectedId || !draftInvoices.some((inv) => inv.id === selectedId))) {
+    setSelectedId(draftInvoices[0].id);
+  }
 
   // Sync rowsState when draftInvoices change
-  useEffect(() => {
-    const newState: Record<string, RowState> = { ...rowsState };
-    let updated = false;
-
-    draftInvoices.forEach((inv) => {
-      if (!newState[inv.id]) {
-        newState[inv.id] = {
-          vendor_name: inv.vendor_name ?? "",
-          vendor_tax_id: inv.vendor_tax_id ?? "",
-          invoice_number: inv.invoice_number ?? "",
-          invoice_date: inv.invoice_date ? inv.invoice_date.split("T")[0] : "",
-          total_amount: inv.total_amount ?? 0,
-          tax_amount: inv.tax_amount ?? 0,
-          goods_services_type: inv.goods_services_type ?? "",
-          bank_account_id: inv.bank_account_id ?? null,
-          payment_condition: inv.payment_condition ?? "contado",
-          payment_status: inv.payment_status ?? "pending",
-          due_date: inv.due_date ? inv.due_date.split("T")[0] : "",
-          payment_date: inv.payment_date ? inv.payment_date.split("T")[0] : "",
-          description: inv.description ?? "",
-        };
-        updated = true;
-      }
+  if (draftInvoices.some((inv) => !rowsState[inv.id])) {
+    setRowsState((prev) => {
+      const newState = { ...prev };
+      let updated = false;
+      draftInvoices.forEach((inv) => {
+        if (!newState[inv.id]) {
+          newState[inv.id] = {
+            vendor_name: inv.vendor_name ?? "",
+            vendor_tax_id: inv.vendor_tax_id ?? "",
+            invoice_number: inv.invoice_number ?? "",
+            invoice_date: inv.invoice_date ? inv.invoice_date.split("T")[0] : "",
+            total_amount: inv.total_amount ?? 0,
+            tax_amount: inv.tax_amount ?? 0,
+            goods_services_type: inv.goods_services_type ?? "",
+            bank_account_id: inv.bank_account_id ?? null,
+            payment_condition: inv.payment_condition ?? "contado",
+            payment_status: inv.payment_status ?? "pending",
+            due_date: inv.due_date ? inv.due_date.split("T")[0] : "",
+            payment_date: inv.payment_date ? inv.payment_date.split("T")[0] : "",
+            description: inv.description ?? "",
+          };
+          updated = true;
+        }
+      });
+      return updated ? newState : prev;
     });
-
-    if (updated) {
-      setRowsState(newState);
-    }
-  }, [draftInvoices]);
+  }
 
   if (draftInvoices.length === 0) {
     return (

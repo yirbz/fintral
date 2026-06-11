@@ -617,7 +617,7 @@ class TestDominicanFiscalValidation:
             "vendor_country": "DOM",
         }
         res_18 = post_extraction_validator.validate(data_18.copy())
-        assert not any("no coincide con el 18% o 16%" in w for w in res_18["audit_warnings"])
+        assert not any("no coincide con la tasa del 18%" in w for w in res_18["audit_warnings"])
 
     def test_validator_organization_rnc_match(self):
         from app.services.pipeline.validator import post_extraction_validator

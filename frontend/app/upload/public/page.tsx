@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, Suspense } from "react";
+import React, { useEffect, useState, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast, Toaster } from "sonner";
 import {
@@ -273,7 +273,7 @@ function PublicUploadContent() {
   if (loading) {
     return (
       <div className="min-h-dvh bg-[#060814] flex flex-col items-center justify-center p-4">
-        <Loader2 className="size-8 animate-spin text-[#533afd]" />
+        <Loader2 className="size-8 animate-spin text-[#0EA5E9]" />
         <p className="text-sm text-neutral-400 mt-4 font-sans tracking-tight">Cargando portal de subida seguro...</p>
       </div>
     );
@@ -355,15 +355,19 @@ function PublicUploadContent() {
                 <div className="border-t border-neutral-800/80 pt-4 text-left space-y-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400">Resumen del lote enviado ({uploads.filter(u => u.status === "done").length} archivos)</p>
                   <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
-                    {uploads.filter(u => u.status === "done").map((u, i) => (
-                      <div key={`${u.name}-${i}`} className="flex items-center justify-between p-2 rounded-lg bg-[#090b11] border border-neutral-800/50 text-[11px]">
-                        <div className="flex items-center gap-2 truncate">
-                          {fileIcon(u.name)}
-                          <span className="text-neutral-300 truncate">{u.name}</span>
+                    {uploads.reduce<React.ReactNode[]>((acc, u) => {
+                      if (u.status !== "done") return acc;
+                      acc.push(
+                        <div key={`${u.name}-${acc.length}`} className="flex items-center justify-between p-2 rounded-lg bg-[#090b11] border border-neutral-800/50 text-[11px]">
+                          <div className="flex items-center gap-2 truncate">
+                            {fileIcon(u.name)}
+                            <span className="text-neutral-300 truncate">{u.name}</span>
+                          </div>
+                          <span className="text-neutral-500 font-mono shrink-0">{formatSize(u.size)}</span>
                         </div>
-                        <span className="text-neutral-500 font-mono shrink-0">{formatSize(u.size)}</span>
-                      </div>
-                    ))}
+                      );
+                      return acc;
+                    }, [])}
                   </div>
                 </div>
               )}
@@ -407,7 +411,7 @@ function PublicUploadContent() {
       {/* Compact header */}
       <header className="max-w-6xl w-full mx-auto px-4 py-4 flex items-center justify-between border-b border-neutral-800/40 relative z-10">
         <div className="flex items-center gap-2">
-          <div className="flex size-8 items-center justify-center rounded-xl bg-[#533afd]/10 text-[#533afd] ring-1 ring-[#533afd]/20 shrink-0">
+          <div className="flex size-8 items-center justify-center rounded-xl bg-[#0EA5E9]/10 text-[#0EA5E9] ring-1 ring-[#0EA5E9]/20 shrink-0">
             <Upload className="size-3.5" />
           </div>
           <div className="flex flex-col">
@@ -429,16 +433,16 @@ function PublicUploadContent() {
           <div className="lg:col-span-5 space-y-4 lg:space-y-6 lg:sticky lg:top-8">
             {/* Mobile compact row */}
             <div className="lg:hidden flex items-start gap-3">
-              <div className="flex size-10 items-center justify-center rounded-xl bg-[#533afd]/10 text-[#533afd] ring-1 ring-[#533afd]/20 shrink-0">
+              <div className="flex size-10 items-center justify-center rounded-xl bg-[#0EA5E9]/10 text-[#0EA5E9] ring-1 ring-[#0EA5E9]/20 shrink-0">
                 <Upload className="size-4" />
               </div>
               <div className="min-w-0 flex-1">
                 <h1 className="text-sm font-semibold text-neutral-100 leading-tight">
-                  Enviar facturas a <span className="text-[#533afd]">{linkInfo.organization_name}</span>
+                  Enviar facturas a <span className="text-[#0EA5E9]">{linkInfo.organization_name}</span>
                 </h1>
                 <p className="text-[10px] text-neutral-400 mt-0.5">{uploadedCount} / {linkInfo.max_files} archivos &middot; Expira {new Date(linkInfo.expires_at).toLocaleDateString("es-DO", { day: "2-digit", month: "2-digit" })}</p>
                 <div className="w-full bg-neutral-900 rounded-full h-1 mt-1.5 overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-[#533afd] to-[#665efd] rounded-full transition-all duration-500" style={{ width: `${progressPercent}%` }} />
+                  <div className="h-full bg-gradient-to-r from-[#0EA5E9] to-[#38BDF8] rounded-full transition-all duration-500" style={{ width: `${progressPercent}%` }} />
                 </div>
               </div>
             </div>
@@ -446,7 +450,7 @@ function PublicUploadContent() {
             {/* Desktop full info */}
             <div className="hidden lg:block space-y-6">
               <div className="space-y-3">
-                <span className="text-[10px] uppercase font-bold tracking-widest text-[#533afd] bg-[#533afd]/10 px-2.5 py-1 rounded-md">
+                <span className="text-[10px] uppercase font-bold tracking-widest text-[#0EA5E9] bg-[#0EA5E9]/10 px-2.5 py-1 rounded-md">
                   Solicitud Activa
                 </span>
                 <h1 className="text-2xl md:text-3xl font-light tracking-tight text-neutral-100 leading-tight">
@@ -465,7 +469,7 @@ function PublicUploadContent() {
                   </div>
                   <div className="w-full bg-neutral-900 rounded-full h-1.5 overflow-hidden">
                     <div 
-                       className="h-full bg-gradient-to-r from-[#533afd] to-[#665efd] rounded-full transition-all duration-500" 
+                       className="h-full bg-gradient-to-r from-[#0EA5E9] to-[#38BDF8] rounded-full transition-all duration-500" 
                        style={{ width: `${progressPercent}%` }}
                     />
                   </div>
@@ -474,7 +478,7 @@ function PublicUploadContent() {
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   <div className="p-4 rounded-xl bg-[#0b0e1f] border border-[#1a203f]">
                     <p className="text-[10px] text-neutral-500 uppercase font-semibold flex items-center gap-1.5">
-                      <Clock className="size-3.5 text-[#533afd]" />
+                      <Clock className="size-3.5 text-[#0EA5E9]" />
                       Expira
                     </p>
                     <p className="font-semibold text-neutral-200 mt-2 font-mono">
@@ -487,7 +491,7 @@ function PublicUploadContent() {
                   </div>
                   <div className="p-4 rounded-xl bg-[#0b0e1f] border border-[#1a203f]">
                     <p className="text-[10px] text-neutral-500 uppercase font-semibold flex items-center gap-1.5">
-                      <Lock className="size-3.5 text-[#533afd]" />
+                      <Lock className="size-3.5 text-[#0EA5E9]" />
                       Formatos
                     </p>
                     <p className="font-semibold text-neutral-200 mt-2 font-mono">
@@ -502,7 +506,7 @@ function PublicUploadContent() {
           {/* Right: Upload card */}
           <div className="lg:col-span-7 flex flex-col">
             <Card className="border-[#1a203f] bg-[#0c0e22] shadow-2xl relative overflow-hidden flex flex-col h-auto">
-              <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[#533afd] to-transparent" />
+              <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[#0EA5E9] to-transparent" />
               
               <CardContent className="p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-6 flex flex-col">
                 
@@ -537,8 +541,8 @@ function PublicUploadContent() {
                     uploadedCount >= linkInfo.max_files
                       ? "border-neutral-800 bg-[#090a18]/40 opacity-60 cursor-not-allowed"
                       : dragOver
-                      ? "border-[#533afd] bg-[#533afd]/5 shadow-inner cursor-pointer"
-                      : "border-[#202752] bg-[#090a18] hover:border-[#533afd]/40 hover:bg-[#533afd]/[0.02] cursor-pointer"
+                      ? "border-[#0EA5E9] bg-[#0EA5E9]/5 shadow-inner cursor-pointer"
+                      : "border-[#202752] bg-[#090a18] hover:border-[#0EA5E9]/40 hover:bg-[#0EA5E9]/[0.02] cursor-pointer"
                   )}
                 >
                   <input
@@ -556,7 +560,7 @@ function PublicUploadContent() {
                     uploadedCount >= linkInfo.max_files
                       ? "bg-neutral-900 text-neutral-600"
                       : dragOver 
-                      ? "bg-[#533afd] text-white scale-110 shadow-lg shadow-[#533afd]/20" 
+                      ? "bg-[#0EA5E9] text-white scale-110 shadow-lg shadow-[#0EA5E9]/20" 
                       : "bg-neutral-900 text-neutral-400 group-hover:scale-105 group-hover:bg-neutral-800"
                   )}>
                     <Upload className={cn("size-5 sm:size-6 transition-transform", uploadedCount < linkInfo.max_files && dragOver && "animate-bounce")} />
@@ -588,8 +592,11 @@ function PublicUploadContent() {
                       {uploads.map((u, i) => (
                         <div 
                           key={`${u.name}-${i}`} 
-                          className="flex items-center gap-3 p-3 rounded-2xl border border-neutral-800/60 bg-[#090a16]/80 backdrop-blur-sm text-xs transition-all duration-200 hover:border-[#533afd]/40 hover:bg-[#533afd]/5 active:scale-[0.99] group cursor-pointer"
+                          className="flex items-center gap-3 p-3 rounded-2xl border border-neutral-800/60 bg-[#090a16]/80 backdrop-blur-sm text-xs transition-all duration-200 hover:border-[#0EA5E9]/40 hover:bg-[#0EA5E9]/5 active:scale-[0.99] group cursor-pointer"
+                          role="button"
+                          tabIndex={0}
                           onClick={() => u.status === "done" && setPreviewUpload(u)}
+                          onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && u.status === "done") { e.preventDefault(); setPreviewUpload(u); } }}
                         >
                           {/* Left: Thumbnail container */}
                           <div className="shrink-0">
@@ -603,9 +610,9 @@ function PublicUploadContent() {
                           </div>
                           
                           {/* Right: Actions / Status */}
-                          <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center gap-2 shrink-0" role="presentation" onClick={(e) => e.stopPropagation()}>
                             {u.status === "uploading" && (
-                              <div className="flex size-8 items-center justify-center rounded-lg bg-[#533afd]/10 text-[#533afd]">
+                              <div className="flex size-8 items-center justify-center rounded-lg bg-[#0EA5E9]/10 text-[#0EA5E9]">
                                 <Loader2 className="size-3.5 animate-spin" />
                               </div>
                             )}
@@ -619,7 +626,7 @@ function PublicUploadContent() {
                                 <button
                                   type="button"
                                   onClick={() => handleRemoveFile(u)}
-                                  className="flex size-8 items-center justify-center rounded-lg text-neutral-400 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 active:scale-95 transition-all duration-150"
+                                  className="flex size-8 items-center justify-center rounded-lg text-white/60 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 active:scale-95 transition-all duration-150"
                                   title="Eliminar archivo"
                                 >
                                   <Trash2 className="size-4" />
@@ -667,11 +674,11 @@ function PublicUploadContent() {
 
       {/* Preview Modal */}
       {previewUpload && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-backdrop-fade" onClick={() => setPreviewUpload(null)}>
-          <div className="relative max-w-lg w-full bg-[#0d0e1c] border border-[#202752] rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh] animate-modal-enter" onClick={(e) => e.stopPropagation()}>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-backdrop-fade" role="presentation" onClick={() => setPreviewUpload(null)}>
+          <div className="relative max-w-lg w-full bg-[#0d0e1c] border border-[#202752] rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh] animate-modal-enter" role="presentation" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-neutral-800/40">
               <h3 className="text-xs font-semibold text-neutral-200 truncate pr-4">{previewUpload.name}</h3>
-              <button className="text-neutral-400 hover:text-white text-xs font-medium px-2 py-1 rounded hover:bg-neutral-800/40" onClick={() => setPreviewUpload(null)}>
+              <button type="button" className="text-neutral-400 hover:text-white text-xs font-medium px-2 py-1 rounded hover:bg-neutral-800/40" onClick={() => setPreviewUpload(null)}>
                 Cerrar
               </button>
             </div>
@@ -704,7 +711,7 @@ function PublicUploadContent() {
                       href={href}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex h-8 items-center justify-center rounded-lg bg-[#533afd] hover:bg-[#665efd] text-white text-xs px-4 font-medium transition-colors"
+                      className="inline-flex h-8 items-center justify-center rounded-lg bg-[#0EA5E9] hover:bg-[#38BDF8] text-white text-xs px-4 font-medium transition-colors"
                     >
                       Abrir PDF en pestaña nueva
                     </a>
@@ -741,7 +748,7 @@ export default function PublicUploadPage() {
   return (
     <Suspense fallback={
       <div className="min-h-dvh bg-[#060814] flex flex-col items-center justify-center p-4">
-        <Loader2 className="size-8 animate-spin text-[#533afd]" />
+        <Loader2 className="size-8 animate-spin text-[#0EA5E9]" />
         <p className="text-sm text-neutral-400 mt-4 font-sans tracking-tight">Cargando portal de subida...</p>
       </div>
     }>

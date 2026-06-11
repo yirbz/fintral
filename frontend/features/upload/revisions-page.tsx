@@ -38,6 +38,32 @@ import { UploadNav } from "./upload-nav";
 
 type SortKey = "priority" | "date" | "amount" | "vendor";
 
+function getPriority(inv: Invoice): { label: string; class: string; score: number } {
+  const conf = inv.confidence_score ?? 1.0;
+  if (conf < 0.7) return { label: "Alta", class: "bg-red-500/10 text-red-600 border-red-500/20 dark:bg-red-950/30 dark:text-red-400", score: 0 };
+  if (conf <= 0.85) return { label: "Media", class: "bg-amber-500/10 text-amber-700 border-amber-500/20 dark:bg-amber-900/30 dark:text-amber-400", score: 1 };
+  return { label: "Baja", class: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:bg-emerald-950/30 dark:text-emerald-400", score: 2 };
+}
+
+function hasWarnings(inv: Invoice) {
+  return inv.audit_flags && inv.audit_flags !== "[]" && inv.audit_flags !== "null";
+}
+
+function parseAuditFlags(inv: Invoice): string[] {
+  if (!inv.audit_flags || inv.audit_flags === "[]" || inv.audit_flags === "null") return [];
+  try {
+    const parsed = JSON.parse(inv.audit_flags);
+    if (Array.isArray(parsed)) return parsed.map((f: unknown) => typeof f === "string" ? f : JSON.stringify(f));
+    if (typeof parsed === "object" && parsed !== null) {
+      const arr = Array.isArray(parsed.warnings) ? parsed.warnings : Array.isArray(parsed.flags) ? parsed.flags : [];
+      return arr.map((f: unknown) => typeof f === "string" ? f : JSON.stringify(f));
+    }
+    return [String(parsed)];
+  } catch {
+    return [inv.audit_flags];
+  }
+}
+
 export function RevisionsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -47,41 +73,15 @@ export function RevisionsPage() {
   const [discarding, setDiscarding] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  const draftsQuery = useQuery({
+  const {data: draftsQuery_data, isLoading: draftsQuery_isLoading} = useQuery({
     queryKey: ["invoices", "drafts", "revisions"],
     queryFn: () => listInvoices({ status: "draft" }),
     refetchInterval: 15_000,
   });
 
-  const draftInvoices = (draftsQuery.data?.invoices ?? [])
+  const draftInvoices = (draftsQuery_data?.invoices ?? [])
     .filter((inv) => inv.status === "draft")
     .sort((a, b) => (a.confidence_score ?? 1.0) - (b.confidence_score ?? 1.0));
-
-  function getPriority(inv: Invoice): { label: string; class: string; score: number } {
-    const conf = inv.confidence_score ?? 1.0;
-    if (conf < 0.7) return { label: "Alta", class: "bg-red-500/10 text-red-600 border-red-500/20 dark:bg-red-950/30 dark:text-red-400", score: 0 };
-    if (conf <= 0.85) return { label: "Media", class: "bg-amber-500/10 text-amber-700 border-amber-500/20 dark:bg-amber-900/30 dark:text-amber-400", score: 1 };
-    return { label: "Baja", class: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:bg-emerald-950/30 dark:text-emerald-400", score: 2 };
-  }
-
-  function hasWarnings(inv: Invoice) {
-    return inv.audit_flags && inv.audit_flags !== "[]" && inv.audit_flags !== "null";
-  }
-
-  function parseAuditFlags(inv: Invoice): string[] {
-    if (!inv.audit_flags || inv.audit_flags === "[]" || inv.audit_flags === "null") return [];
-    try {
-      const parsed = JSON.parse(inv.audit_flags);
-      if (Array.isArray(parsed)) return parsed.map((f: unknown) => typeof f === "string" ? f : JSON.stringify(f));
-      if (typeof parsed === "object" && parsed !== null) {
-        const arr = Array.isArray(parsed.warnings) ? parsed.warnings : Array.isArray(parsed.flags) ? parsed.flags : [];
-        return arr.map((f: unknown) => typeof f === "string" ? f : JSON.stringify(f));
-      }
-      return [String(parsed)];
-    } catch {
-      return [inv.audit_flags];
-    }
-  }
 
   const filtered = draftInvoices.filter((inv) => {
     if (filterPriority === "high") return (inv.confidence_score ?? 1.0) < 0.7;
@@ -138,7 +138,7 @@ export function RevisionsPage() {
     }
   }
 
-  if (draftsQuery.isLoading) {
+  if (draftsQuery_isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
         <Loader2 className="size-5 animate-spin text-muted-foreground" />
@@ -227,6 +227,7 @@ export function RevisionsPage() {
           ].map((f) => (
             <button
               key={f.value}
+              type="button"
               onClick={() => setFilterPriority(f.value)}
               className={cn(
                 "h-7 text-xs px-2.5 rounded-md font-medium transition-all",
@@ -248,6 +249,7 @@ export function RevisionsPage() {
           ].map((s) => (
             <button
               key={s.value}
+              type="button"
               onClick={() => setSortBy(s.value as SortKey)}
               className={cn(
                 "h-7 text-xs px-2.5 rounded-md font-medium transition-all inline-flex items-center gap-1",
@@ -264,6 +266,7 @@ export function RevisionsPage() {
 
         {sorted.length > 0 && (
           <button
+            type="button"
             onClick={toggleSelectAll}
             className="h-7 text-xs px-2.5 rounded-md border border-border font-medium text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1"
           >
@@ -286,6 +289,7 @@ export function RevisionsPage() {
               <div key={inv.id} className="relative flex items-start gap-2 group">
                 {/* Checkbox */}
                 <button
+                  type="button"
                   onClick={() => toggleSelect(inv.id)}
                   className={cn(
                     "shrink-0 mt-4 size-5 rounded border-2 flex items-center justify-center transition-all",
@@ -302,9 +306,10 @@ export function RevisionsPage() {
                   )}
                 </button>
 
-                <button
-                  onClick={() => router.push(`/dashboard/upload/revisions/${inv.id}`)}
-                  className="w-full text-left group"
+              <button
+                type="button"
+                onClick={() => router.push(`/dashboard/upload/revisions/${inv.id}`)}
+                className="w-full text-left group"
                 >
                   <div className={cn(
                     "rounded-xl border bg-card hover:bg-card/80 transition-all p-4 flex items-start gap-4 relative",

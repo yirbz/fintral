@@ -16,10 +16,15 @@ function isOnPublicPage(): boolean {
   if (typeof window === "undefined") return true;
   const path = window.location.pathname;
   return (
+    path === "/" ||
     path.startsWith("/login") ||
     path.startsWith("/logout") ||
     path.startsWith("/signup") ||
-    path.startsWith("/upload/public")
+    path.startsWith("/plans") ||
+    path.startsWith("/upload/public") ||
+    path.startsWith("/forgot") ||
+    path.startsWith("/docs") ||
+    path.startsWith("/verify")
   );
 }
 

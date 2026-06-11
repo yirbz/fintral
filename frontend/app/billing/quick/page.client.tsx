@@ -231,6 +231,35 @@ export default function QuickBillingPage() {
   // Confirmation dialog
   const [confirmOpen, setConfirmOpen] = useState(false);
 
+  // Listen for iframe print cleanup
+  useEffect(() => {
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data && e.data.type === "printed") {
+        const iframe = document.getElementById("print-iframe");
+        if (iframe) {
+          iframe.remove();
+        }
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
+
+  const printInvoice = useCallback((invoiceId: string) => {
+    const existing = document.getElementById("print-iframe");
+    if (existing) {
+      existing.remove();
+    }
+    const iframe = document.createElement("iframe");
+    iframe.id = "print-iframe";
+    iframe.style.position = "absolute";
+    iframe.style.width = "0px";
+    iframe.style.height = "0px";
+    iframe.style.border = "none";
+    iframe.src = `/billing/invoices/${invoiceId}/print?auto=true`;
+    document.body.appendChild(iframe);
+  }, []);
+
   // Persist draft to sessionStorage on every change
   useEffect(() => {
     if (view.type !== "form") return;
@@ -282,6 +311,9 @@ export default function QuickBillingPage() {
         toast.success("Factura emitida exitosamente", {
           description: "Comprobante electrónico timbrado por la DGII.",
         });
+        if (result.invoice?.id) {
+          printInvoice(result.invoice.id);
+        }
         resetForm();
       } else if (result.status === "pending" && result.invoice?.id) {
         setView({
@@ -320,6 +352,9 @@ export default function QuickBillingPage() {
       toast.success("Factura emitida exitosamente", {
         description: `Comprobante físico registrado. NCF: ${invoice.invoice_number || ""}`,
       });
+      if (invoice.id) {
+        printInvoice(invoice.id);
+      }
       resetForm();
     },
     onError: (err: Error) => {

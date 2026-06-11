@@ -103,24 +103,24 @@ export function InvoicesPage() {
   const [paymentStatus, setPaymentStatus] = useState("all");
   const [paymentCondition, setPaymentCondition] = useState("all");
 
-  const bankAccountsQuery = useQuery({
+  const {data: bankAccountsQuery_data} = useQuery({
     queryKey: ["bank-accounts"],
     queryFn: getBankAccounts
   });
-  const bankAccounts = bankAccountsQuery.data ?? [];
+  const bankAccounts = bankAccountsQuery_data ?? [];
   const bankMap = useMemo(() => {
     const map = new Map<string, string>();
     bankAccounts.forEach((b) => map.set(b.id, b.name));
     return map;
   }, [bankAccounts]);
 
-  const categoriesQuery = useQuery({
+  const {data: categoriesQuery_data} = useQuery({
     queryKey: ["invoice-categories"],
     queryFn: getDgiiCategories,
     staleTime: 5 * 60 * 1000,
   });
 
-  const invoicesQuery = useQuery({
+  const {data: invoicesQuery_data, isLoading: invoicesQuery_isLoading} = useQuery({
     queryKey: ["invoices", search, transactionType, quality, dateFrom, dateTo, category, paymentStatus, paymentCondition],
     queryFn: () =>
       listInvoices({
@@ -135,7 +135,7 @@ export function InvoicesPage() {
       })
   });
 
-  const invoices = invoicesQuery.data?.invoices ?? [];
+  const invoices = invoicesQuery_data?.invoices ?? [];
   const allSelected = useMemo(
     () => selectedIds.length > 0 && invoices.length > 0 && selectedIds.length === invoices.length,
     [invoices.length, selectedIds.length]
@@ -374,7 +374,7 @@ export function InvoicesPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                {(categoriesQuery.data ?? []).map((cat) => {
+                {(categoriesQuery_data ?? []).map((cat) => {
                   const expenseLabel = CATEGORY_LABELS[`expense_${cat}`];
                   const incomeLabel = CATEGORY_LABELS[`income_${cat}`];
                   const label = expenseLabel || incomeLabel || cat;
@@ -460,9 +460,9 @@ export function InvoicesPage() {
                 {q.label}
               </button>
             ))}
-            {invoicesQuery.data && (
+            {invoicesQuery_data && (
               <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">
-                {invoicesQuery.data.total} resultado{invoicesQuery.data.total !== 1 ? "s" : ""}
+                {invoicesQuery_data.total} resultado{invoicesQuery_data.total !== 1 ? "s" : ""}
               </span>
             )}
           </div>
@@ -546,7 +546,7 @@ export function InvoicesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {invoicesQuery.isLoading ? (
+                {invoicesQuery_isLoading ? (
                   Array.from({ length: 6 }).map((_, i) => (
                     <TableRow key={i}>
                       {Array.from({ length: 11 }).map((_, j) => (

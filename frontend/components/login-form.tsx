@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { login } from "@/lib/api/session";
+import { setRememberPreference } from "@/hooks/use-session";
 
 export function LoginForm({
   className,
@@ -36,6 +37,7 @@ export function LoginForm({
 
     try {
       await login(email, password, remember);
+      setRememberPreference(remember);
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al iniciar sesión");
@@ -200,9 +202,9 @@ export function LoginForm({
       {/* Terms */}
       <p className="text-center text-xs leading-relaxed text-zinc-600">
         Al continuar, aceptas nuestros{" "}
-        <a href="#" className="underline underline-offset-2 hover:text-zinc-400">términos y condiciones</a>{" "}
+        <button type="button" className="underline underline-offset-2 hover:text-zinc-400 bg-transparent border-none p-0 cursor-pointer inline text-xs">términos y condiciones</button>{" "}
         y{" "}
-        <a href="#" className="underline underline-offset-2 hover:text-zinc-400">política de privacidad</a>.
+        <button type="button" className="underline underline-offset-2 hover:text-zinc-400 bg-transparent border-none p-0 cursor-pointer inline text-xs">política de privacidad</button>.
       </p>
     </form>
   )

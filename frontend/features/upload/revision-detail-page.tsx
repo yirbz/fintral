@@ -225,12 +225,12 @@ export function RevisionDetailPage({ invoiceId }: RevisionDetailPageProps) {
   const rncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showRncDropdown, setShowRncDropdown] = useState(false);
 
-  const invoiceQuery = useQuery({
+  const {data: invoiceQuery_data, isLoading: invoiceQuery_isLoading} = useQuery({
     queryKey: ["invoice", invoiceId],
     queryFn: () => getInvoice(invoiceId),
   });
 
-  const draftsQuery = useQuery({
+  const {data: draftsQuery_data} = useQuery({
     queryKey: ["invoices", "drafts", "navigation"],
     queryFn: () => listInvoices({ status: "draft" }),
   });
@@ -238,14 +238,14 @@ export function RevisionDetailPage({ invoiceId }: RevisionDetailPageProps) {
   const { data: bankAccounts = [] } = useQuery({
     queryKey: ["bank-accounts"],
     queryFn: getBankAccounts,
-    enabled: !!invoiceQuery.data,
+    enabled: !!invoiceQuery_data,
   });
 
-  const draftInvoices = (draftsQuery.data?.invoices ?? []).filter(
+  const draftInvoices = (draftsQuery_data?.invoices ?? []).filter(
     (inv) => inv.status === "draft"
   );
 
-  const invoice = invoiceQuery.data;
+  const invoice = invoiceQuery_data;
 
   const navIndex = useMemo(
     () => draftInvoices.findIndex((inv) => inv.id === invoiceId),
@@ -367,7 +367,7 @@ export function RevisionDetailPage({ invoiceId }: RevisionDetailPageProps) {
     setShowRncDropdown(false);
   }, [rncLookup]);
 
-  if (invoiceQuery.isLoading) {
+  if (invoiceQuery_isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
         <Loader2 className="size-5 animate-spin text-muted-foreground" />

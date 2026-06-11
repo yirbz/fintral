@@ -9,6 +9,7 @@ from .dgii_submission import DgiiSubmission
 from .invoice_dgii_status import InvoiceDgiiStatus
 from .invoice import Invoice
 # from .credit_note import CreditNote  # DEPRECATED — unified into Invoice model
+from .mio_payment import MioPayment
 from .notification import Notification
 from .pending_upload import PendingUpload
 from .organization import Organization
@@ -46,6 +47,7 @@ __all__ = [
     "Invoice",
     "IntegrationConnection",
     "Invitation",
+    "MioPayment",
     "Notification",
     "Organization",
     "PendingUpload",

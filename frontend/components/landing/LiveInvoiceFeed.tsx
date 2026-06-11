@@ -45,7 +45,7 @@ const statusSteps: InvoiceStatus[] = ["Pendiente", "Procesando", "Validado"];
 
 const statusConfig: Record<InvoiceStatus, { dot: string; bg: string; text: string }> = {
   Pendiente: { dot: "bg-amber-400", bg: "bg-amber-50", text: "text-amber-600" },
-  Procesando: { dot: "bg-blue-400", bg: "bg-blue-50", text: "text-blue-600" },
+  Procesando: { dot: "bg-sky-400", bg: "bg-sky-50", text: "text-sky-600" },
   Validado: { dot: "bg-emerald-400", bg: "bg-green-50", text: "text-green-600" },
   Rechazado: { dot: "bg-red-400", bg: "bg-red-50", text: "text-red-600" },
 };

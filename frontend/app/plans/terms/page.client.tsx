@@ -14,22 +14,23 @@ export default function TermsClient() {
 
         <div className="mx-auto max-w-7xl px-6 lg:px-8 relative z-20">
           <header className="flex items-center justify-between py-4">
-            <Link href="/">
+            <Link href="/" className="transition-transform active:scale-[0.98]">
               <Logo variant="dark" size="md" />
             </Link>
             <nav className="hidden md:flex items-center gap-10 text-[15px] font-medium text-[#273951]">
               <Link href="/#features" className="hover:text-[#0EA5E9] transition-colors">Características</Link>
+              <Link href="/#integrations" className="hover:text-[#0EA5E9] transition-colors">Integraciones</Link>
               <Link href="/plans" className="hover:text-[#0EA5E9] transition-colors">Planes</Link>
               <Link href="/docs" className="hover:text-[#0EA5E9] transition-colors">Docs</Link>
             </nav>
             <div className="hidden sm:flex items-center gap-4">
               <Link href="/login">
-                <Button variant="outline" className="rounded-full font-medium px-5 py-5 h-auto text-[13px]">
+                <Button variant="outline" className="rounded-full font-medium px-5 py-4 h-auto text-[13px] border-[#e3e8ee] hover:bg-[#f6f9fc] text-[#0d253d] transition-all active:scale-[0.97]">
                   Iniciar sesión
                 </Button>
               </Link>
               <Link href="/signup">
-                <Button className="rounded-full bg-[#1c1e54] text-white hover:bg-[#0d253d] font-medium px-5 py-5 h-auto text-[13px] shadow-sm transition-all active:scale-[0.97]">
+                <Button className="rounded-full bg-[#0EA5E9] text-white hover:bg-[#0284C7] font-medium px-5 py-4 h-auto text-[13px] shadow-sm transition-all active:scale-[0.97]">
                   Comenzar gratis
                 </Button>
               </Link>
@@ -113,7 +114,7 @@ export default function TermsClient() {
             </Section>
 
             <Section title="13. Contacto">
-              <p>Para cualquier pregunta sobre estos términos, puedes contactarnos a través de nuestro <Link href="https://docs.google.com/forms/d/e/1FAIpQLSfJKt5ZVnPw5RJGVbh1CpiihMXxd1QUb4p47MC8qwyHsAGnzg/viewform" className="text-[#533afd] hover:underline">formulario de contacto</Link>.</p>
+              <p>Para cualquier pregunta sobre estos términos, puedes contactarnos a través de nuestro <Link href="https://docs.google.com/forms/d/e/1FAIpQLSfJKt5ZVnPw5RJGVbh1CpiihMXxd1QUb4p47MC8qwyHsAGnzg/viewform" className="text-[#0EA5E9] hover:underline">formulario de contacto</Link>.</p>
             </Section>
           </div>
         </div>
@@ -141,9 +142,9 @@ export default function TermsClient() {
             <div>
               <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#0d253d] mb-3">Recursos</h4>
               <ul className="space-y-2 text-[13px] text-[#64748d]">
-                <li><Link href="/plans" className="hover:text-[#533afd] transition-colors">Planes</Link></li>
-                <li><Link href="/docs" className="hover:text-[#533afd] transition-colors">Documentación</Link></li>
-                <li><Link href="/plans/terms" className="hover:text-[#533afd] transition-colors">Términos y condiciones</Link></li>
+                <li><Link href="/plans" className="hover:text-[#0EA5E9] transition-colors">Planes</Link></li>
+                <li><Link href="/docs" className="hover:text-[#0EA5E9] transition-colors">Documentación</Link></li>
+                <li><Link href="/plans/terms" className="hover:text-[#0EA5E9] transition-colors">Términos y condiciones</Link></li>
               </ul>
             </div>
             <div>

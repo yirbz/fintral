@@ -17,8 +17,8 @@ import { Badge } from "@/components/ui/badge";
 
 export function WhatsAppPage() {
   const queryClient = useQueryClient();
-  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings });
-  const editable = settingsQuery.data ?? ({} as SettingsPayload);
+  const {data: settingsQuery_data} = useQuery({ queryKey: ["settings"], queryFn: getSettings });
+  const editable = settingsQuery_data ?? ({} as SettingsPayload);
 
   const [waStatus, setWaStatus] = useState<string | null>(null);
   const [waStatusLoading, setWaStatusLoading] = useState(false);

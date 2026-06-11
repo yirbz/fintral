@@ -93,13 +93,13 @@ export function SettingsPage() {
 
   const session = useSession();
   const queryClient = useQueryClient();
-  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings });
-  const webhooksQuery = useQuery({ queryKey: ["webhooks"], queryFn: getWebhooks });
-  const statsQuery = useQuery({ queryKey: ["statistics", "30d"], queryFn: () => getStatistics("30d") });
+  const {data: settingsQuery_data, isLoading: settingsQuery_isLoading} = useQuery({ queryKey: ["settings"], queryFn: getSettings });
+  const {data: webhooksQuery_data, isLoading: webhooksQuery_isLoading} = useQuery({ queryKey: ["webhooks"], queryFn: getWebhooks });
+  const {data: statsQuery_data} = useQuery({ queryKey: ["statistics", "30d"], queryFn: () => getStatistics("30d") });
 
   const editable = useMemo(() => {
-    return structuredClone(settingsQuery.data ?? ({} as SettingsPayload));
-  }, [settingsQuery.data]);
+    return structuredClone(settingsQuery_data ?? ({} as SettingsPayload));
+  }, [settingsQuery_data]);
 
   function findSetting(category: string, key: string): SettingValue {
     if (!editable[category]) editable[category] = [];
@@ -150,7 +150,7 @@ export function SettingsPage() {
         </div>
       </div>
 
-      {settingsQuery.isLoading ? (
+      {settingsQuery_isLoading ? (
         <div className="grid gap-5 lg:grid-cols-[200px_1fr]">
           <Card className="h-fit">
             <CardContent className="flex flex-col gap-1 p-2">
@@ -368,25 +368,25 @@ export function SettingsPage() {
                   </div>
 
                   {/* Usage summary */}
-                  {statsQuery.data ? (
+                  {statsQuery_data ? (
                     <div className="rounded-lg border border-border/60 p-3">
                       <p className="text-xs font-medium text-foreground mb-2">Uso del período</p>
                       <div className="flex flex-wrap gap-4">
                         <div>
                           <p className="text-[11px] text-muted-foreground">Procesadas hoy</p>
-                          <p className="font-mono text-sm tabular-nums font-semibold">{statsQuery.data.performance.daily_processed}</p>
+                          <p className="font-mono text-sm tabular-nums font-semibold">{statsQuery_data.performance.daily_processed}</p>
                         </div>
                         <div>
                           <p className="text-[11px] text-muted-foreground">Confianza promedio</p>
-                          <p className="font-mono text-sm tabular-nums font-semibold">{(statsQuery.data.performance.avg_confidence * 100).toFixed(1)}%</p>
+                          <p className="font-mono text-sm tabular-nums font-semibold">{(statsQuery_data.performance.avg_confidence * 100).toFixed(1)}%</p>
                         </div>
                         <div>
                           <p className="text-[11px] text-muted-foreground">Costo promedio/doc</p>
-                          <p className="font-mono text-sm tabular-nums font-semibold">${statsQuery.data.costs.avg_cost_per_doc.toFixed(4)}</p>
+                          <p className="font-mono text-sm tabular-nums font-semibold">${statsQuery_data.costs.avg_cost_per_doc.toFixed(4)}</p>
                         </div>
                         <div>
                           <p className="text-[11px] text-muted-foreground">Costo total</p>
-                          <p className="font-mono text-sm tabular-nums font-semibold">${statsQuery.data.costs.total_cost.toFixed(2)}</p>
+                          <p className="font-mono text-sm tabular-nums font-semibold">${statsQuery_data.costs.total_cost.toFixed(2)}</p>
                         </div>
                       </div>
                     </div>
@@ -879,9 +879,9 @@ function WebhooksSection({
     }
   }
 
-  const webhooks = (webhooksQuery.data as WebhookEndpoint[] | undefined) ?? [];
+  const webhooks = (webhooksQuery_data as WebhookEndpoint[] | undefined) ?? [];
 
-  if (webhooksQuery.isLoading) {
+  if (webhooksQuery_isLoading) {
     return (
       <Card>
         <CardHeader>
@@ -997,9 +997,9 @@ const AVAILABLE_INTEGRATIONS: IntegrationDef[] = [
 ];
 
 function IntegracionesSection() {
-  const odooQuery = useQuery({ queryKey: ["odoo-connections"], queryFn: listOdooConnections });
-  const qbQuery = useQuery({ queryKey: ["quickbooks-connections"], queryFn: listQuickBooksConnections });
-  const xeroQuery = useQuery({ queryKey: ["xero-connections"], queryFn: listXeroConnections });
+  const {data: odooQuery_data, isLoading: odooQuery_isLoading} = useQuery({ queryKey: ["odoo-connections"], queryFn: listOdooConnections });
+  const {data: qbQuery_data, isLoading: qbQuery_isLoading} = useQuery({ queryKey: ["quickbooks-connections"], queryFn: listQuickBooksConnections });
+  const {data: xeroQuery_data, isLoading: xeroQuery_isLoading} = useQuery({ queryKey: ["xero-connections"], queryFn: listXeroConnections });
   const queryClient = useQueryClient();
 
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -1018,11 +1018,11 @@ function IntegracionesSection() {
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const loading = odooQuery.isLoading || qbQuery.isLoading || xeroQuery.isLoading;
+  const loading = odooQuery_isLoading || qbQuery_isLoading || xeroQuery_isLoading;
 
-  const odooConns = odooQuery.data ?? [];
-  const qbConns = qbQuery.data ?? [];
-  const xeroConns = xeroQuery.data ?? [];
+  const odooConns = odooQuery_data ?? [];
+  const qbConns = qbQuery_data ?? [];
+  const xeroConns = xeroQuery_data ?? [];
 
   function connsFor(id: string) {
     if (id === "odoo") return odooConns;
@@ -1070,6 +1070,17 @@ function IntegracionesSection() {
               const connections = connsFor(integration.id);
               const isAvailable = integration.status === "available";
 
+              const handleIntegrationClick = () => {
+                if (!isAvailable) return;
+                if (connected) {
+                  setExpanded(isExpanded ? null : integration.id);
+                } else {
+                  if (integration.id === "odoo") setShowOdooDialog(true);
+                  if (integration.id === "quickbooks") handleQbConnect();
+                  if (integration.id === "xero") handleXeroConnect();
+                }
+              };
+
               return (
                 <div key={integration.id} className={cn(
                   "rounded-lg border transition-all",
@@ -1081,16 +1092,10 @@ function IntegracionesSection() {
                   {/* Card header */}
                   <div
                     className="flex items-start gap-3 p-4"
-                    onClick={() => {
-                      if (!isAvailable) return;
-                      if (connected) {
-                        setExpanded(isExpanded ? null : integration.id);
-                      } else {
-                        if (integration.id === "odoo") setShowOdooDialog(true);
-                        if (integration.id === "quickbooks") handleQbConnect();
-                        if (integration.id === "xero") handleXeroConnect();
-                      }
-                    }}
+                    onClick={handleIntegrationClick}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleIntegrationClick(); } }}
                   >
                     <div className={cn(
                       "flex size-10 shrink-0 items-center justify-center rounded-lg",

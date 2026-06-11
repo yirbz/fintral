@@ -440,13 +440,9 @@ export function DataTable({
             <DropdownMenuContent align="end" className="w-32">
               {table
                 .getAllColumns()
-                .filter(
-                  (column) =>
-                    typeof column.accessorFn !== "undefined" &&
-                    column.getCanHide()
-                )
-                .map((column) => {
-                  return (
+                .reduce<React.ReactNode[]>((acc, column) => {
+                  if (typeof column.accessorFn === "undefined" || !column.getCanHide()) return acc;
+                  acc.push(
                     <DropdownMenuCheckboxItem
                       key={column.id}
                       className="capitalize"
@@ -457,8 +453,9 @@ export function DataTable({
                     >
                       {column.id}
                     </DropdownMenuCheckboxItem>
-                  )
-                })}
+                  );
+                  return acc;
+                }, [])}
             </DropdownMenuContent>
           </DropdownMenu>
           <Button variant="outline" size="sm">

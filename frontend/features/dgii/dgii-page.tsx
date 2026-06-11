@@ -127,7 +127,7 @@ function FieldSelect({ label, value, onChange, options }: {
     : options;
 
   return (
-    <div className="flex flex-col gap-0.5" onClick={e => e.stopPropagation()}>
+    <div className="flex flex-col gap-0.5" role="presentation" onClick={e => e.stopPropagation()}>
       <label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</label>
       <Select value={value || ""} onValueChange={onChange}>
         <SelectTrigger className="h-7 text-xs">
@@ -166,7 +166,7 @@ function DgiiFieldEditor({ inv, format, fields, onChange, saving, onSave, refere
   const numVal = (k: string) => fields[k] != null ? String(fields[k]) : "";
 
   return (
-    <div className="px-4 py-3 space-y-3" onClick={e => e.stopPropagation()}>
+    <div className="px-4 py-3 space-y-3" role="presentation" onClick={e => e.stopPropagation()}>
       {/* Validation issues */}
       {(inv.validation_errors.length > 0 || inv.validation_warnings.length > 0) && (
         <div className="flex flex-wrap gap-2 text-[10px]">
@@ -380,9 +380,12 @@ export function DgiiPage() {
       setSubmittingPeriod(p);
       if (preview?.preview_invoices?.length) {
         setSubmittingIds(
-          preview.preview_invoices
-            .filter(inv => inv.reporting_state !== "blocked_confirmed_ncf")
-            .map(inv => inv.id),
+          preview.preview_invoices.reduce<string[]>((acc, inv) => {
+            if (inv.reporting_state !== "blocked_confirmed_ncf") {
+              acc.push(inv.id);
+            }
+            return acc;
+          }, []),
         );
       }
       setShowSubmissionDialog(true);

@@ -76,6 +76,10 @@ interface DetailedInvoiceWizardProps {
   onSuccess?: (result: EmitResult) => void;
 }
 
+function fmt(n: number) {
+  return n.toLocaleString("es-DO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 export function DetailedInvoiceWizard({ onSuccess }: DetailedInvoiceWizardProps) {
   const [ecfType, setEcfType] = useState<number | null>(null);
   const [incomeType, setIncomeType] = useState("01");
@@ -308,10 +312,6 @@ export function DetailedInvoiceWizard({ onSuccess }: DetailedInvoiceWizardProps)
       },
     ]);
   };
-
-  function fmt(n: number) {
-    return n.toLocaleString("es-DO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
 
   return (
     <div className="h-full flex flex-col lg:flex-row gap-0 lg:gap-6">

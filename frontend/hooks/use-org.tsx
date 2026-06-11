@@ -79,14 +79,14 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
   }, [session, sessionLoading, activeOrgId]);
 
   // Fetch user's org list (always refetch when session changes)
-  const orgsQuery = useQuery({
+  const {data: orgsQuery_data, isLoading: orgsQuery_isLoading} = useQuery({
     queryKey: ["user-organizations"],
     queryFn: listUserOrganizations,
     enabled: !!session,
     staleTime: 30_000,
   });
 
-  const userOrgs = orgsQuery.data ?? [];
+  const userOrgs = orgsQuery_data ?? [];
 
   const switchOrg = useCallback(
     async (orgId: string) => {
@@ -124,7 +124,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
       value={{
         activeOrgId,
         userOrgs,
-        isLoading: orgsQuery.isLoading || sessionLoading,
+        isLoading: orgsQuery_isLoading || sessionLoading,
         switchOrg,
         refreshOrgs,
       }}

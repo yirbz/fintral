@@ -1,5 +1,11 @@
 import { RNC, NCF, ENCF } from "dgii-utils";
 
+export interface CitizenDetails {
+  cedula: string;
+  name: string | null;
+  found: boolean;
+}
+
 export interface TaxpayerDetails {
   rnc: string;
   name: string;
@@ -24,10 +30,17 @@ export interface IDgiiService {
   isValidENCF(value: string): boolean;
   consultTaxpayer(rnc: string): Promise<TaxpayerDetails | null>;
   searchByName(name: string): Promise<NameSearchResult[]>;
+  consultCitizen(cedula: string): Promise<CitizenDetails | null>;
+}
+
+function getOrigin(): string {
+  if (typeof window !== "undefined") return window.location.origin;
+  return process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 }
 
 async function lookupViaProxy(rnc: string) {
-  const resp = await fetch(`/dgii-rnc/lookup?rnc=${encodeURIComponent(rnc)}`, { cache: "no-store" });
+  const origin = getOrigin();
+  const resp = await fetch(`${origin}/dgii-rnc/lookup?rnc=${encodeURIComponent(rnc)}`, { cache: "no-store" });
   if (!resp.ok) return null;
   return resp.json() as Promise<TaxpayerDetails>;
 }
@@ -87,7 +100,27 @@ class DgiiService implements IDgiiService {
   }
 
   async searchByName(name: string): Promise<NameSearchResult[]> {
-    return [];
+    if (!name || name.trim().length < 3) return [];
+    try {
+      const origin = getOrigin();
+      const resp = await fetch(`${origin}/dgii-rnc/search?name=${encodeURIComponent(name.trim())}`, { cache: "no-store" });
+      if (!resp.ok) return [];
+      const data = await resp.json();
+      return data.results || [];
+    } catch {
+      return [];
+    }
+  }
+
+  async consultCitizen(cedula: string): Promise<CitizenDetails | null> {
+    try {
+      const origin = getOrigin();
+      const resp = await fetch(`${origin}/api/dgii/ciudadano?cedula=${encodeURIComponent(cedula)}`, { cache: "no-store" });
+      if (!resp.ok) return null;
+      return resp.json();
+    } catch {
+      return null;
+    }
   }
 }
 

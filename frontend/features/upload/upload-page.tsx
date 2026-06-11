@@ -98,23 +98,23 @@ export function UploadPage() {
   const session = useSession();
 
   // Query for invoices in draft state (needing manual review)
-  const draftsQuery = useQuery({
+  const {data: draftsQuery_data} = useQuery({
     queryKey: ["invoices", "drafts"],
     queryFn: () => listInvoices({ status: "draft" }),
     refetchInterval: 10_000,
   });
 
-  const draftInvoices = (draftsQuery.data?.invoices ?? [])
+  const draftInvoices = (draftsQuery_data?.invoices ?? [])
     .filter((inv) => inv.status === "draft")
     .sort((a, b) => (a.confidence_score ?? 1.0) - (b.confidence_score ?? 1.0));
 
-  const pendingQuery = useQuery({
+  const {data: pendingQuery_data, isLoading: pendingQuery_isLoading} = useQuery({
     queryKey: ["pending-uploads"],
     queryFn: () => listPendingUploads(),
     refetchInterval: 30_000,
   });
 
-  const pendings = pendingQuery.data?.pending_uploads ?? [];
+  const pendings = pendingQuery_data?.pending_uploads ?? [];
   const allSelected = pendings.length > 0 && selectedIds.size === pendings.length;
 
   function toggleSelect(id: string) {
@@ -226,8 +226,8 @@ export function UploadPage() {
   }
 
   async function processAllPending() {
-    if (!pendingQuery.data?.pending_uploads.length) return;
-    const items = pendingQuery.data.pending_uploads;
+    if (!pendingQuery_data?.pending_uploads.length) return;
+    const items = pendingQuery_data.pending_uploads;
     setProcessingResults({});
     setProcessingIds(new Set(items.map((p) => p.id)));
     let success = 0;
@@ -356,7 +356,10 @@ export function UploadPage() {
                   onDrop={onDrop}
                   onDragOver={onDragOver}
                   onDragLeave={onDragLeave}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => inputRef.current?.click()}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click(); } }}
                   className={cn(
                     "relative flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-6 py-10 transition-all duration-200",
                     dragOver
@@ -442,7 +445,7 @@ export function UploadPage() {
                         Eliminar {selectedIds.size > 1 ? `(${selectedIds.size})` : ""}
                       </Button>
                     )}
-                    {(pendingQuery.data?.total ?? 0) > 0 && (
+                    {(pendingQuery_data?.total ?? 0) > 0 && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button
@@ -462,7 +465,7 @@ export function UploadPage() {
                           <AlertDialogHeader>
                             <AlertDialogTitle>Eliminar todas las pendientes</AlertDialogTitle>
                             <AlertDialogDescription>
-                              Esta acción eliminará {pendingQuery.data?.total ?? 0} factura{(pendingQuery.data?.total ?? 0) !== 1 ? "s" : ""} pendiente{(pendingQuery.data?.total ?? 0) !== 1 ? "s" : ""}. Los archivos se perderán permanentemente.
+                              Esta acción eliminará {pendingQuery_data?.total ?? 0} factura{(pendingQuery_data?.total ?? 0) !== 1 ? "s" : ""} pendiente{(pendingQuery_data?.total ?? 0) !== 1 ? "s" : ""}. Los archivos se perderán permanentemente.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -479,9 +482,9 @@ export function UploadPage() {
                     )}
                     <Badge variant="outline" className="text-xs gap-1">
                       <Clock className="size-3" />
-                      {pendingQuery.data?.total ?? 0} pendiente{(pendingQuery.data?.total ?? 0) !== 1 ? "s" : ""}
+                      {pendingQuery_data?.total ?? 0} pendiente{(pendingQuery_data?.total ?? 0) !== 1 ? "s" : ""}
                     </Badge>
-                    {(pendingQuery.data?.total ?? 0) > 0 && (
+                    {(pendingQuery_data?.total ?? 0) > 0 && (
                       <Button
                         size="sm"
                         onClick={() => void processAllPending()}
@@ -543,7 +546,7 @@ export function UploadPage() {
                   </div>
                 )}
 
-                {pendingQuery.isLoading ? (
+                {pendingQuery_isLoading ? (
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="size-4 animate-spin text-muted-foreground" />
                   </div>

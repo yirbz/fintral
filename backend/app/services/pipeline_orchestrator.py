@@ -140,26 +140,36 @@ class PipelineOrchestrator:
                 )
 
     def _resolve_direction(self, data: Dict[str, Any], org_rnc: Optional[str]) -> None:
-        """Resolve transaction_type for e-CF invoices by comparing RNCs.
+        """Resolve transaction_type for invoices by comparing RNCs.
 
-        The e-CF parser stays agnostic about direction. This method
-        determines it here — after extraction, before validation — by
+        Determines the direction after extraction, before validation, by
         comparing the issuer/ buyer RNC against the organization's RNC.
 
         Special cases:
-        - Types 41 (Compras) and 43 (Gastos Menores) are always expense,
-          even though the tenant is the issuer.
+        - Types 41 (Compras), 43 (Gastos Menores), 11 (Compras a Proveedores Informales),
+          and 17 (Pagos al Exterior) are always expense, even if the tenant is the issuer.
         """
-        ecf_type = data.get("ecf_type")
-        if not ecf_type or not org_rnc:
+        if not org_rnc:
             return
 
         clean_org = re.sub(r"[^0-9]", "", org_rnc)
         if not clean_org:
             return
 
-        # Types 41 and 43 are always expense (tenant-issued purchases)
-        if ecf_type in ("41", "43"):
+        ecf_type = data.get("ecf_type")
+        if not ecf_type:
+            ncf = data.get("invoice_number")
+            if ncf:
+                ncf_clean = ncf.strip().upper()
+                if len(ncf_clean) == 13 and ncf_clean[0] == 'E' and ncf_clean[1:3].isdigit():
+                    ecf_type = ncf_clean[1:3]
+                    data["ecf_type"] = ecf_type
+                elif len(ncf_clean) == 11 and ncf_clean[0] == 'B' and ncf_clean[1:3].isdigit():
+                    ecf_type = ncf_clean[1:3]
+                    data["ecf_type"] = ecf_type
+
+        # Types 41/43/11/17 are always expense (tenant-issued purchases/withholdings)
+        if ecf_type in ("41", "43", "11", "17"):
             data["transaction_type"] = "expense"
             return
 

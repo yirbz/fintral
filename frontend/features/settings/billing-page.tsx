@@ -121,16 +121,16 @@ function PlanUsageSection({ stats }: { stats: StatisticsPayload | undefined }) {
 }
 
 function CertificationSection() {
-  const verQuery = useQuery({
+  const {data: verQuery_data, isLoading: verQuery_isLoading} = useQuery({
     queryKey: ["billing", "verification-status"],
     queryFn: () => billingApi.getVerificationStatus(),
   });
 
-  const isAuthorized = verQuery.data?.is_ecf_authorized;
-  const taxId = verQuery.data?.tax_id;
-  const orgName = verQuery.data?.name;
+  const isAuthorized = verQuery_data?.is_ecf_authorized;
+  const taxId = verQuery_data?.tax_id;
+  const orgName = verQuery_data?.name;
 
-  if (verQuery.isLoading) {
+  if (verQuery_isLoading) {
     return (
       <Card>
         <CardHeader><Skeleton className="h-4 w-28 rounded-md" /><Skeleton className="h-3 w-44 rounded-md" /></CardHeader>
@@ -230,7 +230,7 @@ function CertificationSection() {
 
 function AlanubeSection() {
   const queryClient = useQueryClient();
-  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings });
+  const {data: settingsQuery_data} = useQuery({ queryKey: ["settings"], queryFn: getSettings });
   const [showKey, setShowKey] = useState(false);
   const [apiUrl, setApiUrl] = useState("");
   const [jwtToken, setJwtToken] = useState("");
@@ -238,8 +238,8 @@ function AlanubeSection() {
   const [testResult, setTestResult] = useState<{ ok: boolean; company?: unknown; error?: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const alanubeUrlSetting = settingsQuery.data?.alanube?.find((s: any) => s.key === "api_url");
-  const alanubeJwtSetting = settingsQuery.data?.alanube?.find((s: any) => s.key === "jwt_token");
+  const alanubeUrlSetting = settingsQuery_data?.alanube?.find((s: any) => s.key === "api_url");
+  const alanubeJwtSetting = settingsQuery_data?.alanube?.find((s: any) => s.key === "jwt_token");
 
   const storedUrl = typeof alanubeUrlSetting?.value === "string" ? alanubeUrlSetting.value : "";
   const storedJwt = typeof alanubeJwtSetting?.value === "string" ? alanubeJwtSetting.value : "";
@@ -403,15 +403,15 @@ function AlanubeSection() {
 }
 
 function SequencesSection() {
-  const seqQuery = useQuery({
+  const {data: seqQuery_data, isLoading: seqQuery_isLoading} = useQuery({
     queryKey: ["billing", "sequences"],
     queryFn: () => billingApi.getSequences(),
   });
 
-  const active = seqQuery.data?.filter((s) => s.is_active) ?? [];
-  const inactive = seqQuery.data?.filter((s) => !s.is_active) ?? [];
+  const active = seqQuery_data?.filter((s) => s.is_active) ?? [];
+  const inactive = seqQuery_data?.filter((s) => !s.is_active) ?? [];
 
-  if (seqQuery.isLoading) {
+  if (seqQuery_isLoading) {
     return (
       <Card>
         <CardHeader><Skeleton className="h-4 w-28 rounded-md" /><Skeleton className="h-3 w-44 rounded-md" /></CardHeader>
@@ -423,7 +423,7 @@ function SequencesSection() {
   }
 
   function allSeqs() {
-    if (seqQuery.data && seqQuery.data.length > 0) {
+    if (seqQuery_data && seqQuery_data.length > 0) {
       return [...active, ...inactive];
     }
     return [];
@@ -513,8 +513,8 @@ function SequencesSection() {
 }
 
 export function BillingPage() {
-  const statsQuery = useQuery({ queryKey: ["statistics", "30d"], queryFn: () => getStatistics("30d") });
-  const stats = statsQuery.data as StatisticsPayload | undefined;
+  const {data: statsQuery_data, isLoading: statsQuery_isLoading} = useQuery({ queryKey: ["statistics", "30d"], queryFn: () => getStatistics("30d") });
+  const stats = statsQuery_data as StatisticsPayload | undefined;
 
   return (
     <div className="flex flex-col gap-5">
@@ -535,7 +535,7 @@ export function BillingPage() {
         </div>
       </div>
 
-      {statsQuery.isLoading ? (
+      {statsQuery_isLoading ? (
         <div className="space-y-5">
           <Skeleton className="h-48 w-full rounded-xl" />
           <Skeleton className="h-40 w-full rounded-xl" />

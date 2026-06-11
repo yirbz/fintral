@@ -301,7 +301,10 @@ function SpreadsheetCell({ col, value, isEditing, onChange, onCommit, onStartEdi
         col.type === "number" && "text-right justify-end tabular-nums",
       )}
       title={value || (isRequired ? "⚠ Campo requerido" : "Click para editar")}
+      role="button"
+      tabIndex={0}
       onClick={onStartEdit}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onStartEdit(); } }}
     >
       {isEmpty ? (
         <span className={cn("text-[10px]", isRequired ? "text-red-300" : "text-muted-foreground/30")}>

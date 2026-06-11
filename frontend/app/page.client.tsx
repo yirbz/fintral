@@ -6,6 +6,7 @@ import Image from "next/image";
 import { ArrowRight, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
+import CardNav from "@/components/ui/CardNav";
 import { GradientMesh } from "@/components/landing/GradientMesh";
 import { LogosMarquee } from "@/components/landing/LogosMarquee";
 import { LiveInvoiceFeed } from "@/components/landing/LiveInvoiceFeed";
@@ -21,6 +22,8 @@ function StickyNav() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
+    setVisible(window.scrollY > 400)
+
     let ticking = false;
     const onScroll = () => {
       if (!ticking) {
@@ -35,6 +38,40 @@ function StickyNav() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  const desktopNavLinks = [
+    { label: "Características", href: "#features" },
+    { label: "Integraciones", href: "#integrations" },
+    { label: "Planes", href: "/plans" },
+    { label: "Docs", href: "/docs" },
+  ];
+
+  const mobileNavItems = [
+    {
+      label: "Características",
+      bgColor: "#0d253d",
+      textColor: "#fff",
+      links: [{ label: "Explorar características", href: "#features", ariaLabel: "Explorar características" }],
+    },
+    {
+      label: "Integraciones",
+      bgColor: "#1a3349",
+      textColor: "#fff",
+      links: [{ label: "Ver integraciones", href: "#integrations", ariaLabel: "Ver integraciones" }],
+    },
+    {
+      label: "Planes",
+      bgColor: "#273951",
+      textColor: "#fff",
+      links: [{ label: "Comparar planes", href: "/plans", ariaLabel: "Comparar planes" }],
+    },
+    {
+      label: "Docs",
+      bgColor: "#3d5a7d",
+      textColor: "#fff",
+      links: [{ label: "Leer documentación", href: "/docs", ariaLabel: "Leer documentación" }],
+    },
+  ];
+
   return (
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
@@ -43,19 +80,39 @@ function StickyNav() {
           : "-translate-y-full opacity-0 pointer-events-none"
       }`}
     >
-      <div className="mx-auto max-w-7xl px-6 lg:px-8 py-3">
-        <div className="bg-white/80 backdrop-blur-md rounded-full border border-[#e3e8ee]/60 shadow-lg px-5 py-2.5 flex items-center justify-between">
+      {/* Mobile layout */}
+      <div className="md:hidden mx-auto max-w-[90vw] py-2">
+        <CardNav
+          items={mobileNavItems}
+          baseColor="rgba(255,255,255,0.95)"
+          menuColor="#0d253d"
+          buttonBgColor="#0EA5E9"
+          buttonTextColor="#fff"
+          ease="power3.out"
+        />
+      </div>
+
+      {/* Desktop layout */}
+      <div className="hidden md:block mx-auto max-w-7xl px-6 lg:px-8 py-3">
+        <div className="mx-auto max-w-5xl rounded-full bg-white/75 backdrop-blur-lg border border-white/40 shadow-lg shadow-black/5 px-6 py-3 flex items-center justify-between">
           <Link href="#" className="shrink-0">
             <Logo variant="dark" size="md" />
           </Link>
-            <nav className="hidden md:flex items-center gap-8 text-[14px] font-medium text-[#273951]">
-              <Link href="#features" className="hover:text-[#0EA5E9] transition-colors">Características</Link>
-              <Link href="#integrations" className="hover:text-[#0EA5E9] transition-colors">Integraciones</Link>
-              <Link href="/plans" className="hover:text-[#0EA5E9] transition-colors">Planes</Link>
-              <Link href="/docs" className="hover:text-[#0EA5E9] transition-colors">Docs</Link>
-            </nav>
-            <Link href="#cta">
-            <Button className="rounded-full bg-[#0d253d] text-white hover:bg-[#1c1e54] font-medium px-5 py-4 h-auto text-[13px] shadow-sm transition-all active:scale-[0.97]">
+
+          <nav className="flex items-center gap-6 text-[14px] font-medium text-[#273951]">
+            {desktopNavLinks.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="hover:text-[#0EA5E9] transition-colors"
+              >
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+
+          <Link href="#cta" className="shrink-0">
+            <Button className="rounded-full bg-[#0EA5E9] text-white hover:bg-[#0284C7] font-medium px-5 py-[10px] h-auto text-[13px] shadow-sm transition-all duration-200 active:scale-[0.97]">
               Comenzar gratis
             </Button>
           </Link>
@@ -116,7 +173,7 @@ export default function LandingPage() {
             </nav>
             <div className="hidden sm:flex items-center gap-4">
               <Link href="#cta">
-                <Button className="rounded-full bg-[#1c1e54] text-white hover:bg-[#0d253d] font-medium px-6 py-5 h-auto text-[14px] shadow-sm transition-all hover:shadow-md active:scale-[0.97]">
+                <Button className="rounded-full bg-[#0EA5E9] text-white hover:bg-[#0284C7] font-medium px-6 py-5 h-auto text-[14px] shadow-sm transition-all hover:shadow-md active:scale-[0.97]">
                   Comenzar gratis
                 </Button>
               </Link>
@@ -140,7 +197,7 @@ export default function LandingPage() {
 
               <div className="hero-line-3 flex flex-row items-center gap-4">
                 <Link href="/login">
-                  <Button className="group rounded-full bg-[#0d253d] text-white hover:bg-[#1c1e54] font-medium px-8 py-6 h-auto text-[16px] shadow-lg shadow-[#0d253d]/20 transition-all hover:-translate-y-0.5 hover:shadow-xl active:scale-[0.97] shrink-0">
+                  <Button className="group rounded-full bg-[#0EA5E9] text-white hover:bg-[#0284C7] font-medium px-8 py-6 h-auto text-[16px] shadow-lg shadow-[#0EA5E9]/20 transition-all hover:-translate-y-0.5 hover:shadow-xl active:scale-[0.97] shrink-0">
                     Comenzar gratis{" "}
                     <ArrowRight className="ml-2 size-4 transition-transform duration-300 group-hover:translate-x-1" />
                   </Button>
@@ -233,8 +290,8 @@ export default function LandingPage() {
               </div>
               <div className="relative">
                 <div className="absolute inset-0 bg-gradient-to-tr from-[#0EA5E9]/10 to-[#fb923c]/10 rounded-[32px] transform rotate-3 scale-105 -z-10" />
-                <div className="relative w-full aspect-square rounded-[32px] overflow-hidden shadow-2xl">
-                  <div className="absolute inset-0 bg-gradient-to-br from-[#0EA5E9]/5 to-[#ea2261]/5" />
+                <div className="relative w-full aspect-square rounded-[32px] shadow-2xl">
+                  <div className="absolute inset-0 bg-gradient-to-br from-[#0EA5E9]/5 to-[#ea2261]/5 rounded-[32px]" />
                   <GrowingExpenseCard />
                 </div>
               </div>
@@ -250,8 +307,8 @@ export default function LandingPage() {
             <div className="grid lg:grid-cols-2 gap-16 items-center">
               <div className="relative order-2 lg:order-1">
                 <div className="absolute inset-0 bg-gradient-to-br from-[#38BDF8]/20 to-[#0EA5E9]/20 rounded-[32px] transform -rotate-3 scale-105 -z-10" />
-                <div className="relative w-full aspect-square rounded-[32px] overflow-hidden shadow-2xl">
-                  <div className="absolute inset-0 bg-gradient-to-br from-[#0EA5E9]/5 to-[#38BDF8]/10" />
+                <div className="relative w-full aspect-square rounded-[32px] shadow-2xl">
+                  <div className="absolute inset-0 bg-gradient-to-br from-[#0EA5E9]/5 to-[#38BDF8]/10 rounded-[32px]" />
                   <BillingMetricsCard />
                 </div>
               </div>
@@ -277,7 +334,7 @@ export default function LandingPage() {
                     </li>
                   ))}
                 </ul>
-                <Button className="group rounded-full bg-[#0d253d] text-white px-6 font-medium transition-all hover:bg-[#1c1e54] active:scale-[0.97]">
+                <Button className="group rounded-full bg-[#0EA5E9] text-white hover:bg-[#0284C7] px-6 py-4 h-auto font-medium transition-all active:scale-[0.97]">
                   Explorar características{" "}
                   <ArrowRight className="ml-2 size-4 transition-transform duration-300 group-hover:translate-x-1" />
                 </Button>
@@ -421,9 +478,9 @@ export default function LandingPage() {
             <div>
               <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#0d253d] mb-3">Recursos</h4>
               <ul className="space-y-2 text-[13px] text-[#64748d]">
-                <li><Link href="/plans" className="hover:text-[#533afd] transition-colors">Planes</Link></li>
-                <li><Link href="/docs" className="hover:text-[#533afd] transition-colors">Documentación</Link></li>
-                <li><Link href="/plans/terms" className="hover:text-[#533afd] transition-colors">Términos y condiciones</Link></li>
+                <li><Link href="/plans" className="hover:text-[#0EA5E9] transition-colors">Planes</Link></li>
+                <li><Link href="/docs" className="hover:text-[#0EA5E9] transition-colors">Documentación</Link></li>
+                <li><Link href="/plans/terms" className="hover:text-[#0EA5E9] transition-colors">Términos y condiciones</Link></li>
               </ul>
             </div>
             <div>

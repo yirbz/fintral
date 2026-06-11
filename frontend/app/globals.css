@@ -54,11 +54,11 @@
     --sidebar-ring: 199 89% 48%;
 
     /* ── Brand (marketing / landing) ── */
-    --brand-primary: #533afd;
-    --brand-primary-deep: #4434d4;
-    --brand-primary-press: #2e2b8c;
-    --brand-primary-soft: #665efd;
-    --brand-primary-subdued: #b9b9f9;
+    --brand-primary: #0EA5E9;
+    --brand-primary-deep: #0284C7;
+    --brand-primary-press: #0369A1;
+    --brand-primary-soft: #38BDF8;
+    --brand-primary-subdued: #E0F2FE;
     --brand-dark-900: #1c1e54;
     --brand-ink: #0d253d;
     --brand-ink-secondary: #273951;

@@ -205,6 +205,7 @@ export interface ChildModificatory {
   invoice_date: string | null;
   modification_reason: string | null;
   is_modificatory: boolean;
+  modificatory_sign: number;
   status: string;
   created_at: string | null;
 }

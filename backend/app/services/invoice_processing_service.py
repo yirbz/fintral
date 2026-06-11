@@ -357,7 +357,14 @@ class InvoiceProcessingService:
             invoice.is_electronic = is_ecf
 
             auto_verify = source_type in ("ecf", "xml")
-            invoice.status = "verified" if auto_verify else "draft"
+            if auto_verify:
+                if source_type == "ecf":
+                    seal = extracted_data.get("electronic_seal", {})
+                    invoice.status = "verified" if seal.get("valid") else "draft"
+                else:
+                    invoice.status = "verified"
+            else:
+                invoice.status = "draft"
 
         if not invoice.ingestion_source:
             invoice.ingestion_source = "manual_entry"

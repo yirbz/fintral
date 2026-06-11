@@ -122,6 +122,30 @@ import { useQuery } from "@tanstack/react-query"
 import { useSession } from "@/hooks/use-session"
 import { getPendingUploadCount } from "@/lib/api/invoices"
 
+function getLink(path: string) {
+  if (typeof window === "undefined") {
+    return `/billing${path === "/" ? "" : path}`
+  }
+  const isSub = window.location.hostname.startsWith("factura.")
+  if (isSub) {
+    return path
+  }
+  return `/billing${path === "/" ? "" : path}`
+}
+
+function getHubUrl() {
+  if (typeof window !== "undefined") {
+    const host = window.location.host
+    if (host.startsWith("factura.localhost")) {
+      return `http://${host.replace("factura.localhost", "localhost")}/dashboard`
+    }
+    if (host.startsWith("factura.")) {
+      return `https://${host.replace("factura.", "")}/dashboard`
+    }
+  }
+  return "/dashboard"
+}
+
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const session = useSession()
   const [user, setUser] = useState(data.user)
@@ -136,31 +160,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
   }, [])
 
-  const getLink = (path: string) => {
-    if (typeof window === "undefined") {
-      return `/billing${path === "/" ? "" : path}`
-    }
-    const isSub = window.location.hostname.startsWith("factura.")
-    if (isSub) {
-      return path
-    }
-    return `/billing${path === "/" ? "" : path}`
-  }
-
-  const getHubUrl = () => {
-    if (typeof window !== "undefined") {
-      const host = window.location.host
-      if (host.startsWith("factura.localhost")) {
-        return `http://${host.replace("factura.localhost", "localhost")}/dashboard`
-      }
-      if (host.startsWith("factura.")) {
-        return `https://${host.replace("factura.", "")}/dashboard`
-      }
-    }
-    return "/dashboard"
-  }
-
-  const pendingQuery = useQuery({
+  const {data: pendingQuery_data} = useQuery({
     queryKey: ["pending-upload-count"],
     queryFn: getPendingUploadCount,
     refetchInterval: 15_000,
@@ -215,7 +215,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     ? billingNavMain
     : data.navMain.map((item) =>
         item.url === "/dashboard/upload"
-          ? { ...item, badge: pendingQuery.data?.count ?? undefined }
+          ? { ...item, badge: pendingQuery_data?.count ?? undefined }
           : item
       )
 

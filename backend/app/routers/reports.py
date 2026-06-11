@@ -30,6 +30,8 @@ async def get_ap_ar_preview(
             Invoice.payment_condition == "credito",
             Invoice.payment_status != "paid",
             Invoice.is_deleted.is_(False),
+            Invoice.cancelled_at.is_(None),
+            Invoice.status != "voided",
         )
         .order_by(desc(Invoice.due_date), desc(Invoice.invoice_date))
         .all()
@@ -56,6 +58,8 @@ async def get_ap_ar_preview(
             status_text = "Vencido"
         if inv.payment_status == "paid":
             status_text = "Pagado"
+        if inv.status == "voided" or inv.cancelled_at:
+            status_text = "Anulada"
 
         tax = inv.tax_amount or 0.0
         total = inv.total_amount or 0.0
@@ -130,6 +134,8 @@ async def export_ap_ar(
             Invoice.payment_condition == "credito",
             Invoice.payment_status != "paid",
             Invoice.is_deleted.is_(False),
+            Invoice.cancelled_at.is_(None),
+            Invoice.status != "voided",
         )
         .order_by(desc(Invoice.due_date), desc(Invoice.invoice_date))
         .all()

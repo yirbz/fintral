@@ -42,11 +42,11 @@ function formatAmount(amount: number | null, currency = "DOP") {
    Page
 ──────────────────────────────────────────── */
 export default function Page() {
-  const stats = useQuery({ queryKey: ["statistics", "30d"], queryFn: () => getStatistics("30d") })
-  const invoices = useQuery({ queryKey: ["invoices", "dashboard"], queryFn: () => listInvoices() })
+  const {data: stats_data, isFetching: stats_isFetching, isLoading: stats_isLoading} = useQuery({ queryKey: ["statistics", "30d"], queryFn: () => getStatistics("30d") })
+  const {data: invoices_data, isLoading: invoices_isLoading} = useQuery({ queryKey: ["invoices", "dashboard"], queryFn: () => listInvoices() })
   const { events, connected } = useRealtime()
-  const loading = stats.isLoading || stats.isFetching
-  const data: StatisticsPayload | undefined = stats.data
+  const loading = stats_isLoading || stats_isFetching
+  const data: StatisticsPayload | undefined = stats_data
 
   return (
     <div className="flex flex-col gap-6 px-4 lg:px-6 pb-10">
@@ -91,7 +91,7 @@ export default function Page() {
                 Documentos registrados recientemente
               </p>
             </div>
-            {!invoices.isLoading && (invoices.data?.invoices ?? []).length > 0 && (
+            {!invoices_isLoading && (invoices_data?.invoices ?? []).length > 0 && (
               <Link href="/dashboard/invoices">
                 <Button variant="ghost" size="sm" className="gap-1 h-7 text-xs text-muted-foreground hover:text-primary">
                   Ver todas
@@ -102,7 +102,7 @@ export default function Page() {
           </div>
 
           <div className="flex-1 overflow-auto">
-            {invoices.isLoading ? (
+            {invoices_isLoading ? (
               <div className="flex flex-col divide-y divide-border/40">
                 {Array.from({ length: 5 }).map((_, i) => (
                   <div key={i} className="flex items-center justify-between px-5 py-3.5">
@@ -117,7 +117,7 @@ export default function Page() {
                   </div>
                 ))}
               </div>
-            ) : (invoices.data?.invoices ?? []).length === 0 ? (
+            ) : (invoices_data?.invoices ?? []).length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10">
                   <FileText className="size-5 text-primary" />
@@ -135,7 +135,7 @@ export default function Page() {
               </div>
             ) : (
               <div className="flex flex-col divide-y divide-border/40">
-                {(invoices.data?.invoices ?? []).slice(0, 8).map((inv) => (
+                {(invoices_data?.invoices ?? []).slice(0, 8).map((inv) => (
                   <Link
                     key={inv.id}
                     href={`/dashboard/invoices/${inv.id}`}
@@ -319,16 +319,16 @@ function AuditHealth({
 }) {
   // Fetch only active flagged invoices (trashed/cancelled invoices live
   // at /invoices/trash, so the default /invoices endpoint excludes them)
-  const flaggedQuery = useQuery({
+  const {data: flaggedQuery_data, isLoading: flaggedQuery_isLoading} = useQuery({
     queryKey: ["invoices", "flagged-active"],
     queryFn: () => listInvoices({ quality: "flagged" }),
     staleTime: 60_000,
   })
 
-  const loading = statsLoading || flaggedQuery.isLoading
+  const loading = statsLoading || flaggedQuery_isLoading
 
   // Active flagged count from the dedicated query
-  const alerts = flaggedQuery.data?.total ?? 0
+  const alerts = flaggedQuery_data?.total ?? 0
   // Clean = total processed minus active flagged
   const totalProcessed = stats?.queue?.processed_total ?? 0
   const clean = Math.max(0, totalProcessed - alerts)

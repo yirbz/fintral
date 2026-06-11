@@ -92,48 +92,48 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
+function currencyFormatter(val: number) {
+  return new Intl.NumberFormat("es-DO", {
+    style: "currency",
+    currency: "DOP",
+    maximumFractionDigits: 0
+  }).format(val);
+}
+
 export function ReportsPage() {
   const [period, setPeriod] = useState<(typeof PERIODS)[number]>("30d");
-  const query = useQuery({
+  const {data: query_data, isLoading: query_isLoading} = useQuery({
     queryKey: ["statistics", period],
     queryFn: () => getStatistics(period)
   });
 
-  const loading = query.isLoading;
+  const loading = query_isLoading;
 
   // Destructure financial metrics
-  const incomeAmount = query.data?.totals?.income?.amount ?? 0;
-  const incomeCount = query.data?.totals?.income?.count ?? 0;
-  const expenseAmount = query.data?.totals?.expense?.amount ?? 0;
-  const expenseCount = query.data?.totals?.expense?.count ?? 0;
-  const netAmount = query.data?.totals?.net ?? 0;
+  const incomeAmount = query_data?.totals?.income?.amount ?? 0;
+  const incomeCount = query_data?.totals?.income?.count ?? 0;
+  const expenseAmount = query_data?.totals?.expense?.amount ?? 0;
+  const expenseCount = query_data?.totals?.expense?.count ?? 0;
+  const netAmount = query_data?.totals?.net ?? 0;
 
   // Auditor metric calculations
-  const processedTotal = query.data?.queue?.processed_total ?? 0;
-  const cleanCount = query.data?.audit?.clean_count ?? 0;
-  const alertsCount = query.data?.audit?.alerts_count ?? 0;
+  const processedTotal = query_data?.queue?.processed_total ?? 0;
+  const cleanCount = query_data?.audit?.clean_count ?? 0;
+  const alertsCount = query_data?.audit?.alerts_count ?? 0;
   const healthScore = processedTotal > 0 ? Math.round((cleanCount / processedTotal) * 100) : 100;
 
   const pieData = useMemo(() => {
-    const labels = query.data?.audit.distribution.labels ?? [];
-    const data = query.data?.audit.distribution.data ?? [];
+    const labels = query_data?.audit.distribution.labels ?? [];
+    const data = query_data?.audit.distribution.data ?? [];
     return labels.map((label, index) => ({ name: label, value: data[index] ?? 0 }));
-  }, [query.data?.audit.distribution.data, query.data?.audit.distribution.labels]);
+  }, [query_data?.audit.distribution.data, query_data?.audit.distribution.labels]);
 
-  const categories = useMemo(() => query.data?.categories ?? [], [query.data?.categories]);
+  const categories = useMemo(() => query_data?.categories ?? [], [query_data?.categories]);
   const totalExpense = useMemo(() => {
     return categories.reduce((acc: number, curr: any) => acc + (curr.total || 0), 0);
   }, [categories]);
 
-  const recentAlerts = useMemo(() => query.data?.audit?.recent_alerts ?? [], [query.data?.audit?.recent_alerts]);
-
-  const currencyFormatter = (val: number) => {
-    return new Intl.NumberFormat("es-DO", {
-      style: "currency",
-      currency: "DOP",
-      maximumFractionDigits: 0
-    }).format(val);
-  };
+  const recentAlerts = useMemo(() => query_data?.audit?.recent_alerts ?? [], [query_data?.audit?.recent_alerts]);
 
   return (
     <div className="flex flex-col gap-6 px-4 lg:px-6 pb-10 w-full max-w-7xl mx-auto">
@@ -257,7 +257,7 @@ export function ReportsPage() {
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={query.data?.charts.volume_history ?? []}>
+                <LineChart data={query_data?.charts.volume_history ?? []}>
                   <XAxis dataKey="date" fontSize={9} stroke="#888888" tickLine={false} />
                   <YAxis fontSize={9} stroke="#888888" tickLine={false} />
                   <Tooltip content={<CustomTooltip />} />
@@ -444,7 +444,7 @@ export function ReportsPage() {
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={query.data?.monthly_stats ?? []}>
+              <BarChart data={query_data?.monthly_stats ?? []}>
                 <XAxis dataKey="month" fontSize={9} stroke="#888888" tickLine={false} />
                 <YAxis fontSize={9} stroke="#888888" tickLine={false} />
                 <Tooltip content={<CustomTooltip />} />

@@ -85,6 +85,7 @@ function Tabs({ tabs, active, onChange }: { tabs: { id: string; label: string }[
       {tabs.map((t) => (
         <button
           key={t.id}
+          type="button"
           onClick={() => onChange(t.id)}
           className={`px-3 py-2 text-[11px] font-medium border-b-2 transition-colors -mb-px ${
             active === t.id
@@ -360,18 +361,18 @@ function CuentasTab() {
 
   const queryClient = useQueryClient();
 
-  const tenantsQuery = useQuery({
+  const {data: tenantsQuery_data, isLoading: tenantsQuery_isLoading} = useQuery({
     queryKey: ["admin-tenants", tenantSearch, showDeleted],
     queryFn: () => adminApi.listTenants({ search: tenantSearch || undefined, include_deleted: showDeleted }),
   });
 
-  const tenantQuery = useQuery({
+  const {data: tenantQuery_data, isLoading: tenantQuery_isLoading} = useQuery({
     queryKey: ["admin-tenant-detail", selectedTenantId],
     queryFn: () => adminApi.getTenant(selectedTenantId!),
     enabled: !!selectedTenantId,
   });
 
-  const t = tenantQuery.data;
+  const t = tenantQuery_data;
 
   const invalidateTenant = () => {
     queryClient.invalidateQueries({ queryKey: ["admin-tenant-detail", selectedTenantId] });
@@ -431,7 +432,7 @@ function CuentasTab() {
   const ask = (title: string, description: string, confirmLabel: string, onConfirm: () => void) =>
     setConfirm({ title, description, confirmLabel, onConfirm });
 
-  if (selectedTenantId && tenantQuery.isLoading) {
+  if (selectedTenantId && tenantQuery_isLoading) {
     return <div className="h-40 bg-muted rounded animate-pulse" />;
   }
 
@@ -528,15 +529,18 @@ function CuentasTab() {
         </label>
       </div>
 
-      {tenantsQuery.isLoading ? (
+      {tenantsQuery_isLoading ? (
         <div className="h-20 bg-muted rounded animate-pulse" />
       ) : (
         <div className="grid gap-1">
-          {(tenantsQuery.data?.tenants ?? []).map((t) => (
+          {(tenantsQuery_data?.tenants ?? []).map((t) => (
             <div
               key={t.id}
               className="flex items-center justify-between rounded-md border px-3 py-2 cursor-pointer hover:bg-muted/50 text-xs"
+              role="button"
+              tabIndex={0}
               onClick={() => setSelectedTenantId(t.id)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedTenantId(t.id); } }}
             >
               <div className="flex items-center gap-2 min-w-0">
                 <Building2 className="size-3.5 shrink-0 text-muted-foreground" />
@@ -551,7 +555,7 @@ function CuentasTab() {
               </div>
             </div>
           ))}
-          {(tenantsQuery.data?.tenants ?? []).length === 0 && (
+          {(tenantsQuery_data?.tenants ?? []).length === 0 && (
             <p className="text-xs text-muted-foreground italic">No hay tenants</p>
           )}
         </div>
@@ -580,11 +584,11 @@ function OrgCard({
 
   return (
     <div className="rounded-md border">
-      <div className="flex items-center justify-between px-3 py-1.5 cursor-pointer hover:bg-muted/30" onClick={() => setExpanded(!expanded)}>
+      <div className="flex items-center justify-between px-3 py-1.5 cursor-pointer hover:bg-muted/30" role="button" tabIndex={0} onClick={() => setExpanded(!expanded)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded); } }}>
         <div className="flex items-center gap-2 min-w-0">
           {expanded ? <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />}
           {editing ? (
-            <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-1" role="presentation" onClick={(e) => e.stopPropagation()}>
               <Input value={editName} onChange={(e) => onEditNameChange(e.target.value)} className="h-6 text-xs w-40" />
               <Button size="sm" className="h-6 text-[10px] px-2" onClick={onSaveName}>OK</Button>
               <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={onCancelEdit}>X</Button>
@@ -601,7 +605,7 @@ function OrgCard({
             </>
           )}
         </div>
-        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-1 shrink-0" role="presentation" onClick={(e) => e.stopPropagation()}>
           {!editing && (
             <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={onEdit}>
               <Pencil className="size-3" />
