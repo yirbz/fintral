@@ -15,7 +15,7 @@ const inter = Inter({
 const geistMono = GeistMono;
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "https://fintral.do"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "https://fintral.app"),
   title: {
     default: "Fintral — Infraestructura fiscal automatizada para RD",
     template: "%s | Fintral"
@@ -44,7 +44,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "es_DO",
-    url: "https://fintral.do",
+    url: "https://fintral.app",
     title: "Fintral — Infraestructura fiscal automatizada para RD",
     description: "Visión artificial para extraer facturas y validar NCFs contra la DGII.",
     siteName: "Fintral"
