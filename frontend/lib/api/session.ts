@@ -1,25 +1,35 @@
-import { apiFetch } from "@/lib/api/client";
+import { apiFetch, ApiError } from "@/lib/api/client";
 import type { SessionPayload } from "@/lib/types";
 
-export async function login(email: string, password: string) {
+export async function login(email: string, password: string, remember = false) {
   const body = new URLSearchParams();
   body.append("username", email);
   body.append("password", password);
+  body.append("remember", remember ? "true" : "false");
 
   try {
-    return await apiFetch<{ access_token: string; token_type: string }>("/token", {
+    const result = await apiFetch<{ access_token: string; token_type: string }>("/token", {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded"
       },
       body: body.toString()
     });
-  } catch {
-    if (process.env.NEXT_PUBLIC_ENVIRONMENT === "DEVELOPMENT" && email && password) {
-      console.warn("Backend unavailable — dev mode bypass");
-      return { access_token: "dev-token", token_type: "bearer" as const };
+
+    // Clear stale caches on login — the backend will return fresh data via /api/me
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.removeItem("fintral_active_org");
+        localStorage.removeItem("fintral_session");
+      } catch { /* noop */ }
     }
-    throw new Error("Credenciales incorrectas");
+
+    return result;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) {
+      throw new Error("No disponible");
+    }
+    throw err;
   }
 }
 
@@ -32,23 +42,7 @@ export async function logout() {
   return response.ok;
 }
 
-export async function getMe(signal?: AbortSignal) {
-  try {
-    return await apiFetch<SessionPayload>("/api/me", { signal });
-  } catch {
-    if (process.env.NEXT_PUBLIC_ENVIRONMENT === "DEVELOPMENT") {
-      console.warn("⚠️ Backend unavailable - dev mode bypass");
-      return {
-        user: { id: "dev", email: "admin@fintral.local", full_name: "Admin Dev", is_active: true, is_superuser: true },
-        tenant: { id: "dev-tenant", plan: "free" },
-        organization: { id: "dev-org", name: "Mi Empresa (Dev)", tax_id: "123456789", country: "DO" },
-        role: "owner",
-        company_name: "Mi Empresa (Dev)",
-        company_tax_id: "123456789",
-        company_country: "DO",
-        company_plan: "Free Plan"
-      };
-    }
-    throw new Error("No autorizado");
-  }
+export async function getMe(signal?: AbortSignal, baseUrl?: string) {
+  const url = baseUrl ? `${baseUrl}/api/me` : "/api/me";
+  return await apiFetch<SessionPayload>(url, { signal });
 }

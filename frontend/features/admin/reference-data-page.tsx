@@ -259,20 +259,20 @@ export function ReferenceDataPage() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const deleteConfirmRef = useRef<string | null>(null);
 
-  const domainsQuery = useQuery({
+  const {data: domainsQuery_data} = useQuery({
     queryKey: ["refdata-domains"],
     queryFn: getDomains,
   });
 
-  const domains = domainsQuery.data?.domains ?? [];
+  const domains = domainsQuery_data?.domains ?? [];
 
-  const refdataQuery = useQuery({
+  const {data: refdataQuery_data, isLoading: refdataQuery_isLoading} = useQuery({
     queryKey: ["refdata-items", selectedDomain],
     queryFn: () => listReferenceData(selectedDomain || undefined, true),
     enabled: !!selectedDomain,
   });
 
-  const items = refdataQuery.data?.items ?? [];
+  const items = refdataQuery_data?.items ?? [];
   const filtered = search
     ? items.filter(
         (i) =>
@@ -411,9 +411,9 @@ export function ReferenceDataPage() {
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-medium">
             {selectedDomain ? DOMAIN_LABELS[selectedDomain] || selectedDomain : "Selecciona un dominio"}
-            {refdataQuery.data && (
+            {refdataQuery_data && (
               <span className="ml-2 text-muted-foreground font-normal">
-                ({refdataQuery.data.total} items
+                ({refdataQuery_data.total} items
                 {hasActiveDeletes && (
                   <span className="text-muted-foreground/60">
                     , {items.filter((i) => !i.is_active).length} inactivos
@@ -425,7 +425,7 @@ export function ReferenceDataPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          {refdataQuery.isLoading ? (
+          {refdataQuery_isLoading ? (
             <div className="p-4 space-y-3">
               {Array.from({ length: 5 }).map((_, i) => (
                 <Skeleton key={i} className="h-8 w-full" />

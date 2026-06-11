@@ -11,19 +11,19 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models import Invoice, Organization
-from app.services.openai_processor import OpenAIInvoiceProcessor
+from app.services.llm_processor import LLMInvoiceProcessor
 from app.core.redis import cache_get, cache_set, rate_limit, is_duplicate_message, invalidate_cache_pattern
 from app.repositories import InvoiceRepository
 from app.services.invoice_processing_service import InvoiceProcessingService
 from app.services.settings_service import SettingsService
 from app.services.supabase_storage import upload_invoice_file
-from app.config import (
-    SUPABASE_URL,
-    EVOLUTION_API_URL as _EVOLUTION_API_URL,
-    EVOLUTION_API_KEY as _EVOLUTION_API_KEY,
-    EVOLUTION_INSTANCE_NAME as _EVOLUTION_INSTANCE_NAME,
-    AUTHORIZED_WHATSAPP_NUMBER as _AUTHORIZED_WHATSAPP_NUMBER,
-)
+from app.config import SUPABASE_URL
+
+# Evolution/WhatsApp settings (not actively configured/used)
+_EVOLUTION_API_URL = ""
+_EVOLUTION_API_KEY = ""
+_EVOLUTION_INSTANCE_NAME = ""
+_AUTHORIZED_WHATSAPP_NUMBER = ""
 
 # Permitir cargar imágenes truncadas
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 class WhatsAppService:
     def __init__(self):
-        self.openai_processor = OpenAIInvoiceProcessor()
+        self.openai_processor = LLMInvoiceProcessor()
         self.settings_service = SettingsService()
         self.invoice_processing_service = InvoiceProcessingService(
             invoice_repo=InvoiceRepository(),

@@ -2,17 +2,22 @@ import logging
 import re
 from typing import Any, Dict, Optional, Tuple
 
+from sqlalchemy.orm import Session
+
 from app.services.pipeline.base import ProcessingResult
+from app.services.pipeline.categorizer import categorizer
 from app.services.pipeline.classifier import classifier
 from app.services.pipeline.image_preprocessor import image_preprocessor
 from app.services.pipeline.normalizer import normalizer
+from app.services.pipeline.validator import post_extraction_validator
 from app.services.pipeline.xml_processor import xml_processor
 from app.services.pipeline.pdf_text_parser import pdf_text_parser
 from app.services.pipeline.xlsx_processor import xlsx_processor
+from app.services.pipeline.ecf_parser import ecf_parser
 
 logger = logging.getLogger(__name__)
 
-AI_FALLBACK_STRATEGIES = {"image_ocr", "pdf_image"}
+AI_FALLBACK_STRATEGIES = {"image_ocr", "pdf_image", "pdf_text"}
 CONFIDENCE_THRESHOLD = 0.7
 LOW_CONFIDENCE_AI_THRESHOLD = 0.4
 
@@ -47,6 +52,7 @@ class PipelineOrchestrator:
         invoice=None,
         db=None,
         user_id: Optional[int] = None,
+        org_rnc: Optional[str] = None,
     ) -> Tuple[bool, Dict[str, Any], Optional[str]]:
         try:
             source_type, strategy = self.classifier.classify(file_path)
@@ -67,7 +73,10 @@ class PipelineOrchestrator:
                     source_type=source_type,
                     confidence=result.confidence,
                 )
-                return True, normalized, source_type
+                self._resolve_direction(normalized, org_rnc)
+                self._categorize_data(normalized, invoice, db, source_type=source_type)
+                validated = post_extraction_validator.validate(normalized, org_rnc=org_rnc)
+                return True, validated, source_type
 
             if source_type in AI_FALLBACK_STRATEGIES and result.confidence < CONFIDENCE_THRESHOLD:
                 logger.info("Low confidence (%.2f), escalating to AI fallback", result.confidence)
@@ -80,6 +89,9 @@ class PipelineOrchestrator:
                 )
                 if success:
                     ai_data["quality_warnings"] = result.warnings
+                    self._categorize_data(ai_data, invoice, db, source_type=ai_source)
+                    validated = post_extraction_validator.validate(ai_data, org_rnc=org_rnc)
+                    return True, validated, ai_source
                 return success, ai_data, ai_source
 
             normalized = self.normalizer.normalize(
@@ -87,11 +99,100 @@ class PipelineOrchestrator:
                 source_type=source_type,
                 confidence=result.confidence,
             )
-            return result.success, normalized, source_type
+            self._resolve_direction(normalized, org_rnc)
+            self._categorize_data(normalized, invoice, db, source_type=source_type)
+            validated = post_extraction_validator.validate(normalized, org_rnc=org_rnc)
+            return result.success, validated, source_type
 
         except Exception as e:
             logger.exception("Pipeline error processing %s: %s", file_path, e)
-            return False, {"error": f"Pipeline error: {str(e)}"}, None
+            return False, {"error": "Ocurrió un error interno al procesar el documento. Intenta de nuevo o sube un archivo con mejor calidad."}, None
+
+    def _categorize_data(self, data: Dict[str, Any], invoice, db: Optional[Session], source_type: Optional[str] = None) -> None:
+        """Apply 3-tier categorization cascade to the normalized data.
+
+        For structured sources (ecf/xml) the LLM layer is text-only and
+        its result is auto-saved as TenantVendorRule so subsequent invoices
+        from the same vendor are resolved at Layer 1 (deterministic).
+        """
+        tenant_id = str(invoice.tenant_id) if invoice and hasattr(invoice, "tenant_id") else None
+        if not tenant_id:
+            return
+
+        cat_result = categorizer.categorize(
+            vendor_tax_id=data.get("vendor_tax_id"),
+            vendor_name=data.get("vendor_name"),
+            line_items=data.get("line_items", []),
+            tenant_id=tenant_id,
+            transaction_type=data.get("transaction_type"),
+            db=db,
+            source_type=source_type,
+            ecf_type=data.get("ecf_type"),
+        )
+
+        if cat_result.get("dgii_category_code"):
+            data["goods_services_type"] = cat_result["dgii_category_code"]
+            data["category"] = cat_result["dgii_category_code"] or data.get("category") or "02"
+            data["category_source"] = cat_result.get("source", "none")
+            if cat_result.get("requires_review"):
+                data.setdefault("audit_warnings", []).append(
+                    "Categoría asignada por defecto — requiere revisión manual"
+                )
+
+    def _resolve_direction(self, data: Dict[str, Any], org_rnc: Optional[str]) -> None:
+        """Resolve transaction_type for invoices by comparing RNCs.
+
+        Determines the direction after extraction, before validation, by
+        comparing the issuer/ buyer RNC against the organization's RNC.
+
+        Special cases:
+        - Types 41 (Compras), 43 (Gastos Menores), 11 (Compras a Proveedores Informales),
+          and 17 (Pagos al Exterior) are always expense, even if the tenant is the issuer.
+        """
+        if not org_rnc:
+            return
+
+        clean_org = re.sub(r"[^0-9]", "", org_rnc)
+        if not clean_org:
+            return
+
+        ecf_type = data.get("ecf_type")
+        if not ecf_type:
+            ncf = data.get("invoice_number")
+            if ncf:
+                ncf_clean = ncf.strip().upper()
+                if len(ncf_clean) == 13 and ncf_clean[0] == 'E' and ncf_clean[1:3].isdigit():
+                    ecf_type = ncf_clean[1:3]
+                    data["ecf_type"] = ecf_type
+                elif len(ncf_clean) == 11 and ncf_clean[0] == 'B' and ncf_clean[1:3].isdigit():
+                    ecf_type = ncf_clean[1:3]
+                    data["ecf_type"] = ecf_type
+
+        # Types 41/43/11/17 are always expense (tenant-issued purchases/withholdings)
+        if ecf_type in ("41", "43", "11", "17"):
+            data["transaction_type"] = "expense"
+            return
+
+        emisor_rnc = str(data.get("vendor_tax_id") or "")
+        comprador_rnc = str(data.get("rnc_comprador") or "")
+
+        clean_emisor = re.sub(r"[^0-9]", "", emisor_rnc)
+        clean_comprador = re.sub(r"[^0-9]", "", comprador_rnc)
+
+        if clean_emisor == clean_org:
+            data["transaction_type"] = "income"
+        elif clean_comprador == clean_org:
+            data["transaction_type"] = "expense"
+        else:
+            # Neither RNC matches: the org is neither issuer nor buyer.
+            # Default to expense (the org most likely received a supplier invoice).
+            data["transaction_type"] = "expense"
+
+        # Income invoices should appear in AR until the client pays.
+        # The normalizer defaults contado → "paid", but for income that is wrong.
+        if data.get("transaction_type") == "income" and not data.get("payment_date"):
+            data["payment_status"] = "pending"
+
 
     def _process_by_strategy(
         self,
@@ -104,6 +205,8 @@ class PipelineOrchestrator:
     ) -> ProcessingResult:
         if strategy == "xml_processor":
             return xml_processor.process(file_path)
+        elif strategy == "ecf_parser":
+            return ecf_parser.process(file_path)
         elif strategy == "pdf_text_parser":
             return pdf_text_parser.process(file_path)
         elif strategy == "xlsx_processor":
@@ -113,7 +216,7 @@ class PipelineOrchestrator:
         else:
             return ProcessingResult(
                 success=False,
-                error=f"Unknown strategy: {strategy}",
+                error=f"Formato de archivo no soportado ({strategy}). Usa JPG, PNG, PDF, XML o XLSX.",
                 source_type=source_type,
                 confidence=0.0,
             )
@@ -148,7 +251,7 @@ class PipelineOrchestrator:
             if not text_lines:
                 return ProcessingResult(
                     success=False,
-                    error="OCR produced no text",
+                    error="No se pudo leer texto de la imagen. Asegúrate de que la foto sea nítida y esté bien iluminada.",
                     source_type="image_ocr",
                     confidence=0.0,
                     warnings=quality.warnings,
@@ -185,7 +288,7 @@ class PipelineOrchestrator:
         except ImportError:
             return ProcessingResult(
                 success=False,
-                error="pytesseract not installed",
+                error="El motor de reconocimiento óptico (OCR) no está disponible en este servidor. Contacta al administrador.",
                 source_type="image_ocr",
                 confidence=0.0,
             )
@@ -193,7 +296,7 @@ class PipelineOrchestrator:
             logger.error("OCR error: %s", e)
             return ProcessingResult(
                 success=False,
-                error=f"OCR error: {str(e)}",
+                error="Error al procesar la imagen. Verifica que el archivo no esté dañado e intenta de nuevo.",
                 source_type="image_ocr",
                 confidence=0.0,
             )
@@ -292,6 +395,21 @@ class PipelineOrchestrator:
                 except Exception:
                     pass
 
+        # Credit note detection — OCR text patterns
+        if re.search(r"NOTA\s+DE\s+CR[EÉ]DITO|CREDIT\s+NOTE|e-CF\s*32", text, re.IGNORECASE):
+            data["is_credit_note"] = True
+        # NCF prefix B04 indicates a physical credit note
+        if re.search(r"\bB04\d{8,10}\b", text):
+            data["is_credit_note"] = True
+            if not data.get("invoice_number"):
+                ncf_b04 = re.search(r"\b(B04\d{8,10})\b", text)
+                if ncf_b04:
+                    data["invoice_number"] = ncf_b04.group(1)
+        # Detect reference to modified NCF (e.g. "NCF Modificado: E310000000001" or "Factura Original: B01000000001")
+        modified_ncf = re.search(r"(?:NCF\s*(?:Modificado|Original|Reference|Ref)|Factura\s*Original)\s*:?\s*([BE]\d{2}\d{8,10})", text, re.IGNORECASE)
+        if modified_ncf:
+            data["ncf_modified"] = modified_ncf.group(1)
+
         return data
 
     def _calculate_field_confidence(self, data: Dict[str, Any],
@@ -334,7 +452,7 @@ class PipelineOrchestrator:
         user_id: Optional[int] = None,
     ) -> Tuple[bool, Dict[str, Any], str]:
         if not self.openai_processor:
-            return False, {"error": "AI processor not available"}, "image_ai"
+            return False, {"error": "El procesador de inteligencia artificial no está disponible. Contacta al administrador."}, "image_ai"
 
         source_type = "image_ai" if file_type.startswith("image") else "pdf_ai"
 
@@ -354,7 +472,7 @@ class PipelineOrchestrator:
 
         except Exception as e:
             logger.error("AI processing error: %s", e)
-            return False, {"error": str(e)}, source_type
+            return False, {"error": "Error al analizar el documento con inteligencia artificial. Intenta de nuevo en unos minutos."}, source_type
 
 
 orchestrator = PipelineOrchestrator()

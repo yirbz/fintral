@@ -47,25 +47,25 @@ export function TrashPage() {
   const [skip, setSkip] = useState(0);
 
 
-  const trashQuery = useQuery({
+  const {data: trashQuery_data, isLoading: trashQuery_isLoading} = useQuery({
     queryKey: ["invoices", "trash", skip, limit],
     queryFn: () => listTrashedInvoices(skip, limit),
   });
 
-  const total = trashQuery.data?.total ?? 0;
+  const total = trashQuery_data?.total ?? 0;
   const totalPages = Math.ceil(total / limit);
   const currentPage = Math.floor(skip / limit) + 1;
 
   const invoices = useMemo(() => {
-    if (!search) return trashQuery.data?.invoices ?? [];
+    if (!search) return trashQuery_data?.invoices ?? [];
     const q = search.toLowerCase();
-    return (trashQuery.data?.invoices ?? []).filter(
+    return (trashQuery_data?.invoices ?? []).filter(
       (inv) =>
         (inv.vendor_name ?? "").toLowerCase().includes(q) ||
         (inv.invoice_number ?? "").toLowerCase().includes(q) ||
         (inv.vendor_tax_id ?? "").toLowerCase().includes(q)
     );
-  }, [trashQuery.data?.invoices, search]);
+  }, [trashQuery_data?.invoices, search]);
 
   const allSelected = useMemo(
     () => selectedIds.length > 0 && invoices.length > 0 && selectedIds.length === invoices.length,
@@ -265,7 +265,7 @@ export function TrashPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {trashQuery.isLoading ? (
+                {trashQuery_isLoading ? (
                   Array.from({ length: limit }).map((_, i) => (
                     <TableRow key={i}>
                       {Array.from({ length: 7 }).map((_, j) => (

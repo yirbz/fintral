@@ -5,12 +5,11 @@ from typing import Optional
 import requests
 from sqlalchemy.orm import Session
 
-from app.config import (
-    EVOLUTION_API_KEY,
-    EVOLUTION_API_URL,
-    EVOLUTION_INSTANCE_NAME,
-    EVOLUTION_INSTANCE_TOKEN,
-)
+# Evolution API settings (WhatsApp not actively configured/used)
+EVOLUTION_API_KEY = ""
+EVOLUTION_API_URL = ""
+EVOLUTION_INSTANCE_NAME = ""
+EVOLUTION_INSTANCE_TOKEN = ""
 from app.services.settings_service import SettingsService
 
 logger = logging.getLogger(__name__)

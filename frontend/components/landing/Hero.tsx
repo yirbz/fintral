@@ -24,13 +24,13 @@ export function Hero() {
 
         <div className="flex flex-wrap items-center justify-center lg:justify-start gap-4 pt-2">
           <Link href="/login">
-            <button className="rounded-full bg-[#533afd] text-white hover:bg-[#4434d4] font-normal px-6 py-3 h-auto text-[16px] shadow-sm transition-all duration-200 hover:shadow-[0_8px_24px_rgba(83,58,253,0.25)] active:bg-[#2e2b8c]">
+            <button type="button" className="rounded-full bg-[#533afd] text-white hover:bg-[#4434d4] font-normal px-6 py-3 h-auto text-[16px] shadow-sm transition-all duration-200 hover:shadow-[0_8px_24px_rgba(83,58,253,0.25)] active:bg-[#2e2b8c]">
               Crear cuenta gratis{" "}
               <ArrowRight className="ml-2 inline size-4" />
             </button>
           </Link>
           <Link href="#contact">
-            <button className="rounded-full bg-white text-[#0d253d] border border-[#e3e8ee] hover:border-[#a8c3de] hover:bg-[#f6f9fc] font-normal px-6 py-3 h-auto text-[16px] transition-all duration-200">
+            <button type="button" className="rounded-full bg-white text-[#0d253d] border border-[#e3e8ee] hover:border-[#a8c3de] hover:bg-[#f6f9fc] font-normal px-6 py-3 h-auto text-[16px] transition-all duration-200">
               Contactar ventas
             </button>
           </Link>

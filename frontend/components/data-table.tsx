@@ -94,7 +94,7 @@ import {
 } from "@/components/ui/tabs"
 import { GripVerticalIcon, CircleCheckIcon, LoaderIcon, EllipsisVerticalIcon, Columns3Icon, ChevronDownIcon, PlusIcon, ChevronsLeftIcon, ChevronLeftIcon, ChevronRightIcon, ChevronsRightIcon, TrendingUpIcon } from "lucide-react"
 
-export const schema = z.object({
+const schema = z.object({
   id: z.number(),
   header: z.string(),
   type: z.string(),
@@ -440,13 +440,9 @@ export function DataTable({
             <DropdownMenuContent align="end" className="w-32">
               {table
                 .getAllColumns()
-                .filter(
-                  (column) =>
-                    typeof column.accessorFn !== "undefined" &&
-                    column.getCanHide()
-                )
-                .map((column) => {
-                  return (
+                .reduce<React.ReactNode[]>((acc, column) => {
+                  if (typeof column.accessorFn === "undefined" || !column.getCanHide()) return acc;
+                  acc.push(
                     <DropdownMenuCheckboxItem
                       key={column.id}
                       className="capitalize"
@@ -457,8 +453,9 @@ export function DataTable({
                     >
                       {column.id}
                     </DropdownMenuCheckboxItem>
-                  )
-                })}
+                  );
+                  return acc;
+                }, [])}
             </DropdownMenuContent>
           </DropdownMenu>
           <Button variant="outline" size="sm">

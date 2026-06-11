@@ -59,7 +59,11 @@ async def test_token_sets_cookie_and_returns_payload(test_user):
     db = SessionLocal()
     try:
         form = SimpleNamespace(username=test_user.email, password="TestPass123!")
-        response = await login_for_access_token(form_data=form, db=db)
+        req = _request("/token")
+        async def mock_form():
+            return {}
+        req.form = mock_form
+        response = await login_for_access_token(request=req, form_data=form, db=db)
         body = json.loads(response.body.decode("utf-8"))
 
         assert response.status_code == 200
@@ -134,3 +138,15 @@ async def test_legacy_routes_redirect_to_new_frontend_paths(tenant_context):
 
     tenant_context.db.delete(invoice)
     tenant_context.db.commit()
+
+
+async def test_delete_avatar_endpoint(tenant_context):
+    from app.routers.settings import delete_avatar
+    
+    tenant_context.user.avatar_url = "some_fake_avatar_url"
+    tenant_context.db.commit()
+    
+    response = await delete_avatar(ctx=tenant_context)
+    assert response["message"] == "Foto de perfil eliminada correctamente"
+    
+    assert tenant_context.user.avatar_url is None

@@ -108,6 +108,21 @@ class PDFTextParser(BaseProcessor):
         if payment_method:
             data["payment_method"] = payment_method
 
+        if re.search(r"NOTA\s+DE\s+CR[EÉ]DITO|CREDIT\s+NOTE|e-CF\s*32", text, re.IGNORECASE):
+            data["is_credit_note"] = True
+        if re.search(r"\bB04\d{8,10}\b", text):
+            data["is_credit_note"] = True
+            if not data.get("invoice_number"):
+                m = re.search(r"\b(B04\d{8,10})\b", text)
+                if m:
+                    data["invoice_number"] = m.group(1)
+        modified_ncf = re.search(
+            r"(?:NCF\s*(?:Modificado|Original|Reference|Ref)|Factura\s*Original)\s*:?\s*([BE]\d{2}\d{8,10})",
+            text, re.IGNORECASE,
+        )
+        if modified_ncf:
+            data["ncf_modified"] = modified_ncf.group(1)
+
         return data
 
     def _extract_amounts(self, text: str) -> Dict[str, Optional[float]]:

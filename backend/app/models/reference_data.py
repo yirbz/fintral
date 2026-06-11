@@ -1,5 +1,6 @@
 import json
-from datetime import datetime
+
+from app.utils.dates import utc_now
 
 from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text
 from uuid_utils import uuid7
@@ -22,8 +23,8 @@ class ReferenceData(Base):
     sort_order = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
     metadata_json = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     def to_dict(self):
         meta = None

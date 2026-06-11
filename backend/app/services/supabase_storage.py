@@ -32,7 +32,7 @@ def _get_storage_client() -> SyncStorageClient | None:
         "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
     }
     _storage_client = SyncStorageClient(f"{SUPABASE_URL}/storage/v1", headers)
-    logger.info("Storage client initialized: bucket=%s, endpoint=%s/storage/v1", SUPABASE_STORAGE_BUCKET, SUPABASE_URL)
+    logger.debug("Storage client initialized: bucket=%s, endpoint=%s/storage/v1", SUPABASE_STORAGE_BUCKET, SUPABASE_URL)
     return _storage_client
 
 
@@ -65,14 +65,20 @@ def _ensure_rls_policies(bucket_name: str) -> bool:
                     AND auth.role() = 'service_role'
                 )
             """))
-        logger.info("RLS policy created for bucket '%s' — service_role can read/write objects", bucket_name)
+            conn.execute(text("DROP POLICY IF EXISTS public_read_profile_pics ON storage.objects"))
+            conn.execute(text(f"""
+                CREATE POLICY public_read_profile_pics
+                ON storage.objects
+                FOR SELECT
+                USING (
+                    bucket_id = '{bucket_name}'
+                    AND name LIKE 'profile_pics/%'
+                )
+            """))
+        logger.debug("RLS policy created for bucket '%s'", bucket_name)
         return True
-    except Exception as e:
-        logger.warning(
-            "Could not ensure RLS policies for bucket '%s': %s. "
-            "Run scripts/supabase_storage_rls.sql manually in Supabase SQL Editor.",
-            bucket_name, e,
-        )
+    except Exception:
+        logger.debug("Could not ensure RLS policies for bucket '%s' — run scripts/supabase_storage_rls.sql manually if needed", bucket_name)
         return False
 
 
@@ -91,12 +97,12 @@ def ensure_bucket() -> bool:
             )
             logger.info("Storage bucket created: %s (public=false)", SUPABASE_STORAGE_BUCKET)
         else:
-            logger.info("Storage bucket found: %s", SUPABASE_STORAGE_BUCKET)
+            logger.debug("Storage bucket found: %s", SUPABASE_STORAGE_BUCKET)
 
         _ensure_rls_policies(SUPABASE_STORAGE_BUCKET)
         return True
     except Exception as e:
-        logger.warning("Failed to initialize storage bucket '%s': %s", SUPABASE_STORAGE_BUCKET, e)
+        logger.debug("Storage bucket init skipped for '%s': %s", SUPABASE_STORAGE_BUCKET, e)
         return False
 
 
@@ -303,3 +309,130 @@ def optimize_image_from_storage(
     if not data:
         return None
     return get_optimized_image_base64(data, max_width, quality)
+
+
+def delete_user_profile_pics(
+    tenant_id: UUID,
+    org_id: UUID,
+    user_id: UUID,
+) -> bool:
+    """
+    Deletes all files in the user's profile pictures folder.
+    Path: profile_pics/{tenant_id}/{org_id}/{user_id}/
+    """
+    bucket = _get_bucket()
+    if not bucket:
+        logger.error("Folder delete failed for user %s profile pics — storage bucket not available", user_id)
+        return False
+    prefix = f"profile_pics/{tenant_id}/{org_id}/{user_id}/"
+    try:
+        logger.info("Listing profile pics for deletion: %s", prefix)
+        files = bucket.list(prefix)
+        if not files:
+            logger.info("No profile pics found at %s — nothing to delete", prefix)
+            return True
+        paths = [f"{prefix}{f['name']}" for f in files]
+        logger.info("Deleting %d profile pic(s) from %s: %s", len(paths), prefix, [p.rsplit("/", 1)[-1] for p in paths])
+        bucket.remove(paths)
+        logger.info("Profile pics folder deleted/cleared: %s (%d file(s) removed)", prefix, len(paths))
+        return True
+    except Exception as e:
+        logger.error("Folder delete failed for %s: %s", prefix, e)
+        return False
+
+
+def optimize_avatar_image(image_bytes: bytes) -> Optional[bytes]:
+    """
+    Optimizes a profile image:
+    1. Crops to a square from the center.
+    2. Resizes to 400x400.
+    3. Flattens transparency/alpha channel to white background and converts to RGB.
+    4. Compresses as JPEG with 85% quality.
+    """
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            # Center crop to square
+            width, height = img.size
+            min_dim = min(width, height)
+            left = (width - min_dim) / 2
+            top = (height - min_dim) / 2
+            right = (width + min_dim) / 2
+            bottom = (height + min_dim) / 2
+            img = img.crop((left, top, right, bottom))
+
+            # Resize to 400x400
+            if img.width != 400 or img.height != 400:
+                img = img.resize((400, 400), Image.Resampling.LANCZOS)
+
+            # Flatten alpha channel if present
+            if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+                background = Image.new("RGB", (400, 400), (255, 255, 255))
+                # Paste utilizing alpha mask
+                background.paste(img, mask=img.convert("RGBA").split()[3])
+                img = background
+            elif img.mode != "RGB":
+                img = img.convert("RGB")
+
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=85, optimize=True)
+            return buffer.getvalue()
+    except Exception as e:
+        logger.error("Avatar image optimization failed: %s", e)
+        return None
+
+
+def upload_user_profile_pic(
+    file_data: bytes,
+    tenant_id: UUID,
+    org_id: UUID,
+    user_id: UUID,
+    original_filename: str,
+) -> Optional[str]:
+    """
+    Validates, optimizes, and uploads a user's profile picture.
+    If SUPABASE_URL is configured, uploads to Supabase Storage and returns the public URL.
+    Otherwise, returns a base64 Data URI of the optimized image as a local development fallback.
+    """
+    import time
+    
+    # 1. Enforce size limit (max 5MB)
+    if len(file_data) > 5 * 1024 * 1024:
+        logger.error("Upload rejected: file size exceeds 5MB limit")
+        return None
+
+    # 2. Enforce format/extension check
+    from app.utils.filenames import normalize_filename
+    clean_filename = normalize_filename(original_filename)
+    ext = clean_filename.split(".")[-1].lower() if "." in clean_filename else ""
+    if ext not in ("jpg", "jpeg", "png", "webp"):
+        logger.error("Upload rejected: unsupported extension '%s'", ext)
+        return None
+
+    # 3. Optimize image bytes
+    optimized_bytes = optimize_avatar_image(file_data)
+    if not optimized_bytes:
+        logger.error("Upload aborted: optimization failed")
+        return None
+
+    # 4. Storage or Fallback
+    if SUPABASE_URL:
+        # Delete old profile pictures to avoid space leaks
+        delete_user_profile_pics(tenant_id, org_id, user_id)
+        
+        # Build path: profile_pics/{tenant_id}/{organization_id}/{user_id}/avatar_{timestamp}.jpg
+        timestamp = int(time.time())
+        storage_path = f"profile_pics/{tenant_id}/{org_id}/{user_id}/avatar_{timestamp}.jpg"
+        
+        # Upload
+        result_path = upload_file(optimized_bytes, storage_path, content_type="image/jpeg")
+        if not result_path:
+            logger.error("Failed to upload profile picture to storage")
+            return None
+        
+        # Return public URL
+        return get_public_url(result_path)
+    else:
+        # Local development fallback: base64 Data URI
+        logger.info("Supabase URL not configured — falling back to base64 Data URI for user avatar")
+        b64 = base64.b64encode(optimized_bytes).decode("utf-8")
+        return f"data:image/jpeg;base64,{b64}"

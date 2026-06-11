@@ -1,25 +1,29 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Activity,
   ChartPie,
+  Clock,
   FileText,
+  LifeBuoy,
   Loader2,
   LogOut,
   Search,
+  Bell,
   Settings,
   Upload,
   Command,
-  Bell,
   Plus
 } from "lucide-react";
 import { useState, useMemo } from "react";
 
 import { useSession } from "@/hooks/use-session";
 import { useRealtime } from "@/hooks/use-realtime";
-import { Input } from "@/components/ui/input";
+import { GlobalSearch } from "@/components/global-search";
+import { NotificationMenu } from "@/features/notifications/notification-menu";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -41,6 +45,9 @@ const NAV_ITEMS = [
   { href: "/dashboard/invoices", label: "Facturas", icon: FileText },
   { href: "/dashboard/upload", label: "Pipeline", icon: Upload },
   { href: "/dashboard/reports", label: "Analítica", icon: ChartPie },
+  { href: "/dashboard/history", label: "Historial", icon: Clock },
+  { href: "/dashboard/notifications", label: "Notificaciones", icon: Bell },
+  { href: "/dashboard/help", label: "Ayuda", icon: LifeBuoy },
   { href: "/dashboard/settings", label: "Ajustes", icon: Settings }
 ];
 
@@ -53,12 +60,10 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
-export function Sidebar({ children }: { children: React.ReactNode }) {
+function SidebarInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const search = useSearchParams();
   const { connected } = useRealtime();
-  const [term, setTerm] = useState(search.get("search") ?? "");
   const session = useSession();
 
   const title = useMemo(() => {
@@ -83,6 +88,7 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
 
   return (
     <ShadcnSidebar.SidebarProvider defaultOpen={true}>
+      <GlobalSearch />
       <ShadcnSidebar.Sidebar collapsible="icon" className="border-r-0">
         {/* Logo */}
         <ShadcnSidebar.SidebarHeader className="px-4 pt-5 pb-4">
@@ -129,7 +135,7 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
               </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="rounded-md p-1.5 text-sidebar-foreground/40 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground">
+                  <button type="button" className="rounded-md p-1.5 text-sidebar-foreground/40 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground">
                     <LogOut className="size-3.5" />
                   </button>
                 </DropdownMenuTrigger>
@@ -160,44 +166,27 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <div className="relative hidden items-center sm:flex">
-                <Search className="absolute left-3 size-3.5 text-muted-foreground" />
-                <Input
-                  className="h-8 w-56 rounded-lg border-border bg-muted/50 pl-9 pr-12 text-xs placeholder:text-muted-foreground/60"
-                  placeholder="Buscar..."
-                  value={term}
-                  onChange={(event) => setTerm(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && term.trim()) {
-                      router.push(`/dashboard/invoices?search=${encodeURIComponent(term.trim())}`);
-                    }
-                  }}
-                />
-                <div className="absolute right-2 flex items-center gap-0.5 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              <button
+                type="button"
+                onClick={() => router.push("/dashboard/search")}
+                className="relative hidden items-center sm:flex cursor-pointer"
+              >
+                <Search className="absolute left-3 size-3.5 text-muted-foreground pointer-events-none" />
+                <div className="h-8 w-56 rounded-lg border border-border bg-muted/50 pl-9 pr-12 text-xs flex items-center text-muted-foreground/60 pointer-events-none text-left">
+                  Buscar...
+                </div>
+                <div className="absolute right-2 flex items-center gap-0.5 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground pointer-events-none">
                   <Command className="size-2.5" />
                   <span>K</span>
                 </div>
-              </div>
+              </button>
 
               <Badge variant="secondary" className="gap-1.5 font-normal">
                 <span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground/40"}`} />
                 {connected ? "Conectado" : "Sin conexión"}
               </Badge>
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="relative">
-                    <Bell className="size-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-80">
-                  <DropdownMenuLabel>Notificaciones</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <div className="py-4 text-center text-xs text-muted-foreground">
-                    Sin notificaciones nuevas
-                  </div>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <NotificationMenu />
 
               <Button size="sm" className="gap-1.5 shadow-sm" onClick={() => router.push("/dashboard/upload")}>
                 <Plus className="size-3.5" />
@@ -209,6 +198,14 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
 
         <main className="flex-1 p-4 md:p-6">{children}</main>
       </ShadcnSidebar.SidebarInset>
-    </ShadcnSidebar.SidebarProvider>
+      </ShadcnSidebar.SidebarProvider>
+  );
+}
+
+export function Sidebar({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={null}>
+      <SidebarInner>{children}</SidebarInner>
+    </Suspense>
   );
 }
