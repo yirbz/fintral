@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useRef, useState } from "react"
 import Link from "next/link"
-import gsap from "gsap/dist/gsap"
+import gsap from "gsap"
 import "./CardNav.css"
 
 interface CardNavLink {
