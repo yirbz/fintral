@@ -5,7 +5,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.container import webhook_sender
 from app.dependencies.tenant import TenantContext, require_tenant
 from app.repositories import WebhookRepository
-from app.services.audit_logger import record as audit_record
 from app.schemas import WebhookCreate
 
 router = APIRouter()
@@ -28,20 +27,6 @@ async def create_webhook(
     created = repo.create(
         ctx.db, ctx.tenant_id, ctx.org_id, webhook.url, webhook.description, webhook.events,
     )
-    name = created.description or created.url
-    audit_record(
-        ctx.db,
-        tenant_id=ctx.tenant_id,
-        organization_id=ctx.org_id,
-        organization_name=ctx.organization.name,
-        actor_id=str(ctx.user.id),
-        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None) or ctx.user.email,
-        actor_email=ctx.user.email,
-        action="webhook.created",
-        resource_type="webhook",
-        resource_id=str(created.id),
-        summary=f"Webhook '{name}' creado",
-    )
     return created.to_dict()
 
 
@@ -54,23 +39,8 @@ async def delete_webhook(
     if not webhook:
         raise HTTPException(status_code=404, detail="Webhook no encontrado")
 
-    name = webhook.description or webhook.url
-    wh_id = str(webhook.id)
     ctx.db.delete(webhook)
     ctx.db.commit()
-    audit_record(
-        ctx.db,
-        tenant_id=ctx.tenant_id,
-        organization_id=ctx.org_id,
-        organization_name=ctx.organization.name,
-        actor_id=str(ctx.user.id),
-        actor_name=getattr(ctx.user, 'full_name', None) or getattr(ctx.user, 'name', None) or ctx.user.email,
-        actor_email=ctx.user.email,
-        action="webhook.deleted",
-        resource_type="webhook",
-        resource_id=wh_id,
-        summary=f"Webhook '{name}' eliminado",
-    )
     return {"message": "Webhook eliminado"}
 
 

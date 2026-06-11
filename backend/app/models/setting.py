@@ -1,4 +1,4 @@
-from app.utils.dates import utc_now
+from datetime import datetime
 
 from sqlalchemy import Column, DateTime, ForeignKey, Index, String, UniqueConstraint
 from uuid_utils import uuid7
@@ -21,7 +21,7 @@ class Setting(Base):
     type = Column(String)  # 'string', 'int', 'float', 'boolean', 'json'
     category = Column(String)  # 'general', 'openai', 'whatsapp'
     description = Column(String)
-    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class UserSetting(Base):
@@ -35,4 +35,4 @@ class UserSetting(Base):
     type = Column(String)  # 'string', 'int', 'float', 'boolean', 'json'
     category = Column(String)  # 'general', 'openai', 'whatsapp'
     description = Column(String)
-    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

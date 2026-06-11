@@ -1,4 +1,4 @@
-from app.utils.dates import utc_now
+from datetime import datetime
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.orm import relationship
@@ -22,7 +22,7 @@ class Notification(Base):
     message = Column(String)
     data = Column(Text, nullable=True)  # JSON string with extra data
     read = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), default=utc_now)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
     organization = relationship("Organization", back_populates="notifications")
@@ -40,7 +40,7 @@ class Notification(Base):
         }
 
     def time_ago(self):
-        now = utc_now()
+        now = datetime.utcnow()
         diff = now - self.created_at
 
         if diff.days > 0:

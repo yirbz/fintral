@@ -84,7 +84,6 @@ export function FinanceChat() {
             <div className="tight-scrollbar flex gap-2 overflow-auto pb-1">
               {PRESET_QUESTIONS.map((question) => (
                 <button
-                  type="button"
                   className="whitespace-nowrap rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted"
                   key={question}
                   onClick={() => void sendQuestion(question)}

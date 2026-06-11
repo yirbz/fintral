@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from app.config import OPENAI_DAILY_LIMIT_USD, OPENAI_HOURLY_LIMIT_REQUESTS
 from app.models import Invoice
 
 @dataclass
@@ -40,8 +41,8 @@ class CostControlService:
     }
     
     def __init__(self):
-        self.daily_limit_usd = 10.0
-        self.hourly_limit_requests = 100
+        self.daily_limit_usd = OPENAI_DAILY_LIMIT_USD
+        self.hourly_limit_requests = OPENAI_HOURLY_LIMIT_REQUESTS
         self.request_history = []  # Para rate limiting
         
     def check_rate_limits(self) -> Dict[str, Any]:

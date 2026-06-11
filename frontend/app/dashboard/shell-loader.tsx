@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { RealtimeProvider } from "@/hooks/use-realtime";
-import { OrgProvider } from "@/hooks/use-org";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
@@ -22,7 +21,7 @@ function isBackendUnreachable(err: unknown): boolean {
     typeof (err as Record<string, unknown>).code === "string" &&
     /ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT/.test((err as Record<string, string>).code)
   ) return true;
-  if (err instanceof Error && /Failed to fetch|NetworkError|ECONNREFUSED|fetch|timeout|abort|proxy|aggregate/i.test(err.message)) return true;
+  if (err instanceof Error && /Failed to fetch|NetworkError|ECONNREFUSED|fetch|timeout|abort|proxy|aggregate|No autorizado/i.test(err.message)) return true;
   if (err && typeof err === "object" && "status" in err) {
     const status = (err as { status: number }).status;
     if (status >= 500) return true;
@@ -172,8 +171,7 @@ export function ShellLoader({ children }: { children: React.ReactNode }) {
 
   return (
     <RealtimeProvider>
-      <OrgProvider>
-        <SidebarProvider
+      <SidebarProvider
         style={
           {
             "--sidebar-width": "18rem",
@@ -189,7 +187,6 @@ export function ShellLoader({ children }: { children: React.ReactNode }) {
           </div>
         </SidebarInset>
       </SidebarProvider>
-    </OrgProvider>
-  </RealtimeProvider>
+    </RealtimeProvider>
   );
 }

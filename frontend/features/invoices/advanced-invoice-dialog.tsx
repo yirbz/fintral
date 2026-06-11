@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Plus, Trash2, Calculator, AlertCircleIcon, Info } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Plus, Trash2, Calculator, ChevronRight, AlertCircleIcon } from "lucide-react";
 
-import { useFormDraft } from "@/hooks/use-form-draft";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,33 +22,35 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DgiiSelect } from "@/components/dgii-select";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { useReferenceData } from "@/hooks/use-reference-data";
 import type { CreateInvoicePayload } from "@/lib/api/invoices";
 
 const COUNTRIES = [
-  { code: "DOM", label: "República Dominicana" },
-  { code: "USA", label: "Estados Unidos" },
-  { code: "ESP", label: "España" },
-  { code: "MEX", label: "México" },
-  { code: "COL", label: "Colombia" },
-  { code: "ARG", label: "Argentina" },
-  { code: "CHL", label: "Chile" },
-  { code: "PER", label: "Perú" },
-  { code: "BRA", label: "Brasil" },
-  { code: "PAN", label: "Panamá" },
-  { code: "PRI", label: "Puerto Rico" },
-  { code: "VEN", label: "Venezuela" },
-  { code: "CRI", label: "Costa Rica" },
-  { code: "GTM", label: "Guatemala" },
-  { code: "ECU", label: "Ecuador" },
-  { code: "CHN", label: "China" },
-  { code: "DEU", label: "Alemania" },
-  { code: "JPN", label: "Japón" },
+  { code: "DO", label: "República Dominicana" },
+  { code: "US", label: "Estados Unidos" },
+  { code: "ES", label: "España" },
+  { code: "MX", label: "México" },
+  { code: "CO", label: "Colombia" },
+  { code: "AR", label: "Argentina" },
+  { code: "CL", label: "Chile" },
+  { code: "PE", label: "Perú" },
+  { code: "BR", label: "Brasil" },
+  { code: "PA", label: "Panamá" },
+  { code: "PR", label: "Puerto Rico" },
+  { code: "VE", label: "Venezuela" },
+  { code: "CR", label: "Costa Rica" },
+  { code: "GT", label: "Guatemala" },
+  { code: "EC", label: "Ecuador" },
+  { code: "CN", label: "China" },
+  { code: "DE", label: "Alemania" },
+  { code: "JP", label: "Japón" },
 ];
 
 const TRANSACTION_TYPES = [
-  { value: "expense", label: "Gasto / Compra (F-606)" },
-  { value: "income", label: "Ingreso / Venta (F-607)" },
+  { value: "expense", label: "Gasto / Compra" },
+  { value: "income", label: "Ingreso / Venta" },
 ];
 
 interface LineItem {
@@ -73,6 +74,7 @@ export function AdvancedInvoiceDialog({
   onBackToSimple?: () => void;
 }) {
   const [saving, setSaving] = useState(false);
+  const [showFiscal, setShowFiscal] = useState(false);
 
   const [vendorName, setVendorName] = useState("");
   const [vendorTaxId, setVendorTaxId] = useState("");
@@ -81,87 +83,35 @@ export function AdvancedInvoiceDialog({
 
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
-  const [ncfModified, setNcfModified] = useState("");
+  const [currency, setCurrency] = useState("DOP");
+  const [transactionType, setTransactionType] = useState("expense");
   const [category, setCategory] = useState("");
+  const [goodsType, setGoodsType] = useState("none");
 
   const [totalAmount, setTotalAmount] = useState("");
   const [taxAmount, setTaxAmount] = useState("");
-  const [currency, setCurrency] = useState("DOP");
-  const [transactionType, setTransactionType] = useState("expense");
-  const [goodsType, setGoodsType] = useState("none");
-  const [paymentMethod, setPaymentMethod] = useState("none");
-  const [paymentCondition, setPaymentCondition] = useState("contado");
-  const [dueDate, setDueDate] = useState("");
-
   const [description, setDescription] = useState("");
+
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [showFiscal, setShowFiscal] = useState(false);
 
-  const { saveDraftDebounced, loadDraft, clearDraft } = useFormDraft<Record<string, unknown>>("manual-invoice-draft");
-  const restored = useRef(false);
-  const openRef = useRef(open);
-  openRef.current = open;
-
-  const isExpense = transactionType === "expense";
-
-  if (open && !restored.current) {
-    restored.current = true;
-    const draft = loadDraft();
-    if (draft) {
-      if (draft.vendorName) setVendorName(draft.vendorName as string);
-      if (draft.vendorTaxId) setVendorTaxId(draft.vendorTaxId as string);
-      if (draft.vendorCountry) setVendorCountry(draft.vendorCountry as string);
-      if (draft.vendorFiscalAddress) setVendorFiscalAddress(draft.vendorFiscalAddress as string);
-      if (draft.invoiceNumber) setInvoiceNumber(draft.invoiceNumber as string);
-      if (draft.invoiceDate) setInvoiceDate(draft.invoiceDate as string);
-      if (draft.ncfModified) setNcfModified(draft.ncfModified as string);
-      if (draft.category) setCategory(draft.category as string);
-      if (draft.totalAmount) setTotalAmount(draft.totalAmount as string);
-      if (draft.taxAmount) setTaxAmount(draft.taxAmount as string);
-      if (draft.currency) setCurrency(draft.currency as string);
-      if (draft.transactionType) setTransactionType(draft.transactionType as string);
-      if (draft.description) setDescription(draft.description as string);
-      if (draft.goodsType) setGoodsType(draft.goodsType as string);
-      if (draft.paymentMethod) setPaymentMethod(draft.paymentMethod as string);
-      if (draft.paymentCondition) setPaymentCondition(draft.paymentCondition as string);
-      if (draft.dueDate) setDueDate(draft.dueDate as string);
-      if (draft.ncfModified) setNcfModified(draft.ncfModified as string);
-      if (draft.lineItems) setLineItems(draft.lineItems as LineItem[]);
-    } else if (initial) {
+  useEffect(() => {
+    if (!open) return;
+    if (initial) {
       if (initial.vendor_name) setVendorName(initial.vendor_name);
       if (initial.vendor_tax_id) setVendorTaxId(initial.vendor_tax_id);
-      if (initial.vendor_country) setVendorCountry(initial.vendor_country);
-      if (initial.vendor_fiscal_address) setVendorFiscalAddress(initial.vendor_fiscal_address);
       if (initial.invoice_number) setInvoiceNumber(initial.invoice_number);
-      if (initial.invoice_date) setInvoiceDate(initial.invoice_date.split("T")[0]);
+      if (initial.invoice_date) setInvoiceDate(initial.invoice_date);
       if (initial.currency) setCurrency(initial.currency);
       if (initial.transaction_type) setTransactionType(initial.transaction_type);
       if (initial.category) setCategory(initial.category);
       if (initial.goods_services_type) setGoodsType(initial.goods_services_type);
-      if (initial.payment_condition) setPaymentCondition(initial.payment_condition);
-      if (initial.due_date) setDueDate(initial.due_date.split("T")[0]);
       if (initial.total_amount) setTotalAmount(String(initial.total_amount));
       if (initial.tax_amount) setTaxAmount(String(initial.tax_amount));
       if (initial.description) setDescription(initial.description);
     }
-  }
-
-  useEffect(() => {
-    if (!openRef.current) return;
-    saveDraftDebounced({
-      vendorName, vendorTaxId, vendorCountry, vendorFiscalAddress,
-      invoiceNumber, invoiceDate, ncfModified, category,
-      totalAmount, taxAmount, currency, transactionType, description,
-      goodsType, paymentMethod, paymentCondition, dueDate, lineItems,
-    });
-  }, [
-    vendorName, vendorTaxId, vendorCountry, vendorFiscalAddress,
-    invoiceNumber, invoiceDate, ncfModified, category,
-    totalAmount, taxAmount, currency, transactionType, description,
-    goodsType, paymentMethod, paymentCondition, dueDate, lineItems, saveDraftDebounced,
-  ]);
+  }, [open, initial]);
 
   function addLineItem() {
     setLineItems([...lineItems, { description: "", quantity: 1, unit_price: 0, subtotal: 0 }]);
@@ -186,12 +136,9 @@ export function AdvancedInvoiceDialog({
   function validate(): boolean {
     const errs: Record<string, string> = {};
     if (!vendorName.trim()) errs.vendorName = "Requerido";
-    if (!vendorTaxId.trim()) errs.vendorTaxId = "Requerido para DGII (RNC/Cédula del proveedor)";
-    if (!invoiceNumber.trim()) errs.invoiceNumber = "Requerido (NCF)";
+    if (!invoiceNumber.trim()) errs.invoiceNumber = "Requerido";
     if (!invoiceDate) errs.invoiceDate = "Requerido";
     if (!totalAmount || Number(totalAmount) <= 0) errs.totalAmount = "Debe ser mayor a 0";
-    if (isExpense && (goodsType === "none" || !goodsType)) errs.goodsType = "Requerido para DGII 606 (Tipo B/S)";
-    if (paymentMethod === "none" || !paymentMethod) errs.paymentMethod = "Requerido para DGII (Forma de pago)";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -202,32 +149,25 @@ export function AdvancedInvoiceDialog({
     try {
       const payload: CreateInvoicePayload = {
         vendor_name: vendorName.trim(),
-        vendor_tax_id: vendorTaxId.trim(),
+        vendor_tax_id: vendorTaxId.trim() || undefined,
         vendor_country: vendorCountry || undefined,
-        vendor_fiscal_address: vendorFiscalAddress.trim() || undefined,
         invoice_number: invoiceNumber.trim(),
         invoice_date: invoiceDate,
         currency,
         transaction_type: transactionType,
         category: category || undefined,
-        payment_method: paymentMethod === "none" ? undefined : paymentMethod,
-        payment_condition: paymentCondition,
-        due_date: paymentCondition === "credito" && dueDate ? dueDate : undefined,
-        ncf_modified: ncfModified.trim() || undefined,
         goods_services_type: goodsType === "none" ? undefined : goodsType,
         total_amount: Number(totalAmount),
         tax_amount: taxAmount ? Number(taxAmount) : undefined,
         description: description.trim() || undefined,
         line_items: lineItems.length > 0
           ? lineItems.map((li) => ({
-              ...li,
-              description: li.description || "Item",
-            }))
+            ...li,
+            description: li.description || "Item",
+          }))
           : [],
       };
       await onSave(payload);
-      clearDraft();
-      restored.current = false;
       onOpenChange(false);
     } catch {
       // error toast handled by parent
@@ -237,7 +177,6 @@ export function AdvancedInvoiceDialog({
   }
 
   const lineTotal = lineItems.reduce((sum, li) => sum + li.subtotal, 0);
-  const dgiiFormat = isExpense ? "606" : "607";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -247,7 +186,7 @@ export function AdvancedInvoiceDialog({
             <div>
               <DialogTitle className="text-sm font-heading">Factura manual — avanzado</DialogTitle>
               <DialogDescription className="text-xs">
-                Todos los campos fiscales DGII. Los marcados con <span className="text-destructive font-semibold">*</span> son requeridos.
+                Todos los campos disponibles para registrar una factura manual con clasificación DGII completa.
               </DialogDescription>
             </div>
             {onBackToSimple && (
@@ -256,25 +195,21 @@ export function AdvancedInvoiceDialog({
                 onClick={onBackToSimple}
                 className="shrink-0 rounded-md border border-border/60 px-2.5 py-1 text-[11px] text-muted-foreground/60 hover:border-muted-foreground/30 hover:text-foreground/80 transition-all"
               >
-                ← Simple
+                ← Volver al simple
               </button>
             )}
           </div>
         </DialogHeader>
 
         <div className="flex flex-col gap-5">
-          {/* ── Proveedor ── */}
+          {/* Vendor section */}
           <section>
-            <h3 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
               Proveedor
-              <Tooltip>
-                <TooltipTrigger><Info className="size-3 text-muted-foreground/40" /></TooltipTrigger>
-                <TooltipContent side="right" className="text-[11px] max-w-56">RNC obligatorio para DGII 606/607.</TooltipContent>
-              </Tooltip>
             </h3>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="sm:col-span-2">
-                <Label required>Nombre del proveedor</Label>
+                <FieldLabel required>Nombre del proveedor</FieldLabel>
                 <Input
                   value={vendorName}
                   onChange={(e) => setVendorName(e.target.value)}
@@ -284,17 +219,11 @@ export function AdvancedInvoiceDialog({
                 {errors.vendorName && <FieldError>{errors.vendorName}</FieldError>}
               </div>
               <div>
-                <Label required>RNC / Cédula</Label>
-                <Input
-                  value={vendorTaxId}
-                  onChange={(e) => setVendorTaxId(e.target.value)}
-                  placeholder="101-000-00-0"
-                  className={`font-mono ${errors.vendorTaxId ? "border-destructive" : ""}`}
-                />
-                {errors.vendorTaxId && <FieldError>{errors.vendorTaxId}</FieldError>}
+                <FieldLabel>RNC / Tax ID</FieldLabel>
+                <Input value={vendorTaxId} onChange={(e) => setVendorTaxId(e.target.value)} placeholder="101-000-00-0" />
               </div>
               <div>
-                <Label>País</Label>
+                <FieldLabel>País</FieldLabel>
                 <Select value={vendorCountry} onValueChange={setVendorCountry}>
                   <SelectTrigger><SelectValue placeholder="Seleccionar país" /></SelectTrigger>
                   <SelectContent>
@@ -307,7 +236,7 @@ export function AdvancedInvoiceDialog({
             </div>
             {showFiscal && (
               <div className="mt-3">
-                <Label>Dirección fiscal</Label>
+                <FieldLabel>Dirección fiscal</FieldLabel>
                 <Textarea
                   value={vendorFiscalAddress}
                   onChange={(e) => setVendorFiscalAddress(e.target.value)}
@@ -321,33 +250,29 @@ export function AdvancedInvoiceDialog({
               onClick={() => setShowFiscal(!showFiscal)}
               className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground/60 hover:text-foreground/80 transition-colors"
             >
-              <AlertCircleIcon className={`size-3 transition-transform ${showFiscal ? "rotate-90" : ""}`} />
+              <ChevronRight className={`size-3 transition-transform ${showFiscal ? "rotate-90" : ""}`} />
               {showFiscal ? "Ocultar" : "Mostrar"} dirección fiscal
             </button>
           </section>
 
-          {/* ── Comprobante ── */}
+          {/* Invoice section */}
           <section>
-            <h3 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
-              Comprobante fiscal
-              <Tooltip>
-                <TooltipTrigger><Info className="size-3 text-muted-foreground/40" /></TooltipTrigger>
-                <TooltipContent side="right" className="text-[11px] max-w-56">NCF del documento. Para notas de crédito, incluye el NCF original en &quot;Modificado&quot;.</TooltipContent>
-              </Tooltip>
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
+              Factura
             </h3>
             <div className="grid gap-3 sm:grid-cols-3">
               <div>
-                <Label required>NCF</Label>
+                <FieldLabel required>NCF / Número</FieldLabel>
                 <Input
                   value={invoiceNumber}
                   onChange={(e) => setInvoiceNumber(e.target.value)}
-                  placeholder="E310000000001"
-                  className={`font-mono ${errors.invoiceNumber ? "border-destructive" : ""}`}
+                  placeholder="B0100000001"
+                  className={errors.invoiceNumber ? "border-destructive" : ""}
                 />
                 {errors.invoiceNumber && <FieldError>{errors.invoiceNumber}</FieldError>}
               </div>
               <div>
-                <Label required>Fecha</Label>
+                <FieldLabel required>Fecha</FieldLabel>
                 <Input
                   type="date"
                   value={invoiceDate}
@@ -357,7 +282,7 @@ export function AdvancedInvoiceDialog({
                 {errors.invoiceDate && <FieldError>{errors.invoiceDate}</FieldError>}
               </div>
               <div>
-                <Label>Categoría</Label>
+                <FieldLabel>Categoría</FieldLabel>
                 <DgiiSelect
                   domain="categories"
                   value={category}
@@ -366,57 +291,17 @@ export function AdvancedInvoiceDialog({
                   noneLabel="Sin categoría"
                 />
               </div>
-              <div>
-                <Label>Condición de pago</Label>
-                <Select value={paymentCondition} onValueChange={setPaymentCondition}>
-                  <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="contado">Contado</SelectItem>
-                    <SelectItem value="credito">Crédito</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {paymentCondition === "credito" ? (
-                <div>
-                  <Label>Vence el</Label>
-                  <Input
-                    type="date"
-                    value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
-                    className="h-7 text-xs"
-                  />
-                </div>
-              ) : (
-                <div className="hidden sm:block"></div>
-              )}
-              <div className="hidden sm:block"></div>
-              <div className="sm:col-span-3">
-                <Label>NCF modificado</Label>
-                <Input
-                  value={ncfModified}
-                  onChange={(e) => setNcfModified(e.target.value)}
-                  placeholder="Solo para notas de crédito / NCF rectificativo"
-                  className="font-mono"
-                />
-                <p className="mt-0.5 text-[10px] text-muted-foreground/60">
-                  Obligatorio si este comprobante rectifica o anula otro NCF.
-                </p>
-              </div>
             </div>
           </section>
 
-          {/* ── Montos ── */}
+          {/* Amounts section */}
           <section>
-            <h3 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
               Montos
-              <Tooltip>
-                <TooltipTrigger><Info className="size-3 text-muted-foreground/40" /></TooltipTrigger>
-                <TooltipContent side="right" className="text-[11px] max-w-56">Corresponde al Formulario {dgiiFormat}. El total es la suma de bienes + servicios + ITBIS.</TooltipContent>
-              </Tooltip>
             </h3>
             <div className="grid gap-3 sm:grid-cols-4">
               <div>
-                <Label required>Total</Label>
+                <FieldLabel required>Total</FieldLabel>
                 <Input
                   type="number"
                   step="0.01"
@@ -428,7 +313,7 @@ export function AdvancedInvoiceDialog({
                 {errors.totalAmount && <FieldError>{errors.totalAmount}</FieldError>}
               </div>
               <div>
-                <Label>ITBIS</Label>
+                <FieldLabel>ITBIS</FieldLabel>
                 <Input
                   type="number"
                   step="0.01"
@@ -439,7 +324,7 @@ export function AdvancedInvoiceDialog({
                 />
               </div>
               <div>
-                <Label>Moneda</Label>
+                <FieldLabel>Moneda</FieldLabel>
                 <DgiiSelect
                   domain="currencies"
                   value={currency}
@@ -448,8 +333,8 @@ export function AdvancedInvoiceDialog({
                   noneLabel="Sin moneda"
                 />
               </div>
-              <div>
-                <Label>Tipo</Label>
+              <div className="pl-1 md:pl-5">
+                <FieldLabel>Tipo</FieldLabel>
                 <Select value={transactionType} onValueChange={setTransactionType}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -462,43 +347,29 @@ export function AdvancedInvoiceDialog({
             </div>
           </section>
 
-          {/* ── Clasificación DGII ── */}
-          <section className="rounded-lg border border-border/60 bg-amber-500/[0.03] p-4">
-            <h3 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-700">
-              <AlertCircleIcon className="size-3.5" />
-              Clasificación DGII — Formulario {dgiiFormat}
+          {/* DGII section */}
+          <section>
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
+              Clasificación DGII
             </h3>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <Label required={isExpense}>Tipo B/S (606)</Label>
+                <FieldLabel>Tipo bienes/servicios (606)</FieldLabel>
                 <DgiiSelect
                   domain="goods_services_types"
                   value={goodsType}
                   onChange={setGoodsType}
                   noneLabel="No especificado"
                 />
-                {errors.goodsType && <FieldError>{errors.goodsType}</FieldError>}
-                {!isExpense && (
-                  <p className="mt-0.5 text-[10px] text-muted-foreground/60">Opcional para ingresos (F-607).</p>
-                )}
-              </div>
-              <div>
-                <Label required>Forma de pago</Label>
-                <DgiiSelect
-                  domain="payment_methods"
-                  value={paymentMethod}
-                  onChange={setPaymentMethod}
-                  placeholder="Seleccionar..."
-                  includeNone={false}
-                />
-                {errors.paymentMethod && <FieldError>{errors.paymentMethod}</FieldError>}
               </div>
             </div>
           </section>
 
-          {/* ── Notas ── */}
+          {/* Description */}
           <section>
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">Notas</h3>
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
+              Notas
+            </h3>
             <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -507,10 +378,12 @@ export function AdvancedInvoiceDialog({
             />
           </section>
 
-          {/* ── Partidas ── */}
+          {/* Line items */}
           <section>
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">Partidas</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
+                Partidas
+              </h3>
               <Button variant="outline" size="sm" onClick={addLineItem}>
                 <Plus className="size-3" />
                 Añadir partida
@@ -551,7 +424,6 @@ export function AdvancedInvoiceDialog({
                       </div>
                     </div>
                     <button
-                      type="button"
                       onClick={() => removeLineItem(idx)}
                       className="mt-1.5 shrink-0 text-muted-foreground hover:text-destructive"
                     >
@@ -585,7 +457,7 @@ export function AdvancedInvoiceDialog({
   );
 }
 
-function Label({ required, children }: { required?: boolean; children: React.ReactNode }) {
+function FieldLabel({ required, children }: { required?: boolean; children: React.ReactNode }) {
   return (
     <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
       {children}

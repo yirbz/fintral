@@ -39,14 +39,13 @@ export function NavBar() {
           Iniciar sesión
         </Link>
         <Link href="/login">
-          <button type="button" className="rounded-full bg-[#533afd] text-white hover:bg-[#4434d4] font-medium px-4 py-2 h-auto text-[14px] shadow-sm transition-all duration-200 hover:shadow-md active:bg-[#2e2b8c] active:scale-[0.97]">
+          <button className="rounded-full bg-[#533afd] text-white hover:bg-[#4434d4] font-normal px-4 py-2 h-auto text-[15px] shadow-sm transition-all duration-200 hover:shadow-md active:bg-[#2e2b8c]">
             Comenzar <ArrowRight className="ml-1.5 inline size-4" />
           </button>
         </Link>
       </div>
 
       <button
-        type="button"
         onClick={() => setMobileOpen(!mobileOpen)}
         className="md:hidden p-2 text-[#0d253d]"
         aria-label={mobileOpen ? "Cerrar menú" : "Abrir menú"}
@@ -78,7 +77,7 @@ export function NavBar() {
             <Link
               href="/login"
               onClick={() => setMobileOpen(false)}
-              className="rounded-full bg-[#533afd] text-white hover:bg-[#4434d4] font-medium px-4 py-2.5 text-[15px] text-center transition-colors"
+              className="rounded-full bg-[#533afd] text-white hover:bg-[#4434d4] font-normal px-4 py-2.5 text-[15px] text-center transition-colors"
             >
               Comenzar <ArrowRight className="ml-1.5 inline size-4" />
             </Link>

@@ -21,9 +21,6 @@
     "paths": {
       "@/*": [
         "./*"
-      ],
-      "@source/*": [
-        "./.source/*"
       ]
     },
     "plugins": [
@@ -36,9 +33,7 @@
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    "**/*.mdx",
-    ".next/types/**/*.ts",
-    ".source/**/*.ts"
+    ".next/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

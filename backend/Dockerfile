@@ -27,7 +27,7 @@ FROM python:3.11-slim
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    BACKEND_PORT=8000
+    PORT=8000
 
 # Install runtime dependencies ONLY (much smaller than build-essential)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -61,12 +61,9 @@ USER appuser
 # Expose the configured port
 EXPOSE 8000
 
-# Backwards compat: PORT → BACKEND_PORT
-ENV PORT=${BACKEND_PORT}
-
 # Simple healthcheck to verify the app is responding
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request, os; urllib.request.urlopen('http://localhost:' + os.environ.get('BACKEND_PORT', '8000') + '/')" || exit 1
+    CMD python -c "import urllib.request, os; urllib.request.urlopen('http://localhost:' + os.environ.get('PORT', '8000') + '/')" || exit 1
 
 # Start the application using check_db and uvicorn/main
 CMD ["sh", "-c", "cd scripts && python check_db.py && cd .. && python main.py"]

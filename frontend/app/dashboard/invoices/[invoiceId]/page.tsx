@@ -5,5 +5,5 @@ export default function InvoiceDetailRoutePage(props: {
   params: Promise<{ invoiceId: string }>
 }) {
   const { invoiceId } = use(props.params)
-  return <InvoiceDetailPage key={invoiceId} invoiceId={invoiceId} />;
+  return <InvoiceDetailPage invoiceId={invoiceId} />;
 }

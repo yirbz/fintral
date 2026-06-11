@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -12,7 +11,6 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { login } from "@/lib/api/session";
-import { setRememberPreference } from "@/hooks/use-session";
 
 export function LoginForm({
   className,
@@ -21,23 +19,16 @@ export function LoginForm({
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [remember, setRemember] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [emailTouched, setEmailTouched] = useState(false);
-
-  const emailError = emailTouched && email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? "Formato inválido" : null;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
-    if (emailError) return;
     setLoading(true);
 
     try {
-      await login(email, password, remember);
-      setRememberPreference(remember);
+      await login(email, password);
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al iniciar sesión");
@@ -65,101 +56,32 @@ export function LoginForm({
           <Input
             id="email"
             type="email"
-            placeholder="usuario@dominio.com"
+            placeholder="usuario@fintral.com"
             required
-            className={`border ${emailError ? "border-red-500/60" : "border-white/10"} bg-white/5 text-white placeholder:text-zinc-500 focus-visible:border-sky-500/50`}
+            className="border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:border-sky-500/50"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            onBlur={() => setEmailTouched(true)}
           />
-          {emailError && <p className="mt-1 text-[11px] text-red-400">{emailError}</p>}
         </Field>
         <Field>
           <div className="flex items-center">
             <FieldLabel htmlFor="password" className="text-zinc-300">Contraseña</FieldLabel>
-            <Link
-              href="/forgot-password"
+            <a
+              href="#"
               className="ml-auto text-sm text-zinc-500 underline-offset-4 hover:text-zinc-300 hover:underline"
             >
               ¿Olvidaste tu contraseña?
-            </Link>
+            </a>
           </div>
-          <div className="relative">
-            <Input
-              id="password"
-              type={showPassword ? "text" : "password"}
-              required
-              className="border-white/10 bg-white/5 pr-10 text-white placeholder:text-zinc-500 focus-visible:border-sky-500/50"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
-              tabIndex={-1}
-            >
-              {showPassword ? (
-                <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-                  <line x1="1" y1="1" x2="23" y2="23" />
-                </svg>
-              ) : (
-                <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-              )}
-            </button>
-          </div>
+          <Input
+            id="password"
+            type="password"
+            required
+            className="border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:border-sky-500/50"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
         </Field>
-
-        {/* Remember me */}
-        <label
-          htmlFor="remember"
-          className="flex cursor-pointer items-center gap-2.5 select-none"
-        >
-          <div className="relative flex items-center">
-            <input
-              id="remember"
-              type="checkbox"
-              checked={remember}
-              onChange={(e) => setRemember(e.target.checked)}
-              className="peer sr-only"
-              aria-label="Recordar sesión"
-            />
-            {/* Custom checkbox visual */}
-            <div
-              className={cn(
-                "flex size-4 items-center justify-center rounded border transition-all duration-150",
-                remember
-                  ? "border-sky-500 bg-sky-500"
-                  : "border-white/20 bg-white/5 peer-focus-visible:ring-2 peer-focus-visible:ring-sky-500/40"
-              )}
-              aria-hidden="true"
-            >
-              {remember && (
-                <svg
-                  className="size-2.5 text-white"
-                  viewBox="0 0 12 12"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="1.5 6 4.5 9 10.5 3" />
-                </svg>
-              )}
-            </div>
-          </div>
-          <span className="text-sm text-zinc-400">
-            Recordar sesión{" "}
-            <span className="text-zinc-600 text-xs">(mantener iniciada 30 días)</span>
-          </span>
-        </label>
-
         <Field>
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "Ingresando..." : "Ingresar"}
@@ -194,17 +116,17 @@ export function LoginForm({
       {/* Register link */}
       <p className="text-center text-sm text-zinc-500">
         ¿No tienes una cuenta?{" "}
-        <Link href="/signup" className="font-medium text-white/70 underline-offset-4 hover:text-white hover:underline">
+        <a href="#" className="font-medium text-white/70 underline-offset-4 hover:text-white hover:underline">
           Regístrate
-        </Link>
+        </a>
       </p>
 
       {/* Terms */}
       <p className="text-center text-xs leading-relaxed text-zinc-600">
         Al continuar, aceptas nuestros{" "}
-        <button type="button" className="underline underline-offset-2 hover:text-zinc-400 bg-transparent border-none p-0 cursor-pointer inline text-xs">términos y condiciones</button>{" "}
+        <a href="#" className="underline underline-offset-2 hover:text-zinc-400">términos y condiciones</a>{" "}
         y{" "}
-        <button type="button" className="underline underline-offset-2 hover:text-zinc-400 bg-transparent border-none p-0 cursor-pointer inline text-xs">política de privacidad</button>.
+        <a href="#" className="underline underline-offset-2 hover:text-zinc-400">política de privacidad</a>.
       </p>
     </form>
   )

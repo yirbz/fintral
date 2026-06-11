@@ -7,7 +7,6 @@ from app.services.pipeline.normalizer import Normalizer, normalizer
 from app.services.pipeline.xml_processor import xml_processor
 from app.services.pipeline.pdf_text_parser import pdf_text_parser
 from app.services.pipeline.xlsx_processor import xlsx_processor
-from app.services.pipeline.ecf_parser import ecf_parser
 
 
 def get_orchestrator(openai_processor=None):
@@ -31,6 +30,5 @@ __all__ = [
     "xml_processor",
     "pdf_text_parser",
     "xlsx_processor",
-    "ecf_parser",
     "get_orchestrator",
 ]

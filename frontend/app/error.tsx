@@ -16,12 +16,17 @@ export default function GlobalError({
   }, [error]);
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-4">
-      <div className="flex flex-col gap-4 text-center">
-        <p className="text-5xl font-bold">500</p>
-        <p className="text-sm text-muted-foreground">Ocurrió un problema interno al cargar esta vista.</p>
-        <Button onClick={reset}>Reintentar</Button>
-      </div>
-    </main>
+    <html lang="es">
+      <body>
+        <main className="flex min-h-screen items-center justify-center p-4">
+          <div className="flex flex-col gap-4 text-center">
+            <p className="text-5xl font-bold">500</p>
+            <p className="text-sm text-muted-foreground">Ocurrió un problema interno al cargar esta vista.</p>
+            <Button onClick={reset}>Reintentar</Button>
+          </div>
+        </main>
+      </body>
+    </html>
   );
 }
+

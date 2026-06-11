@@ -1,6 +1,5 @@
 import json
-
-from app.utils.dates import utc_now
+from datetime import datetime
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.orm import relationship
@@ -23,7 +22,7 @@ class WebhookEndpoint(Base):
     description = Column(String)
     events = Column(Text)  # JSON list of events
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), default=utc_now)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
     organization = relationship("Organization", back_populates="webhooks")

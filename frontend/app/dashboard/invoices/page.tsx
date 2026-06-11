@@ -1,12 +1,18 @@
 import { Suspense } from "react";
 import { InvoicesPage } from "@/features/invoices/invoices-page";
-import { DashboardRouteSkeleton } from "@/components/dashboard-route-skeleton";
+import { Loader2 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default function InvoicesRoutePage() {
   return (
-    <Suspense fallback={<DashboardRouteSkeleton />}>
+    <Suspense
+      fallback={
+        <div className="flex h-64 items-center justify-center">
+          <Loader2 className="size-5 animate-spin" />
+        </div>
+      }
+    >
       <InvoicesPage />
     </Suspense>
   );

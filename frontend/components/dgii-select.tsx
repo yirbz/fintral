@@ -30,14 +30,13 @@ export function DgiiSelect({
   noneLabel = "Sin especificar",
 }: DgiiSelectProps) {
   const { data: items, isLoading } = useReferenceData(domain);
-  const selectValue = includeNone ? value : value === "none" ? undefined : value;
 
   if (isLoading) {
     return <Skeleton className="h-9 w-full" />;
   }
 
   return (
-    <Select value={selectValue} onValueChange={onChange} disabled={disabled}>
+    <Select value={value} onValueChange={onChange} disabled={disabled}>
       <SelectTrigger>
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>

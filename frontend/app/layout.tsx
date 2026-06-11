@@ -60,7 +60,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es" className={cn(inter.variable, geistMono.variable)}>
-      <body suppressHydrationWarning>
+      <body>
         <Providers>{children}</Providers>
       </body>
     </html>

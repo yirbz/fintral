@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import func, or_, not_
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import IS_POSTGRES
@@ -65,8 +65,6 @@ class StatisticsService:
             Invoice.updated_at >= datetime.now() - timedelta(days=days),
             Invoice.tenant_id == tenant_id,
             Invoice.organization_id == org_id,
-            Invoice.is_deleted.is_(False),
-            Invoice.status != "draft",
         ]
 
         if IS_POSTGRES:
@@ -101,8 +99,6 @@ class StatisticsService:
             Invoice.updated_at >= start,
             Invoice.tenant_id == tenant_id,
             Invoice.organization_id == org_id,
-            Invoice.is_deleted.is_(False),
-            Invoice.status != "draft",
         ]
 
         if days <= 31:
@@ -167,8 +163,6 @@ class StatisticsService:
                 Invoice.organization_id == org_id,
                 Invoice.processed.is_(True),
                 Invoice.category.isnot(None),
-                Invoice.is_deleted.is_(False),
-                Invoice.status != "draft",
             )
             .group_by(Invoice.category)
             .order_by(func.sum(Invoice.total_amount).desc())
@@ -189,8 +183,6 @@ class StatisticsService:
             Invoice.tenant_id == tenant_id,
             Invoice.organization_id == org_id,
             Invoice.processed.is_(True),
-            Invoice.is_deleted.is_(False),
-            Invoice.status != "draft",
         ]
 
         income_amount = (
@@ -234,8 +226,6 @@ class StatisticsService:
         base_filter = [
             Invoice.tenant_id == tenant_id,
             Invoice.organization_id == org_id,
-            Invoice.is_deleted.is_(False),
-            Invoice.status != "draft",
         ]
         base_query = db.query(Invoice).filter(*base_filter)
         total_invoices = base_query.count()
@@ -269,11 +259,6 @@ class StatisticsService:
                 Invoice.processed.is_(True),
                 Invoice.audit_flags != "[]",
                 Invoice.audit_flags.isnot(None),
-                Invoice.audit_flags != "null",
-                or_(
-                    Invoice.raw_extracted_data.is_(None),
-                    not_(Invoice.raw_extracted_data.like('%"warnings_reviewed": true%'))
-                )
             )
             .count()
         )
@@ -285,11 +270,6 @@ class StatisticsService:
                 Invoice.processed.is_(True),
                 Invoice.audit_flags != "[]",
                 Invoice.audit_flags.isnot(None),
-                Invoice.audit_flags != "null",
-                or_(
-                    Invoice.raw_extracted_data.is_(None),
-                    not_(Invoice.raw_extracted_data.like('%"warnings_reviewed": true%'))
-                )
             )
             .all()
         )
@@ -313,11 +293,6 @@ class StatisticsService:
                 Invoice.processed.is_(True),
                 Invoice.audit_flags != "[]",
                 Invoice.audit_flags.isnot(None),
-                Invoice.audit_flags != "null",
-                or_(
-                    Invoice.raw_extracted_data.is_(None),
-                    not_(Invoice.raw_extracted_data.like('%"warnings_reviewed": true%'))
-                )
             )
             .order_by(Invoice.updated_at.desc())
             .limit(10)
@@ -325,7 +300,6 @@ class StatisticsService:
         )
 
         recent_alerts = [inv.to_dict() for inv in recent_alerts_query]
-
 
         stats_data = {
             "queue": {

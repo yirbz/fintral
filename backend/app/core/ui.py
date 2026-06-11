@@ -1,7 +1,10 @@
 import os
-
-from app.config import FINTRAL_DATA_DIR
+from fastapi.templating import Jinja2Templates
 
 
 def ensure_runtime_dirs() -> None:
-    os.makedirs(os.path.join(FINTRAL_DATA_DIR, "static"), exist_ok=True)
+    os.makedirs("static", exist_ok=True)
+    os.makedirs("templates", exist_ok=True)
+
+
+templates = Jinja2Templates(directory="templates")

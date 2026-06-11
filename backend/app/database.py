@@ -18,32 +18,6 @@ from app.config import DATABASE_URL
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# uuid7 → standard uuid.UUID compatibility shim
-#
-# uuid_utils.uuid7() returns uuid_utils.UUID, which is NOT a subclass of
-# standard uuid.UUID. This causes two problems:
-#   1. SQLAlchemy cannot sort objects by PK (identity-map sort needs <)
-#   2. FastAPI's jsonable_encoder checks isinstance(obj, uuid.UUID) and
-#      falls over on uuid_utils.UUID
-#
-# We monkey-patch uuid7 so every model with default=uuid7 gets a regular
-# uuid.UUID, matching what GUID.process_result_value returns on read.
-# ---------------------------------------------------------------------------
-from uuid_utils import uuid7 as _uuid7  # noqa: E402
-import uuid_utils as _uuid_utils_module  # noqa: E402
-
-
-def _uuid7_std() -> uuid.UUID:
-    return uuid.UUID(_uuid7().hex)
-
-
-_uuid_utils_module.uuid7 = _uuid7_std
-
-# Export so models can keep using `from uuid_utils import uuid7`
-# (the monkey-patch above makes it return standard uuid.UUID).
-uuid7 = _uuid7_std
-
 
 class GUID(TypeDecorator):
     """UUID type backed by PostgreSQL native UUID."""

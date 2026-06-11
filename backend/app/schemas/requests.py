@@ -1,5 +1,4 @@
 from typing import Any, Dict, List, Optional, Union
-from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -22,15 +21,8 @@ class ManualInvoiceCreate(BaseModel):
     category: str | None = None
     description: str | None = None
     vendor_tax_id: str | None = None
-    vendor_country: str | None = None  # ISO 3166-1 alpha-3
-    vendor_fiscal_address: str | None = None
+    vendor_country: str | None = None
     goods_services_type: str | None = None
-    payment_method: str | None = None  # Código DGII 01-10
-    ncf_modified: str | None = None
-    payment_condition: str | None = "contado"
-    due_date: str | None = None
-    payment_date: str | None = None
-    bank_account_id: Optional[UUID] = None
     line_items: list[LineItem] = []
 
 
@@ -43,34 +35,6 @@ class SettingUpdate(BaseModel):
     value: Union[str, int, float, bool]
     category: Optional[str] = "general"
     type: Optional[str] = "string"
-
-
-class RegisterRequest(BaseModel):
-    email: str
-    password: str
-    full_name: str = ""
-    company_name: str = ""
-    tax_id: str = ""
-    phone: str = ""
-
-
-class VerifyCodeRequest(BaseModel):
-    email: str
-    code: str
-
-
-class ForgotPasswordRequest(BaseModel):
-    email: str
-
-
-class ResetPasswordRequest(BaseModel):
-    email: str
-    code: str
-    password: str
-
-
-class CancelInvoiceRequest(BaseModel):
-    cancellation_type: str = "01"  # Código DGII 01-10
 
 
 class BulkActionRequest(BaseModel):
@@ -128,13 +92,3 @@ class EvolutionWebhookEntry(BaseModel):
 class EvolutionWebhook(BaseModel):
     object: str = "whatsapp_business_account"
     entry: List[EvolutionWebhookEntry]
-
-
-class BankAccountSyncItem(BaseModel):
-    id: Optional[UUID] = None
-    name: str
-    balance: float
-
-
-class BankAccountBulkSyncRequest(BaseModel):
-    accounts: List[BankAccountSyncItem]

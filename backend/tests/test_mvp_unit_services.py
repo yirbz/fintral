@@ -12,9 +12,6 @@ def test_invoice_processing_apply_extracted_data_adds_duplicate_warning():
     org_id = uuid7()
 
     class FakeRepo:
-        def find_by_ncf(self, db, tenant_id, org_id, invoice_number, exclude_invoice_id):
-            return None
-
         def find_duplicate_processed(self, db, tenant_id, org_id, invoice_number, vendor_name, exclude_invoice_id):
             return SimpleNamespace(id=uuid7())
 
@@ -55,9 +52,6 @@ def test_invoice_processing_apply_extracted_data_no_duplicate():
     org_id = uuid7()
 
     class FakeRepo:
-        def find_by_ncf(self, db, tenant_id, org_id, invoice_number, exclude_invoice_id):
-            return None
-
         def find_duplicate_processed(self, db, tenant_id, org_id, invoice_number, vendor_name, exclude_invoice_id):
             return None
 
@@ -182,7 +176,6 @@ def test_statistics_service_returns_superset_contract():
             file_path="uploads/stats.csv",
             file_type="pdf",
             processed=True,
-            status="verified",
             total_amount=100.0,
             tax_amount=18.0,
             currency="USD",

@@ -1,156 +1,280 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
 import {
-  Search, Upload, Download, Brain, MessageCircle,
-  AlertTriangle, CheckCircle2, XCircle, Clock, Zap,
-  Inbox, ChevronDown, Settings, Trash2, LogIn, LogOut,
-  Plug, FileText, RotateCcw, Edit3, Send, BookMarked,
+  Search,
+  FileText,
+  Upload,
+  Download,
+  Brain,
+  MessageCircle,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  RefreshCw,
+  Ban,
+  Zap,
+  Inbox,
+  ArrowUpRight,
+  Filter,
+  ChevronDown,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { listHistory } from "@/lib/api/history";
-import type { AuditEvent } from "@/lib/api/history";
-import { cn } from "@/lib/utils";
 
-/* ── Helpers ── */
+/* ── Types ── */
 
-const ACTION_CATEGORY: Record<string, { icon: typeof FileText; label: string; color: string; bg: string }> = {
-  "invoice.created":       { icon: Upload,         label: "Subida",      color: "text-sky-500",       bg: "bg-sky-500/10" },
-  "invoice.uploaded":      { icon: Upload,         label: "Subida",      color: "text-sky-500",       bg: "bg-sky-500/10" },
-  "invoice.processed":     { icon: Brain,          label: "Procesado",   color: "text-violet-500",    bg: "bg-violet-500/10" },
-  "invoice.exported":      { icon: Download,       label: "Exportación", color: "text-emerald-500",   bg: "bg-emerald-500/10" },
-  "invoice.deleted":       { icon: Trash2,         label: "Eliminado",   color: "text-red-500",       bg: "bg-red-500/10" },
-  "invoice.permanent_deleted":   { icon: Trash2,    label: "Elim. perm.", color: "text-red-600",       bg: "bg-red-600/10" },
-  "invoice.bulk_permanent_deleted": { icon: Trash2, label: "Elim. perm.", color: "text-red-600",       bg: "bg-red-600/10" },
-  "invoice.restored":      { icon: RotateCcw,      label: "Restaurado",  color: "text-emerald-500",   bg: "bg-emerald-500/10" },
-  "invoice.bulk_restored": { icon: RotateCcw,      label: "Restaurado",  color: "text-emerald-500",   bg: "bg-emerald-500/10" },
-  "invoice.cancelled":     { icon: XCircle,        label: "Anulado",     color: "text-amber-500",     bg: "bg-amber-500/10" },
-  "invoice.uncancelled":   { icon: RotateCcw,      label: "Revocado",    color: "text-orange-500",    bg: "bg-orange-500/10" },
-  "invoice.updated":       { icon: Edit3,          label: "Editado",     color: "text-blue-500",      bg: "bg-blue-500/10" },
-  "invoice.bulk_cancelled":{ icon: XCircle,        label: "Anulación",   color: "text-amber-500",     bg: "bg-amber-500/10" },
-  "invoice.emitted":       { icon: Send,           label: "Emitido",     color: "text-indigo-500",    bg: "bg-indigo-500/10" },
-  "invoice.booked":        { icon: BookMarked,     label: "Contab.",     color: "text-amber-600",     bg: "bg-amber-600/10" },
-  "integration.connected": { icon: Plug,           label: "Conexión",    color: "text-emerald-600",   bg: "bg-emerald-600/10" },
-  "integration.disconnected": { icon: Plug,        label: "Desconexión", color: "text-red-500",       bg: "bg-red-500/10" },
-  "integration.pushed":    { icon: Upload,         label: "Push",        color: "text-cyan-500",      bg: "bg-cyan-500/10" },
-  "export.downloaded":     { icon: Download,       label: "Descarga",    color: "text-blue-500",      bg: "bg-blue-500/10" },
-  "settings.updated":      { icon: Settings,       label: "Config.",     color: "text-muted-foreground", bg: "bg-muted" },
-  "webhook.created":       { icon: Zap,            label: "Webhook",     color: "text-purple-500",    bg: "bg-purple-500/10" },
-  "webhook.deleted":       { icon: Zap,            label: "Webhook",     color: "text-red-500",       bg: "bg-red-500/10" },
-  "user.login":            { icon: LogIn,          label: "Login",       color: "text-green-600",     bg: "bg-green-600/10" },
-  "user.logout":           { icon: LogOut,         label: "Logout",      color: "text-muted-foreground", bg: "bg-muted" },
-};
+type EventCategory = "invoice_created" | "processing" | "export" | "whatsapp" | "alert" | "system";
+type SourceChannel = "web" | "whatsapp" | "bulk" | "api";
+type EventStatus = "success" | "warning" | "error" | "info";
 
-const STATUS_STYLE: Record<string, { icon: typeof Clock; class: string }> = {
-  "invoice.created":        { icon: CheckCircle2, class: "bg-emerald-500/10 text-emerald-600" },
-  "invoice.uploaded":       { icon: CheckCircle2, class: "bg-emerald-500/10 text-emerald-600" },
-  "invoice.processed":      { icon: CheckCircle2, class: "bg-emerald-500/10 text-emerald-600" },
-  "invoice.restored":       { icon: CheckCircle2, class: "bg-emerald-500/10 text-emerald-600" },
-  "invoice.bulk_restored":  { icon: CheckCircle2, class: "bg-emerald-500/10 text-emerald-600" },
-  "invoice.updated":        { icon: Edit3,         class: "bg-blue-500/10 text-blue-600" },
-  "invoice.emitted":        { icon: CheckCircle2,  class: "bg-indigo-500/10 text-indigo-600" },
-  "invoice.booked":         { icon: BookMarked,    class: "bg-amber-500/10 text-amber-600" },
-  "invoice.cancelled":      { icon: XCircle,       class: "bg-amber-500/10 text-amber-600" },
-  "invoice.uncancelled":    { icon: RotateCcw,     class: "bg-orange-500/10 text-orange-600" },
-  "integration.connected":  { icon: CheckCircle2, class: "bg-emerald-500/10 text-emerald-600" },
-  "user.login":             { icon: CheckCircle2, class: "bg-emerald-500/10 text-emerald-600" },
-  "integration.pushed":     { icon: CheckCircle2, class: "bg-emerald-500/10 text-emerald-600" },
-  "export.downloaded":      { icon: CheckCircle2, class: "bg-emerald-500/10 text-emerald-600" },
-};
-const DEFAULT_STATUS = { icon: Clock, class: "bg-sky-500/10 text-sky-600" };
-
-const RESOURCE_ICONS: Record<string, typeof FileText> = {
-  invoice: FileText,
-  integration: Plug,
-  webhook: Zap,
-  user: LogIn,
-};
-
-interface ContextGroup {
+interface HistoryEvent {
   id: string;
-  label: string;
-  icon: typeof FileText;
-  filters: { id: string; label: string }[];
+  type: EventCategory;
+  source: SourceChannel;
+  status: EventStatus;
+  title: string;
+  description: string;
+  timestamp: Date;
+  metadata?: Record<string, string>;
 }
 
-const CONTEXT_GROUPS: ContextGroup[] = [
+interface DateGroup {
+  label: string;
+  events: HistoryEvent[];
+}
+
+/* ── Mock Data ── */
+
+const MOCK_EVENTS: HistoryEvent[] = [
   {
-    id: "all",
-    label: "Todos",
-    icon: FileText,
-    filters: [],
+    id: "1",
+    type: "invoice_created",
+    source: "web",
+    status: "success",
+    title: "Factura FAC-001-2026 subida",
+    description: "Proveedor: Suministros YN, SRL · Monto: RD$45,230.50",
+    timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
+    metadata: { NCF: "B0100000001", items: "3", monto: "RD$45,230.50" },
   },
   {
-    id: "billing",
-    label: "Facturación",
-    icon: Send,
-    filters: [
-      { id: "invoice.emitted", label: "Emitidos" },
-      { id: "invoice.created", label: "Creados" },
-      { id: "invoice.updated", label: "Editados" },
-      { id: "invoice.cancelled", label: "Anulados" },
-      { id: "invoice.uncancelled", label: "Revocados" },
-      { id: "invoice.restored", label: "Restaurados" },
-      { id: "invoice.deleted", label: "Eliminados" },
-      { id: "invoice.permanent_deleted", label: "Elim. perm." },
-    ],
+    id: "2",
+    type: "processing",
+    source: "web",
+    status: "success",
+    title: "Procesamiento IA completado",
+    description: "Confianza: 97.2% · Tiempo: 4.2s · Sin incidencias",
+    timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000 + 5 * 60 * 1000),
+    metadata: { confianza: "97.2%", tiempo: "4.2s", incidencias: "0" },
   },
   {
-    id: "accounting",
-    label: "Contabilidad",
-    icon: BookMarked,
-    filters: [
-      { id: "invoice.booked", label: "Contabilizados" },
-      { id: "invoice.processed", label: "Procesados" },
-      { id: "invoice.exported", label: "Exportados" },
-      { id: "export.downloaded", label: "Descargas" },
-    ],
+    id: "3",
+    type: "whatsapp",
+    source: "whatsapp",
+    status: "success",
+    title: "Factura vía WhatsApp recibida",
+    description: "Remitente: +1 809-555-0123 · Archivo: factura_marzo.jpg",
+    timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000),
+    metadata: { telefono: "+1 809-555-0123", archivo: "factura_marzo.jpg" },
   },
   {
-    id: "integrations",
-    label: "Integraciones",
-    icon: Plug,
-    filters: [
-      { id: "integration.connected", label: "Conectadas" },
-      { id: "integration.disconnected", label: "Desconectadas" },
-      { id: "integration.pushed", label: "Pushes" },
-      { id: "webhook.created", label: "Webhooks" },
-      { id: "webhook.deleted", label: "Eliminados" },
-    ],
+    id: "4",
+    type: "processing",
+    source: "whatsapp",
+    status: "warning",
+    title: "Procesamiento con observaciones",
+    description: "Confianza: 82.5% · Alerta: posible duplicado con FAC-099",
+    timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000 + 8 * 60 * 1000),
+    metadata: { confianza: "82.5%", alerta: "Posible duplicado" },
   },
   {
-    id: "system",
-    label: "Sistema",
-    icon: Settings,
-    filters: [
-      { id: "settings.updated", label: "Configuración" },
-      { id: "user.login", label: "Inicios sesión" },
-      { id: "user.logout", label: "Cierres sesión" },
-    ],
+    id: "5",
+    type: "export",
+    source: "web",
+    status: "success",
+    title: "Exportación DGII 606 completada",
+    description: "47 registros · Período: Enero 2026 · NCFs: B01, E31",
+    timestamp: new Date(Date.now() - 8 * 60 * 60 * 1000),
+    metadata: { registros: "47", formato: "DGII 606", periodo: "Ene 2026" },
+  },
+  {
+    id: "6",
+    type: "invoice_created",
+    source: "bulk",
+    status: "success",
+    title: "Carga masiva completada",
+    description: "12 facturas importadas desde Facturas_marzo.xlsx",
+    timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000),
+    metadata: { archivo: "Facturas_marzo.xlsx", registros: "12" },
+  },
+  {
+    id: "7",
+    type: "export",
+    source: "web",
+    status: "error",
+    title: "Exportación QuickBooks fallida",
+    description: "Error de conexión con API de QuickBooks · 5 reintentos",
+    timestamp: new Date(Date.now() - 28 * 60 * 60 * 1000),
+    metadata: { formato: "QuickBooks", error: "Conexión rechazada" },
+  },
+  {
+    id: "8",
+    type: "processing",
+    source: "bulk",
+    status: "error",
+    title: "Error de procesamiento",
+    description: "Factura B0100000045: formato PDF dañado o ilegible",
+    timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000 + 3 * 60 * 1000),
+    metadata: { ncf: "B0100000045", error: "PDF dañado" },
+  },
+  {
+    id: "9",
+    type: "alert",
+    source: "web",
+    status: "warning",
+    title: "Límite de procesamiento diario",
+    description: "Se ha alcanzado el 85% del límite diario de documentos",
+    timestamp: new Date(Date.now() - 48 * 60 * 60 * 1000),
+    metadata: { usado: "85%", limite: "200 docs/día" },
+  },
+  {
+    id: "10",
+    type: "system",
+    source: "api",
+    status: "info",
+    title: "Webhook registrado",
+    description: "Endpoint https://api.cliente.com/webhook activado para evento invoice.processed",
+    timestamp: new Date(Date.now() - 72 * 60 * 60 * 1000),
+    metadata: { url: "https://api.cliente.com/webhook", evento: "invoice.processed" },
+  },
+  {
+    id: "11",
+    type: "invoice_created",
+    source: "web",
+    status: "success",
+    title: "Factura FAC-002-2026 subida",
+    description: "Proveedor: Tecnología Avanzada, SRL · Monto: RD$128,900.00",
+    timestamp: new Date(Date.now() - 72 * 60 * 60 * 1000 + 60 * 60 * 1000),
+    metadata: { NCF: "E3100000001", items: "8", monto: "RD$128,900.00" },
+  },
+  {
+    id: "12",
+    type: "processing",
+    source: "web",
+    status: "success",
+    title: "Procesamiento IA completado",
+    description: "Confianza: 99.1% · Tiempo: 3.8s · Sin incidencias",
+    timestamp: new Date(Date.now() - 72 * 60 * 60 * 1000 + 60 * 60 * 1000 + 4 * 60 * 1000),
+    metadata: { confianza: "99.1%", tiempo: "3.8s", incidencias: "0" },
+  },
+  {
+    id: "13",
+    type: "export",
+    source: "web",
+    status: "success",
+    title: "Exportación CSV completada",
+    description: "89 registros · Formato: CSV estándar",
+    timestamp: new Date(Date.now() - 96 * 60 * 60 * 1000),
+    metadata: { registros: "89", formato: "CSV" },
+  },
+  {
+    id: "14",
+    type: "whatsapp",
+    source: "whatsapp",
+    status: "error",
+    title: "WhatsApp: imagen no procesable",
+    description: "La imagen recibida no contiene una factura legible",
+    timestamp: new Date(Date.now() - 96 * 60 * 60 * 1000),
+    metadata: { telefono: "+1 829-555-0456", error: "Sin factura detectable" },
   },
 ];
 
-const CONTEXT_ACTION_MAP: Record<string, string[]> = {};
-for (const group of CONTEXT_GROUPS) {
-  CONTEXT_ACTION_MAP[group.id] = group.filters.map((f) => f.id);
-}
+/* ── Helpers ── */
+
+const CATEGORY_CONFIG = {
+  invoice_created: {
+    icon: Upload,
+    label: "Subida",
+    color: "text-sky-500",
+    bg: "bg-sky-500/10",
+    ring: "ring-sky-500/20",
+    dot: "bg-sky-500",
+  },
+  processing: {
+    icon: Brain,
+    label: "Procesamiento",
+    color: "text-violet-500",
+    bg: "bg-violet-500/10",
+    ring: "ring-violet-500/20",
+    dot: "bg-violet-500",
+  },
+  export: {
+    icon: Download,
+    label: "Exportación",
+    color: "text-emerald-500",
+    bg: "bg-emerald-500/10",
+    ring: "ring-emerald-500/20",
+    dot: "bg-emerald-500",
+  },
+  whatsapp: {
+    icon: MessageCircle,
+    label: "WhatsApp",
+    color: "text-emerald-600",
+    bg: "bg-emerald-600/10",
+    ring: "ring-emerald-600/20",
+    dot: "bg-emerald-600",
+  },
+  alert: {
+    icon: AlertTriangle,
+    label: "Alerta",
+    color: "text-amber-500",
+    bg: "bg-amber-500/10",
+    ring: "ring-amber-500/20",
+    dot: "bg-amber-500",
+  },
+  system: {
+    icon: Zap,
+    label: "Sistema",
+    color: "text-muted-foreground",
+    bg: "bg-muted",
+    ring: "ring-border/50",
+    dot: "bg-muted-foreground/50",
+  },
+};
+
+const STATUS_BADGE = {
+  success: { icon: CheckCircle2, class: "bg-emerald-500/10 text-emerald-600" },
+  warning: { icon: AlertTriangle, class: "bg-amber-500/10 text-amber-600" },
+  error: { icon: XCircle, class: "bg-destructive/10 text-destructive" },
+  info: { icon: Clock, class: "bg-sky-500/10 text-sky-600" },
+};
+
+const SOURCE_LABELS: Record<SourceChannel, string> = {
+  web: "Web",
+  whatsapp: "WhatsApp",
+  bulk: "Carga masiva",
+  api: "API",
+};
+
+const FILTER_TABS: Array<{ id: SourceChannel | "all"; label: string }> = [
+  { id: "all", label: "Todos" },
+  { id: "web", label: "Web" },
+  { id: "whatsapp", label: "WhatsApp" },
+  { id: "bulk", label: "Carga masiva" },
+  { id: "api", label: "API" },
+];
 
 function formatTimeAgo(date: Date): string {
-  const diff = Date.now() - date.getTime();
+  const now = Date.now();
+  const diff = now - date.getTime();
   const mins = Math.floor(diff / 60000);
   const hrs = Math.floor(diff / 3600000);
   const days = Math.floor(diff / 86400000);
+
   if (mins < 1) return "Ahora";
   if (mins < 60) return `hace ${mins} min`;
   if (hrs < 24) return `hace ${hrs} h`;
@@ -162,87 +286,62 @@ function formatTime(date: Date): string {
   return date.toLocaleTimeString("es-DO", { hour: "2-digit", minute: "2-digit" });
 }
 
-function groupByDate(events: AuditEvent[]): { label: string; events: AuditEvent[] }[] {
-  const groups = new Map<string, AuditEvent[]>();
+function groupEventsByDate(events: HistoryEvent[]): DateGroup[] {
+  const groups: Map<string, HistoryEvent[]> = new Map();
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const yesterday = new Date(today.getTime() - 86400000);
   const weekStart = new Date(today.getTime() - today.getDay() * 86400000);
   const lastWeekStart = new Date(weekStart.getTime() - 7 * 86400000);
 
-  for (const ev of events) {
-    const d = new Date(ev.created_at);
+  for (const event of events) {
+    const d = new Date(event.timestamp);
     let label: string;
     if (d >= today) label = "Hoy";
     else if (d >= yesterday) label = "Ayer";
     else if (d >= weekStart) label = "Esta semana";
     else if (d >= lastWeekStart) label = "Semana pasada";
     else label = "Anterior";
+
     if (!groups.has(label)) groups.set(label, []);
-    groups.get(label)!.push(ev);
+    groups.get(label)!.push(event);
   }
 
   const order = ["Hoy", "Ayer", "Esta semana", "Semana pasada", "Anterior"];
-  return order.reduce<{ label: string; events: AuditEvent[] }[]>((acc, label) => {
-    if (groups.has(label)) {
-      acc.push({ label, events: groups.get(label)! });
-    }
-    return acc;
-  }, []);
+  return order.filter((l) => groups.has(l)).map((label) => ({ label, events: groups.get(label)! }));
 }
 
-function countErrors(events: AuditEvent[]): number {
-  return events.filter((e) => e.details?.toLowerCase().includes("error") || e.details?.toLowerCase().includes("fail")).length;
+function countByStatus(events: HistoryEvent[]): { success: number; warning: number; error: number } {
+  return {
+    success: events.filter((e) => e.status === "success").length,
+    warning: events.filter((e) => e.status === "warning").length,
+    error: events.filter((e) => e.status === "error").length,
+  };
 }
 
-/* ── Page ── */
+/* ── Component ── */
 
 export function HistoryPage() {
   const [search, setSearch] = useState("");
-  const [contextTab, setContextTab] = useState("all");
-  const [specificAction, setSpecificAction] = useState<string | null>(null);
-  const resolvedAction = contextTab === "all" ? null : specificAction;
+  const [sourceFilter, setSourceFilter] = useState<SourceChannel | "all">("all");
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["history", resolvedAction],
-    queryFn: () =>
-      listHistory({
-        action: resolvedAction ?? undefined,
-        limit: 200,
-      }),
-    refetchInterval: 15_000,
-  });
-
-  const events = useMemo(() => {
-    if (!data?.events) return [];
-    let list = data.events;
-
-    if (contextTab !== "all" && !specificAction) {
-      const allowed = CONTEXT_ACTION_MAP[contextTab] ?? [];
-      list = list.filter((e) => allowed.includes(e.action));
-    }
-
+  const filtered = useMemo(() => {
+    let list = MOCK_EVENTS;
+    if (sourceFilter !== "all") list = list.filter((e) => e.source === sourceFilter);
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(
         (e) =>
-          e.summary.toLowerCase().includes(q) ||
-          e.actor_name?.toLowerCase().includes(q) ||
-          e.details?.toLowerCase().includes(q)
+          e.title.toLowerCase().includes(q) ||
+          e.description.toLowerCase().includes(q)
       );
     }
     return list;
-  }, [data, search, contextTab, specificAction]);
+  }, [search, sourceFilter]);
 
-  const grouped = useMemo(() => groupByDate(events), [events]);
-  const errors = useMemo(() => countErrors(events), [events]);
-
-  const currentGroup = CONTEXT_GROUPS.find((g) => g.id === contextTab);
-
-  function handleContextChange(id: string) {
-    setContextTab(id);
-    setSpecificAction(null);
-  }
+  const grouped = useMemo(() => groupEventsByDate(filtered), [filtered]);
+  const stats = useMemo(() => countByStatus(filtered), [filtered]);
+  const allStats = useMemo(() => countByStatus(MOCK_EVENTS), []);
 
   return (
     <div className="flex flex-col gap-5">
@@ -256,146 +355,88 @@ export function HistoryPage() {
           </div>
           <h1 className="text-lg font-heading font-semibold tracking-tight text-foreground">Historial</h1>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Trazabilidad completa de acciones por usuario, empresa y recurso.
+            Todas las actividades del sistema en orden cronológico
           </p>
         </div>
       </div>
 
-      {/* Stats */}
+      {/* Totals row */}
       <div className="flex flex-wrap gap-3">
         <div className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-card px-3 py-1.5 text-xs">
           <Inbox className="size-3.5 text-muted-foreground" />
           <span className="text-muted-foreground">Total:</span>
-          <span className="font-semibold tabular-nums">{data?.total ?? 0}</span>
+          <span className="font-semibold tabular-nums">{MOCK_EVENTS.length}</span>
         </div>
         <div className="flex items-center gap-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/8 px-3 py-1.5 text-xs">
           <CheckCircle2 className="size-3.5 text-emerald-500" />
-          <span className="text-emerald-700">{(data?.total ?? 0) - errors} exitosos</span>
+          <span className="text-emerald-700 dark:text-emerald-400">{allStats.success} completados</span>
+        </div>
+        <div className="flex items-center gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/8 px-3 py-1.5 text-xs">
+          <AlertTriangle className="size-3.5 text-amber-500" />
+          <span className="text-amber-700 dark:text-amber-400">{allStats.warning} con observaciones</span>
         </div>
         <div className="flex items-center gap-1.5 rounded-lg border border-destructive/20 bg-destructive/8 px-3 py-1.5 text-xs">
           <XCircle className="size-3.5 text-destructive" />
-          <span className="text-destructive">{errors} con errores</span>
+          <span className="text-destructive">{allStats.error} errores</span>
         </div>
       </div>
 
-      {/* Context tabs */}
-      <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-card p-0.5 self-start overflow-x-auto">
-        {CONTEXT_GROUPS.map((group) => {
-          const GroupIcon = group.icon;
-          return (
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[200px] max-w-xs">
+          <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Buscar en el historial..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-7 pl-7 text-xs"
+          />
+        </div>
+        <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-card p-0.5">
+          {FILTER_TABS.map((tab) => (
             <button
-              key={group.id}
-              type="button"
-              onClick={() => handleContextChange(group.id)}
-              className={cn(
-                "flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                contextTab === group.id
+              key={tab.id}
+              onClick={() => setSourceFilter(tab.id)}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                sourceFilter === tab.id
                   ? "bg-primary text-primary-foreground shadow-xs"
                   : "text-muted-foreground hover:text-foreground"
-              )}
+              }`}
             >
-              <GroupIcon className="size-3.5" />
-              {group.label}
+              {tab.label}
             </button>
-          );
-        })}
+          ))}
+        </div>
       </div>
-
-      {/* Sub-filters per context */}
-      {currentGroup && currentGroup.filters.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-[200px] max-w-xs">
-            <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Buscar por resumen, usuario o detalle..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-7 pl-7 text-xs"
-            />
-          </div>
-          <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-card p-0.5 overflow-x-auto">
-            <button
-              type="button"
-              onClick={() => setSpecificAction(null)}
-              className={cn(
-                "whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                !specificAction
-                  ? "bg-primary text-primary-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Todos
-            </button>
-            {currentGroup.filters.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => setSpecificAction(f.id)}
-                className={cn(
-                  "whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                  specificAction === f.id
-                    ? "bg-primary text-primary-foreground shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-[200px] max-w-xs">
-            <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Buscar por resumen, usuario o detalle..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-7 pl-7 text-xs"
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Loading */}
-      {isLoading ? (
-        <Card>
-          <CardContent className="flex items-center justify-center py-16">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Clock className="size-3.5 animate-spin" />
-              Cargando historial...
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {/* Empty */}
-      {!isLoading && events.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16">
-            <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-muted">
-              <Search className="size-4 text-muted-foreground" />
-            </div>
-            <p className="text-xs font-medium text-foreground">Sin resultados</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              {search ? "Intenta con otros filtros." : "Aún no hay actividad registrada."}
-            </p>
-          </CardContent>
-        </Card>
-      ) : null}
 
       {/* Timeline */}
-      {!isLoading && grouped.length > 0
-        ? grouped.map((group) => <DateGroupCard key={group.label} group={group} />)
-        : null}
+      <div className="flex flex-col gap-6">
+        {grouped.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-16">
+              <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-muted">
+                <Search className="size-4 text-muted-foreground" />
+              </div>
+              <p className="text-xs font-medium text-foreground">Sin resultados</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Intenta con otros filtros o términos de búsqueda.
+              </p>
+            </CardContent>
+          </Card>
+        ) : null}
+        {grouped.map((group) => (
+          <DateGroupCard key={group.label} group={group} />
+        ))}
+      </div>
     </div>
   );
 }
 
 /* ── Date Group ── */
 
-function DateGroupCard({ group }: { group: { label: string; events: AuditEvent[] } }) {
+function DateGroupCard({ group }: { group: DateGroup }) {
   const [collapsed, setCollapsed] = useState(false);
+  const groupStats = useMemo(() => countByStatus(group.events), [group.events]);
   return (
     <Card>
       <CardHeader
@@ -408,11 +449,28 @@ function DateGroupCard({ group }: { group: { label: string; events: AuditEvent[]
             {group.events.length}
           </span>
         </div>
-        <ChevronDown className={`size-3.5 text-muted-foreground transition-transform ${collapsed ? "" : "rotate-180"}`} />
+        <div className="flex items-center gap-2">
+          {groupStats.error > 0 ? (
+            <Badge variant="destructive" className="h-5 gap-1 px-1.5 text-[10px]">
+              <XCircle className="size-2.5" />
+              {groupStats.error}
+            </Badge>
+          ) : null}
+          {groupStats.warning > 0 ? (
+            <Badge variant="outline" className="h-5 gap-1 border-amber-500/30 bg-amber-500/8 px-1.5 text-[10px] text-amber-600">
+              <AlertTriangle className="size-2.5" />
+              {groupStats.warning}
+            </Badge>
+          ) : null}
+          <ChevronDown
+            className={`size-3.5 text-muted-foreground transition-transform ${collapsed ? "" : "rotate-180"}`}
+          />
+        </div>
       </CardHeader>
       {collapsed ? null : (
         <CardContent className="pt-3">
           <div className="relative">
+            {/* Vertical timeline line */}
             <div className="absolute left-[11px] top-2 bottom-2 w-px bg-border/60" />
             <div className="flex flex-col gap-0">
               {group.events.map((event) => (
@@ -428,59 +486,18 @@ function DateGroupCard({ group }: { group: { label: string; events: AuditEvent[]
 
 /* ── Event Row ── */
 
-function snapshotDiff(event: AuditEvent): [string, string, string][] | null {
-  if (!event.snapshot_before || !event.snapshot_after) return null;
-  const before = event.snapshot_before as Record<string, unknown>;
-  const after = event.snapshot_after as Record<string, unknown>;
-  const labelMap: Record<string, string> = {
-    vendor_name: "Proveedor", invoice_number: "NCF", total_amount: "Monto",
-    tax_amount: "Impuesto", currency: "Moneda", transaction_type: "Tipo",
-    category: "Categoría", description: "Descripción", invoice_date: "Fecha",
-    vendor_tax_id: "RNC", vendor_country: "País", goods_services_type: "Tipo BS",
-  };
-  const diffs: [string, string, string][] = [];
-  for (const key of Object.keys(labelMap)) {
-    const bv = String(before[key] ?? "");
-    const av = String(after[key] ?? "");
-    if (bv !== av) {
-      diffs.push([labelMap[key], bv || "—", av || "—"]);
-    }
-  }
-  return diffs.length > 0 ? diffs : null;
-}
-
-function snapshotBefore(event: AuditEvent): [string, string][] | null {
-  if (!event.snapshot_before || event.action !== "invoice.permanent_deleted") return null;
-  const data = event.snapshot_before as Record<string, unknown>;
-  const fields: [string, string][] = [];
-  const show: Record<string, string> = {
-    vendor_name: "Proveedor", invoice_number: "NCF", total_amount: "Monto",
-    tax_amount: "Impuesto", currency: "Moneda", transaction_type: "Tipo",
-    category: "Categoría", invoice_date: "Fecha", vendor_tax_id: "RNC",
-  };
-  for (const [k, label] of Object.entries(show)) {
-    const v = data[k];
-    if (v !== null && v !== undefined && v !== "") {
-      fields.push([label, String(v)]);
-    }
-  }
-  return fields.length > 0 ? fields : null;
-}
-
-function EventRow({ event }: { event: AuditEvent }) {
-  const config = ACTION_CATEGORY[event.action] ?? { icon: Clock, label: event.action, color: "text-muted-foreground", bg: "bg-muted" };
+function EventRow({ event }: { event: HistoryEvent }) {
+  const config = CATEGORY_CONFIG[event.type];
   const Icon = config.icon;
-  const statusDef = STATUS_STYLE[event.action] ?? DEFAULT_STATUS;
-  const StatusIcon = statusDef.icon;
-  const diff = snapshotDiff(event);
-  const snap = snapshotBefore(event);
+  const StatusIcon = STATUS_BADGE[event.status].icon;
+  const sourceLabel = SOURCE_LABELS[event.source];
 
   return (
     <div className="group relative flex gap-3 py-2.5 pl-1 transition-colors hover:bg-muted/30 rounded-lg -mx-1 px-2">
-      {/* Dot */}
+      {/* Dot on timeline */}
       <div className="relative z-10 mt-0.5 flex shrink-0">
-        <div className={cn("flex h-[22px] w-[22px] items-center justify-center rounded-full ring-4 ring-card", config.bg)}>
-          <Icon className={cn("size-3", config.color)} />
+        <div className={`flex h-[22px] w-[22px] items-center justify-center rounded-full ring-4 ring-card ${config.bg}`}>
+          <Icon className={`size-3 ${config.color}`} />
         </div>
       </div>
 
@@ -488,97 +505,33 @@ function EventRow({ event }: { event: AuditEvent }) {
       <div className="flex min-w-0 flex-1 items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <p className="truncate text-xs font-medium text-foreground">{event.summary}</p>
-            <Badge variant="outline" className={cn("h-4 gap-0.5 border-0 px-1 text-[10px] font-normal", statusDef.class)}>
+            <p className="truncate text-xs font-medium text-foreground">{event.title}</p>
+            <Badge variant="outline" className={`h-4 gap-0.5 border-0 px-1 text-[10px] font-normal ${STATUS_BADGE[event.status].class}`}>
               <StatusIcon className="size-2.5" />
             </Badge>
-            {event.visibility === "internal" ? (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex items-center gap-0.5 rounded bg-muted px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/60">
-                      interno
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="text-[11px]">
-                    Solo visible para administradores
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            ) : null}
           </div>
-          {event.details ? (
-            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{event.details}</p>
-          ) : null}
-
-          {/* Snapshot diff (invoice.updated) */}
-          {diff ? (
-            <div className="mt-1.5 rounded-md border border-border/50 bg-muted/30 p-1.5">
-              <p className="mb-1 text-[10px] font-medium text-muted-foreground">Campos modificados:</p>
-              <div className="grid grid-cols-[auto_1fr_1fr] gap-x-3 gap-y-0.5 text-[10px]">
-                <span className="font-medium text-muted-foreground">Campo</span>
-                <span className="text-red-600/70">Antes</span>
-                <span className="text-emerald-600/70">Después</span>
-                {diff.map(([label, b, a]) => (
-                  <>
-                    <span className="text-muted-foreground">{label}</span>
-                    <span className="truncate font-mono text-red-600/70">{b}</span>
-                    <span className="truncate font-mono text-emerald-600/70">{a}</span>
-                  </>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          {/* Snapshot data (permanent delete) */}
-          {snap ? (
-            <div className="mt-1.5 rounded-md border border-destructive/20 bg-destructive/5 p-1.5">
-              <p className="mb-1 text-[10px] font-medium text-destructive/70">Datos de la factura eliminada:</p>
-              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px]">
-                {snap.map(([label, val]) => (
-                  <span key={label} className="text-muted-foreground">
-                    <span className="font-medium">{label}:</span> {val}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            {event.actor_name ? (
-              <span className="inline-flex items-center gap-1 rounded-md bg-primary/5 px-1.5 py-0.5 font-mono text-[10px] text-primary">
-                {event.actor_name}
-              </span>
-            ) : null}
-            {event.resource_type ? (
-              <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                {event.resource_type}{event.resource_id ? ` #${event.resource_id.slice(0, 8)}` : ""}
-              </span>
-            ) : null}
-            {event.organization_name ? (
-              <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                {event.organization_name}
-              </span>
-            ) : null}
-            {event.metadata ? (
-              Object.entries(event.metadata).slice(0, 2).map(([k, v]) => (
-                <span key={k} className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
-                  <span className="text-[9px] uppercase tracking-wider opacity-60">{k}:</span>
-                  {String(v).length > 20 ? `${String(v).slice(0, 20)}…` : v}
+          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{event.description}</p>
+          {event.metadata ? (
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {Object.entries(event.metadata).map(([key, value]) => (
+                <span
+                  key={key}
+                  className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-muted-foreground"
+                >
+                  <span className="text-[9px] uppercase tracking-wider opacity-60">{key}:</span>
+                  {value}
                 </span>
-              ))
-            ) : null}
-          </div>
+              ))}
+            </div>
+          ) : null}
         </div>
 
-        {/* Time */}
+        {/* Time & source */}
         <div className="flex shrink-0 flex-col items-end gap-1">
           <span className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">
-            {formatTime(new Date(event.created_at))}
+            {formatTime(event.timestamp)}
           </span>
-          <span className="text-[10px] text-muted-foreground/60">
-            {formatTimeAgo(new Date(event.created_at))}
-          </span>
+          <span className="text-[10px] text-muted-foreground/60">{sourceLabel}</span>
         </div>
       </div>
     </div>

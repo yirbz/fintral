@@ -41,7 +41,8 @@ def main():
     
     try:
         from app.database import engine
-
+        from app.config import IS_HEROKU
+        print(f"Detectado como Heroku: {IS_HEROKU}")
         
         from sqlalchemy import text
         # Probar conexión

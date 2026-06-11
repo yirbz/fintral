@@ -322,7 +322,7 @@ class TestValidateAndCleanData:
         assert cleaned["category"] == "sin_categoria"
         assert cleaned["currency"] == "DOP"
         assert cleaned["line_items"] == []
-        assert cleaned["audit_warnings"] == []
+        assert cleaned["audit_warnings"] != []
 
     def test_full_data(self):
         p = make_processor()
@@ -362,15 +362,13 @@ class TestValidateAndCleanData:
         p = make_processor()
         data = {"invoice_number": "B1200000001", "total_amount": 100}
         cleaned = p._validate_and_clean_data(data)
-        # NCF type 12 no longer generates a warning — all NCF types are valid per context
-        assert cleaned["audit_warnings"] == []
+        assert any("NCF tipo 12" in w for w in cleaned["audit_warnings"])
 
     def test_adds_missing_payment_date_warning_for_retenciones(self):
         p = make_processor()
         data = {"total_amount": 100, "itbis_retenido": 10.0}
         cleaned = p._validate_and_clean_data(data)
-        # Payment date warning no longer generated — not critical for processing
-        assert cleaned["audit_warnings"] == []
+        assert any("fecha de pago" in w.lower() for w in cleaned["audit_warnings"])
 
 
 class TestCallGeminiWithRetry:

@@ -5,67 +5,6 @@ export const alt = "Fintral - Infraestructura fiscal automatizada para RD";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-const blurTopStyle = {
-  position: "absolute",
-  top: "-150px",
-  right: "-150px",
-  width: "800px",
-  height: "800px",
-  backgroundColor: "#0EA5E9",
-  opacity: 0.15,
-  borderRadius: "50%",
-  filter: "blur(100px)",
-} as const;
-
-const blurBottomStyle = {
-  position: "absolute",
-  bottom: "-150px",
-  left: "-150px",
-  width: "700px",
-  height: "700px",
-  backgroundColor: "#38BDF8",
-  opacity: 0.1,
-  borderRadius: "50%",
-  filter: "blur(100px)",
-} as const;
-
-const titleStyle = {
-  display: "flex",
-  flexDirection: "column",
-  fontSize: "56px",
-  fontWeight: 300,
-  color: "#0d253d",
-  letterSpacing: "-0.03em",
-  lineHeight: 1.1,
-  marginBottom: "28px",
-} as const;
-
-const cardStyle = {
-  display: "flex",
-  flexDirection: "column",
-  width: "480px",
-  backgroundColor: "white",
-  borderRadius: "24px",
-  padding: "36px",
-  boxShadow: "0 25px 50px -12px rgba(0,0,0,0.1)",
-  border: "1px solid #e3e8ee",
-  zIndex: 10,
-} as const;
-
-const buttonStyle = {
-  marginTop: "36px",
-  width: "100%",
-  height: "56px",
-  backgroundColor: "#0d253d",
-  borderRadius: "12px",
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-  color: "white",
-  fontSize: "18px",
-  fontWeight: 500,
-} as const;
-
 export default async function Image() {
   return new ImageResponse(
     (
@@ -81,8 +20,8 @@ export default async function Image() {
         }}
       >
         {/* Subtle background gradients */}
-        <div style={blurTopStyle} />
-        <div style={blurBottomStyle} />
+        <div style={{ position: "absolute", top: "-150px", right: "-150px", width: "800px", height: "800px", backgroundColor: "#0EA5E9", opacity: 0.15, borderRadius: "50%", filter: "blur(100px)" }} />
+        <div style={{ position: "absolute", bottom: "-150px", left: "-150px", width: "700px", height: "700px", backgroundColor: "#38BDF8", opacity: 0.1, borderRadius: "50%", filter: "blur(100px)" }} />
 
         {/* Content Container */}
         <div style={{ display: "flex", width: "100%", height: "100%", padding: "80px", justifyContent: "space-between", alignItems: "center" }}>
@@ -104,7 +43,7 @@ export default async function Image() {
             </div>
 
             {/* Title */}
-            <div style={titleStyle}>
+            <div style={{ display: "flex", flexDirection: "column", fontSize: "56px", fontWeight: 300, color: "#0d253d", letterSpacing: "-0.03em", lineHeight: 1.1, marginBottom: "28px" }}>
               <span>Infraestructura fiscal</span>
               <span style={{ color: "#0EA5E9", fontWeight: 500 }}>automatizada</span>
               <span>para RD.</span>
@@ -117,7 +56,7 @@ export default async function Image() {
           </div>
 
           {/* Right Side: Mockup Card */}
-          <div style={cardStyle}>
+          <div style={{ display: "flex", flexDirection: "column", width: "480px", backgroundColor: "white", borderRadius: "24px", padding: "36px", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.1)", border: "1px solid #e3e8ee", zIndex: 10 }}>
             {/* Card Header */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #e3e8ee", paddingBottom: "24px", marginBottom: "24px" }}>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -166,7 +105,7 @@ export default async function Image() {
             </div>
             
             {/* Mockup Button */}
-            <div style={buttonStyle}>
+            <div style={{ marginTop: "36px", width: "100%", height: "56px", backgroundColor: "#0d253d", borderRadius: "12px", display: "flex", justifyContent: "center", alignItems: "center", color: "white", fontSize: "18px", fontWeight: 500 }}>
               Exportar Formato 606
             </div>
           </div>

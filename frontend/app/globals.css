@@ -18,7 +18,6 @@
 
   :root {
     /* ── Product UI (shadcn, dashboard) ── */
-    /* Fintral brand: #38BDF8 sky-500 ≈ HSL(199, 89%, 48%) */
     --background: 210 20% 98%;
     --foreground: 224 71% 4%;
     --card: 0 0% 100%;
@@ -54,11 +53,11 @@
     --sidebar-ring: 199 89% 48%;
 
     /* ── Brand (marketing / landing) ── */
-    --brand-primary: #0EA5E9;
-    --brand-primary-deep: #0284C7;
-    --brand-primary-press: #0369A1;
-    --brand-primary-soft: #38BDF8;
-    --brand-primary-subdued: #E0F2FE;
+    --brand-primary: #533afd;
+    --brand-primary-deep: #4434d4;
+    --brand-primary-press: #2e2b8c;
+    --brand-primary-soft: #665efd;
+    --brand-primary-subdued: #b9b9f9;
     --brand-dark-900: #1c1e54;
     --brand-ink: #0d253d;
     --brand-ink-secondary: #273951;
@@ -74,11 +73,6 @@
     --brand-magenta: #f96bee;
     --brand-lemon: #9b6829;
     --brand-shadow-blue: #003770;
-
-    /* ── Logo Colors ── */
-    --logo-primary: #38bdf8; /* sky-400 */
-    --logo-secondary: #7dd3fc; /* sky-300 */
-    --logo-light-primary: #0ea5e9; /* sky-500 */
   }
 
   .dark {
@@ -139,19 +133,6 @@
   .brand-selection ::selection {
     background-color: rgb(83 58 253 / 0.15);
     color: #0d253d;
-  }
-
-  /* Billing Satellite Layout styling override */
-  .billing-theme {
-    --primary: 142.1 76.2% 36.3%; /* #059669 - emerald-600 */
-    --ring: 142.1 76.2% 36.3%;
-    --sidebar-primary: 142.1 76.2% 36.3%;
-    --sidebar-ring: 142.1 76.2% 36.3%;
-
-    /* ── Logo Colors Override (Business Green) ── */
-    --logo-primary: #34d399; /* emerald-400 */
-    --logo-secondary: #6ee7b7; /* emerald-300 */
-    --logo-light-primary: #10b981; /* emerald-500 */
   }
 }
 

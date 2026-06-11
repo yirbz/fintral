@@ -1,10 +1,8 @@
 "use client";
 
-import Image from "next/image";
-import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Check, User, Building2, Brain, MessageCircle, Webhook, Mail, Settings2, Bell, CreditCard, Eye, EyeOff, RefreshCw, Ban, Zap, Globe, KeyRound, ChevronDown, Plus } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Loader2, Check, User, Building2, Brain, MessageCircle, Webhook, Mail, Settings2, Bell, CreditCard, Eye, EyeOff, RefreshCw, Ban, Zap, Globe } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import { createEvolutionInstance, getEvolutionQr, getEvolutionStatus } from "@/lib/api/evolution";
 import {
@@ -16,20 +14,11 @@ import {
   testWebhook,
 } from "@/lib/api/settings";
 import { getStatistics } from "@/lib/api/statistics";
-import { listConnections as listOdooConnections, testConnection as testOdooForm, testSavedConnection as testOdooConnection, createConnection as createOdooConnection, deleteConnection as deleteOdooConnection } from "@/lib/api/odoo";
-import { toast } from "sonner";
-import { listQuickBooksConnections, testQuickBooksConnection, deleteQuickBooksConnection, getQuickBooksAuthUrl } from "@/lib/api/quickbooks";
-import { listXeroConnections, testXeroConnection, deleteXeroConnection, getXeroAuthUrl } from "@/lib/api/xero";
-import type { SettingValue, SettingsPayload, WebhookEndpoint } from "@/lib/types";
-import { BillingPage } from "@/features/settings/billing-page";
+import type { SettingValue, SettingsPayload, StatisticsPayload, WebhookEndpoint } from "@/lib/types";
 import { useSession } from "@/hooks/use-session";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
-} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -41,10 +30,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
-import { QuickBooksIcon, XeroIcon, OdooIcon, SageIcon } from "@/components/brand-icons";
 
-type SectionId = "profile" | "organization" | "ai" | "whatsapp" | "webhooks" | "email" | "preferences" | "notifications" | "billing" | "password" | "integraciones";
+type SectionId = "profile" | "organization" | "ai" | "whatsapp" | "webhooks" | "email" | "preferences" | "notifications" | "billing";
 
 interface Section {
   id: SectionId;
@@ -61,9 +48,7 @@ const SECTIONS: Section[] = [
   { id: "email", label: "Correo", icon: <Mail className="size-3.5" /> },
   { id: "preferences", label: "Preferencias", icon: <Settings2 className="size-3.5" /> },
   { id: "notifications", label: "Notificaciones", icon: <Bell className="size-3.5" /> },
-  { id: "integraciones", label: "Integraciones", icon: <Globe className="size-3.5" /> },
   { id: "billing", label: "Facturación", icon: <CreditCard className="size-3.5" /> },
-  { id: "password", label: "Contraseña", icon: <KeyRound className="size-3.5" /> },
 ];
 
 const SAVE_CATEGORY_MAP: Record<SectionId, string | null> = {
@@ -76,30 +61,21 @@ const SAVE_CATEGORY_MAP: Record<SectionId, string | null> = {
   preferences: "preferences",
   notifications: "notifications",
   billing: null,
-  integraciones: null,
-  password: null,
 };
 
 export function SettingsPage() {
   const [active, setActive] = useState<SectionId>("profile");
   const [showKeys, setShowKeys] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    const section = new URLSearchParams(window.location.search).get("section") as SectionId | null;
-    if (section && ["profile", "organization", "ai", "whatsapp", "webhooks", "email", "preferences", "notifications", "billing", "password", "integraciones"].includes(section)) {
-      setActive(section);
-    }
-  }, []);
-
   const session = useSession();
   const queryClient = useQueryClient();
-  const {data: settingsQuery_data, isLoading: settingsQuery_isLoading} = useQuery({ queryKey: ["settings"], queryFn: getSettings });
-  const {data: webhooksQuery_data, isLoading: webhooksQuery_isLoading} = useQuery({ queryKey: ["webhooks"], queryFn: getWebhooks });
-  const {data: statsQuery_data} = useQuery({ queryKey: ["statistics", "30d"], queryFn: () => getStatistics("30d") });
+  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings });
+  const webhooksQuery = useQuery({ queryKey: ["webhooks"], queryFn: getWebhooks });
+  const statsQuery = useQuery({ queryKey: ["statistics", "30d"], queryFn: () => getStatistics("30d") });
 
   const editable = useMemo(() => {
-    return structuredClone(settingsQuery_data ?? ({} as SettingsPayload));
-  }, [settingsQuery_data]);
+    return structuredClone(settingsQuery.data ?? ({} as SettingsPayload));
+  }, [settingsQuery.data]);
 
   function findSetting(category: string, key: string): SettingValue {
     if (!editable[category]) editable[category] = [];
@@ -150,7 +126,7 @@ export function SettingsPage() {
         </div>
       </div>
 
-      {settingsQuery_isLoading ? (
+      {settingsQuery.isLoading ? (
         <div className="grid gap-5 lg:grid-cols-[200px_1fr]">
           <Card className="h-fit">
             <CardContent className="flex flex-col gap-1 p-2">
@@ -202,7 +178,6 @@ export function SettingsPage() {
                 return (
                   <button
                     key={section.id}
-                    type="button"
                     onClick={() => setActive(section.id)}
                     className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors text-left ${
                       active === section.id
@@ -227,10 +202,6 @@ export function SettingsPage() {
               <ProfileSection session={session} />
             ) : null}
 
-            {active === "password" ? (
-              <PasswordSection />
-            ) : null}
-
             {active === "organization" ? (
               <SettingsSection
                 title="Organización"
@@ -249,7 +220,6 @@ export function SettingsPage() {
                   <Field label="RNC / Tax ID">
                     <Input
                       defaultValue={String(findSetting("general", "company_tax_id").value || "")}
-                      disabled={!!findSetting("general", "company_tax_id").value}
                       onChange={(e) => updateSetting("general", "company_tax_id", e.target.value)}
                     />
                   </Field>
@@ -368,25 +338,25 @@ export function SettingsPage() {
                   </div>
 
                   {/* Usage summary */}
-                  {statsQuery_data ? (
+                  {statsQuery.data ? (
                     <div className="rounded-lg border border-border/60 p-3">
                       <p className="text-xs font-medium text-foreground mb-2">Uso del período</p>
                       <div className="flex flex-wrap gap-4">
                         <div>
                           <p className="text-[11px] text-muted-foreground">Procesadas hoy</p>
-                          <p className="font-mono text-sm tabular-nums font-semibold">{statsQuery_data.performance.daily_processed}</p>
+                          <p className="font-mono text-sm tabular-nums font-semibold">{statsQuery.data.performance.daily_processed}</p>
                         </div>
                         <div>
                           <p className="text-[11px] text-muted-foreground">Confianza promedio</p>
-                          <p className="font-mono text-sm tabular-nums font-semibold">{(statsQuery_data.performance.avg_confidence * 100).toFixed(1)}%</p>
+                          <p className="font-mono text-sm tabular-nums font-semibold">{(statsQuery.data.performance.avg_confidence * 100).toFixed(1)}%</p>
                         </div>
                         <div>
                           <p className="text-[11px] text-muted-foreground">Costo promedio/doc</p>
-                          <p className="font-mono text-sm tabular-nums font-semibold">${statsQuery_data.costs.avg_cost_per_doc.toFixed(4)}</p>
+                          <p className="font-mono text-sm tabular-nums font-semibold">${statsQuery.data.costs.avg_cost_per_doc.toFixed(4)}</p>
                         </div>
                         <div>
                           <p className="text-[11px] text-muted-foreground">Costo total</p>
-                          <p className="font-mono text-sm tabular-nums font-semibold">${statsQuery_data.costs.total_cost.toFixed(2)}</p>
+                          <p className="font-mono text-sm tabular-nums font-semibold">${statsQuery.data.costs.total_cost.toFixed(2)}</p>
                         </div>
                       </div>
                     </div>
@@ -596,12 +566,8 @@ export function SettingsPage() {
               </SettingsSection>
             ) : null}
 
-            {active === "integraciones" ? (
-              <IntegracionesSection />
-            ) : null}
-
             {active === "billing" ? (
-              <BillingPage />
+              <BillingSection statsQuery={statsQuery} />
             ) : null}
           </div>
         </div>
@@ -640,29 +606,6 @@ function SettingsSection({
         </Button>
       </CardHeader>
       <CardContent>{children}</CardContent>
-    </Card>
-  );
-}
-
-function PasswordSection() {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm font-heading">Contraseña</CardTitle>
-        <CardDescription className="text-xs">Cambia tu contraseña de acceso a Fintral.</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <p className="text-xs text-muted-foreground leading-relaxed">
-          Para cambiar tu contraseña, serás redirigido a la página de restablecimiento donde podrás ingresar un código de verificación enviado a tu correo electrónico.
-        </p>
-        <Link
-          href="/forgot-password"
-          className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-500 px-4 py-2 text-sm font-medium text-white hover:bg-sky-400 transition-colors self-start"
-        >
-          <KeyRound className="size-4" />
-          Cambiar contraseña
-        </Link>
-      </CardContent>
     </Card>
   );
 }
@@ -847,7 +790,7 @@ function WhatsAppSection({
           {waQr ? (
             <div className="mt-3">
               <p className="mb-2 text-[11px] text-muted-foreground">Escanea este código con WhatsApp para vincular:</p>
-              <Image alt="WhatsApp QR" className="h-40 w-40 rounded-lg border p-1.5" src={waQr} width={160} height={160} unoptimized />
+              <img alt="WhatsApp QR" className="h-40 w-40 rounded-lg border p-1.5" src={waQr} />
             </div>
           ) : null}
         </div>
@@ -879,28 +822,7 @@ function WebhooksSection({
     }
   }
 
-  const webhooks = (webhooksQuery_data as WebhookEndpoint[] | undefined) ?? [];
-
-  if (webhooksQuery_isLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <Skeleton className="h-4 w-24 rounded-md" />
-          <Skeleton className="h-3 w-56 rounded-md" />
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex gap-2">
-            <Skeleton className="h-8 flex-1 rounded-md" />
-            <Skeleton className="h-8 w-[180px] rounded-md" />
-            <Skeleton className="h-8 w-20 rounded-md" />
-          </div>
-          {Array.from({ length: 2 }).map((_, i) => (
-            <Skeleton key={i} className="h-14 w-full rounded-lg" />
-          ))}
-        </CardContent>
-      </Card>
-    );
-  }
+  const webhooks = (webhooksQuery.data as WebhookEndpoint[] | undefined) ?? [];
 
   return (
     <Card>
@@ -980,393 +902,83 @@ function WebhooksSection({
   );
 }
 
-type IntegrationDef = {
-  id: string;
-  name: string;
-  description: string;
-  icon: React.ReactNode;
-  bg: string;
-  status: "available" | "coming_soon";
-};
-
-const AVAILABLE_INTEGRATIONS: IntegrationDef[] = [
-  { id: "odoo", name: "Odoo", description: "Vendor Bills vía XML-RPC", icon: <OdooIcon className="size-5" />, bg: "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300", status: "available" },
-  { id: "quickbooks", name: "QuickBooks", description: "Bills vía OAuth 2.0", icon: <QuickBooksIcon className="size-5" />, bg: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300", status: "available" },
-  { id: "xero", name: "Xero", description: "Vendor Bills vía OAuth 2.0", icon: <XeroIcon className="size-5" />, bg: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300", status: "available" },
-  { id: "contaplus", name: "Contaplus", description: "Formato Sage / Diario", icon: <SageIcon className="size-5" />, bg: "bg-slate-100 text-slate-700 dark:bg-slate-900/40 dark:text-slate-300", status: "coming_soon" },
-];
-
-function IntegracionesSection() {
-  const {data: odooQuery_data, isLoading: odooQuery_isLoading} = useQuery({ queryKey: ["odoo-connections"], queryFn: listOdooConnections });
-  const {data: qbQuery_data, isLoading: qbQuery_isLoading} = useQuery({ queryKey: ["quickbooks-connections"], queryFn: listQuickBooksConnections });
-  const {data: xeroQuery_data, isLoading: xeroQuery_isLoading} = useQuery({ queryKey: ["xero-connections"], queryFn: listXeroConnections });
-  const queryClient = useQueryClient();
-
-  const [expanded, setExpanded] = useState<string | null>(null);
-
-  // Odoo dialog state
-  const [showOdooDialog, setShowOdooDialog] = useState(false);
-  const [connForm, setConnForm] = useState({ name: "", url: "", database: "", username: "", api_key: "" });
-  const [testingForm, setTestingForm] = useState(false);
-  const [testFormResult, setTestFormResult] = useState<{ ok: boolean; error?: string; server_version?: string } | null>(null);
-  const [savingOdoo, setSavingOdoo] = useState(false);
-
-  // Test state per connection
-  const [testingId, setTestingId] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; error?: string; detail?: string }>>({});
-
-
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  const loading = odooQuery_isLoading || qbQuery_isLoading || xeroQuery_isLoading;
-
-  const odooConns = odooQuery_data ?? [];
-  const qbConns = qbQuery_data ?? [];
-  const xeroConns = xeroQuery_data ?? [];
-
-  function connsFor(id: string) {
-    if (id === "odoo") return odooConns;
-    if (id === "quickbooks") return qbConns;
-    if (id === "xero") return xeroConns;
-    return [];
-  }
-
-  function hasConn(id: string) {
-    return connsFor(id).length > 0;
-  }
-
-  if (loading) {
-    return (
-      <Card>
-        <CardHeader>
-          <Skeleton className="h-4 w-28 rounded-md" />
-          <Skeleton className="h-3 w-52 rounded-md" />
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-28 rounded-lg" />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+function BillingSection({ statsQuery }: { statsQuery: ReturnType<typeof useQuery> }) {
+  const stats = statsQuery.data as StatisticsPayload | undefined;
 
   return (
-    <>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm font-heading">Integraciones</CardTitle>
-          <CardDescription className="text-xs">
-            Conecta tu software contable para enviar facturas directamente.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {AVAILABLE_INTEGRATIONS.map((integration) => {
-              const connected = hasConn(integration.id);
-              const isExpanded = expanded === integration.id;
-              const connections = connsFor(integration.id);
-              const isAvailable = integration.status === "available";
-
-              const handleIntegrationClick = () => {
-                if (!isAvailable) return;
-                if (connected) {
-                  setExpanded(isExpanded ? null : integration.id);
-                } else {
-                  if (integration.id === "odoo") setShowOdooDialog(true);
-                  if (integration.id === "quickbooks") handleQbConnect();
-                  if (integration.id === "xero") handleXeroConnect();
-                }
-              };
-
-              return (
-                <div key={integration.id} className={cn(
-                  "rounded-lg border transition-all",
-                  connected
-                    ? "border-l-2 border-l-green-500 border-border/80"
-                    : "border-border/60 hover:border-border",
-                  isAvailable ? "cursor-pointer" : "opacity-60"
-                )}>
-                  {/* Card header */}
-                  <div
-                    className="flex items-start gap-3 p-4"
-                    onClick={handleIntegrationClick}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleIntegrationClick(); } }}
-                  >
-                    <div className={cn(
-                      "flex size-10 shrink-0 items-center justify-center rounded-lg",
-                      integration.bg
-                    )}>
-                      {integration.icon}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium">{integration.name}</p>
-                        {connected ? (
-                          <Badge variant="default" className="text-[10px] h-4 px-1.5 bg-green-500/10 text-green-600 border-green-500/20">
-                            conectado
-                          </Badge>
-                        ) : integration.status === "coming_soon" ? (
-                          <Badge variant="outline" className="text-[10px] h-4 px-1.5">próximamente</Badge>
-                        ) : null}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">{integration.description}</p>
-                    </div>
-                    <div className="shrink-0">
-                      {connected ? (
-                        <ChevronDown className={cn("size-4 text-muted-foreground transition-transform", isExpanded && "rotate-180")} />
-                      ) : isAvailable ? (
-                        <Plus className="size-4 text-muted-foreground" />
-                      ) : null}
-                    </div>
-                  </div>
-
-                  {/* Expanded: connection details */}
-                  {isExpanded && connected && (
-                    <div className="border-t border-border/60 px-4 pb-4 pt-3 space-y-2">
-                      {connections.map((conn) => (
-                        <div key={conn.id} className="rounded-md border border-border/60 p-3">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="text-xs font-medium truncate">{conn.name}</p>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <Badge variant={conn.is_active ? "default" : "outline"} className="text-[10px] h-4 px-1.5">
-                                  {conn.is_active ? "activo" : "inactivo"}
-                                </Badge>
-                                {conn.last_sync_at && (
-                                  <span className="text-[10px] text-muted-foreground">
-                                    sync: {new Date(conn.last_sync_at).toLocaleDateString()}
-                                  </span>
-                                )}
-                                {conn.last_error && (
-                                  <span className="text-[10px] text-destructive">error</span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <Button variant="ghost" size="icon-sm" className="size-7"
-                                disabled={testingId === conn.id}
-                                onClick={async (e) => { e.stopPropagation();
-                                  setTestingId(conn.id);
-                                  try {
-                                    const fn = integration.id === "odoo" ? testOdooConnection : testQuickBooksConnection;
-                                    const r = await fn(conn.id);
-                                    setTestResults((prev) => ({ ...prev, [conn.id]: r }));
-                                    if (r.ok) toast.success(`Conexión ${integration.name} exitosa`);
-                                    else toast.error("Error de conexión", { description: r.error });
-                                  } catch {
-                                    setTestResults((prev) => ({ ...prev, [conn.id]: { ok: false, error: "Error de red" } }));
-                                    toast.error(`No se pudo conectar con ${integration.name}`);
-                                  } finally { setTestingId(null); }
-                                }}
-                              >
-                                {testingId === conn.id ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
-                              </Button>
-                              <Button variant="ghost" size="icon-sm" className="size-7 text-destructive hover:text-destructive"
-                                disabled={deletingId === conn.id}
-                                onClick={async (e) => { e.stopPropagation();
-                                  setDeletingId(conn.id);
-                                  try {
-                                    const fn = integration.id === "odoo" ? deleteOdooConnection : deleteQuickBooksConnection;
-                                    await fn(conn.id);
-                                    toast.success(`Conexión "${conn.name}" eliminada`);
-                                    queryClient.invalidateQueries({ queryKey: [`${integration.id}-connections`] });
-                                    setExpanded(null);
-                                  } catch (e: any) {
-                                    toast.error("Error al eliminar", { description: e.message });
-                                  } finally { setDeletingId(null); }
-                                }}
-                              >
-                                {deletingId === conn.id ? <Loader2 className="size-3 animate-spin" /> : <TrashIcon className="size-3" />}
-                              </Button>
-                            </div>
-                          </div>
-                          {testResults[conn.id] && (
-                            <div className={cn(
-                              "mt-2 px-2.5 py-1.5 rounded text-[11px] border",
-                              testResults[conn.id].ok
-                                ? "bg-green-50 border-green-200 text-green-700"
-                                : "bg-red-50 border-red-200 text-red-700"
-                            )}>
-                              {testResults[conn.id].ok
-                                ? `✓ ${testResults[conn.id].detail || "Conectado"}`
-                                : `✗ ${testResults[conn.id].error}`}
-                            </div>
-                          )}
-                          {integration.id === "quickbooks" && (
-                            <Button variant="outline" size="sm" className="h-6 text-[10px] w-full mt-1"
-                              onClick={async (e) => { e.stopPropagation(); handleQbConnect(); }}
-                            >
-                              Reconectar OAuth
-                            </Button>
-                          )}
-                          {integration.id === "xero" && (
-                            <Button variant="outline" size="sm" className="h-6 text-[10px] w-full mt-1"
-                              onClick={async (e) => { e.stopPropagation(); handleXeroConnect(); }}
-                            >
-                              Reconectar OAuth
-                            </Button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Odoo Connection Dialog */}
-      <Dialog open={showOdooDialog} onOpenChange={setShowOdooDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Conectar Odoo</DialogTitle>
-            <DialogDescription>
-              Ingresa las credenciales de tu instancia de Odoo.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs font-medium">Nombre</Label>
-              <Input placeholder="Mi Empresa Odoo" value={connForm.name}
-                onChange={(e) => setConnForm({ ...connForm, name: e.target.value })} />
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm font-heading">Facturación</CardTitle>
+        <CardDescription className="text-xs">Plan actual, uso y límites del período.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {/* Plan card */}
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+          <div className="flex items-start justify-between">
+            <div>
+              <Badge variant="default" className="mb-2">Plan Pro</Badge>
+              <p className="text-sm font-heading font-semibold">Procesamiento IA + WhatsApp</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Incluye OpenAI, Evolution API, exportaciones DGII y soporte prioritario.</p>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs font-medium">URL del servidor</Label>
-              <Input placeholder="https://mycompany.odoo.com" value={connForm.url}
-                onChange={(e) => setConnForm({ ...connForm, url: e.target.value })} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs font-medium">Base de datos</Label>
-              <Input placeholder="mycompany" value={connForm.database}
-                onChange={(e) => setConnForm({ ...connForm, database: e.target.value })} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs font-medium">Usuario <span className="text-muted-foreground font-normal">(opcional)</span></Label>
-              <Input placeholder="admin@mycompany.com" value={connForm.username}
-                onChange={(e) => setConnForm({ ...connForm, username: e.target.value })} />
-              <p className="text-[10px] text-muted-foreground">Solo para Odoo &lt; 19. La API Key es suficiente en Odoo 19+.</p>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs font-medium">API Key</Label>
-              <Input type="password" placeholder="••••••••••••" value={connForm.api_key}
-                onChange={(e) => setConnForm({ ...connForm, api_key: e.target.value })} />
-            </div>
-            {testFormResult && (
-              <div className={cn(
-                "px-3 py-2 rounded text-xs border",
-                testFormResult.ok ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700"
-              )}>
-                {testFormResult.ok ? `✓ Conectado — ${testFormResult.server_version || "Odoo"}` : `✗ ${testFormResult.error}`}
-              </div>
-            )}
-          </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" disabled={testingForm}
-              onClick={async () => {
-                setTestingForm(true);
-                setTestFormResult(null);
-                try {
-                  const r = await testOdooForm(connForm);
-                  setTestFormResult(r);
-                  if (r.ok) toast.success("Conexión Odoo verificada");
-                  else toast.error("Error de conexión", { description: r.error });
-                } catch {
-                  setTestFormResult({ ok: false, error: "Error de red" });
-                  toast.error("No se pudo conectar con Odoo");
-                } finally { setTestingForm(false); }
-              }}
-            >
-              {testingForm ? <Loader2 className="size-3 animate-spin" /> : null}
-              {testingForm ? "Probando..." : "Probar conexión"}
+            <Button variant="outline" size="sm" disabled>
+              Cambiar plan
             </Button>
-            <Button size="sm" disabled={!connForm.name || !connForm.url || !connForm.database || !connForm.api_key || savingOdoo}
-              onClick={async () => {
-                setSavingOdoo(true);
-                try {
-                  await createOdooConnection(connForm);
-                  setShowOdooDialog(false);
-                  setConnForm({ name: "", url: "", database: "", username: "", api_key: "" });
-                  setTestFormResult(null);
-                  queryClient.invalidateQueries({ queryKey: ["odoo-connections"] });
-                  toast.success(`"${connForm.name}" conectado`);
-                } catch (e: any) {
-                  toast.error("Error al guardar", { description: e.message });
-                } finally { setSavingOdoo(false); }
-              }}
-            >
-              {savingOdoo ? <Loader2 className="size-3 animate-spin" /> : null}
-              {savingOdoo ? "Guardando..." : "Guardar conexión"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+          </div>
+        </div>
+
+        {/* Usage stats */}
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-lg border border-border/60 p-3">
+            <p className="text-[11px] text-muted-foreground">Facturas procesadas</p>
+            <p className="font-mono text-lg tabular-nums font-semibold mt-0.5">
+              {stats?.queue.processed_total ?? 0}
+            </p>
+            <p className="text-[11px] text-muted-foreground/60 mt-0.5">este período</p>
+          </div>
+          <div className="rounded-lg border border-border/60 p-3">
+            <p className="text-[11px] text-muted-foreground">Cola pendiente</p>
+            <p className="font-mono text-lg tabular-nums font-semibold mt-0.5">
+              {stats?.queue.pending ?? 0}
+            </p>
+            <p className="text-[11px] text-muted-foreground/60 mt-0.5">por procesar</p>
+          </div>
+          <div className="rounded-lg border border-border/60 p-3">
+            <p className="text-[11px] text-muted-foreground">Costo IA</p>
+            <p className="font-mono text-lg tabular-nums font-semibold mt-0.5">
+              ${stats?.costs.total_cost.toFixed(2) ?? "0.00"}
+            </p>
+            <p className="text-[11px] text-muted-foreground/60 mt-0.5">total acumulado</p>
+          </div>
+        </div>
+
+        {/* Limits */}
+        <div className="rounded-lg border border-border/60 p-3">
+          <p className="text-xs font-medium text-foreground mb-3">Límites del plan</p>
+          <div className="flex flex-col gap-2">
+            <LimitRow label="Documentos / mes" used={stats?.queue.processed_total ?? 0} limit={500} />
+            <LimitRow label="Costo IA / día" used={stats?.costs.total_cost ?? 0} limit={10} unit="$" />
+            <LimitRow label="API requests / hora" used={stats?.queue.pending ?? 0} limit={100} />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
+}
 
-  function handleQbConnect() {
-    getQuickBooksAuthUrl().then(({ url }) => {
-      const popup = window.open(url, "quickbooks-oauth", "width=600,height=700,scrollbars=yes");
-      if (!popup) { toast.error("Permite ventanas emergentes para conectar QuickBooks"); return; }
-
-      let resolved = false;
-      const done = () => { resolved = true; window.removeEventListener("message", handler); clearInterval(timer); if (popup && !popup.closed) popup.close(); };
-
-      const handler = (e: MessageEvent) => {
-        if (e.data?.type !== "qb-oauth") return;
-        done();
-        if (e.data.status === "connected") {
-          toast.success("QuickBooks conectado exitosamente");
-          queryClient.invalidateQueries({ queryKey: ["quickbooks-connections"] });
-        } else {
-          toast.error("Error al conectar QuickBooks", { description: e.data.detail || "Error desconocido" });
-        }
-      };
-      window.addEventListener("message", handler);
-
-      const timer = setInterval(() => {
-        if (popup.closed && !resolved) {
-          done();
-          toast.error("Conexión cancelada", { description: "Cerraste la ventana de QuickBooks sin completar la autenticación" });
-        }
-      }, 500);
-    }).catch((e: any) => toast.error("Error al iniciar conexión", { description: e.message }));
-  }
-
-  function handleXeroConnect() {
-    getXeroAuthUrl().then(({ url }) => {
-      const popup = window.open(url, "xero-oauth", "width=600,height=700,scrollbars=yes");
-      if (!popup) { toast.error("Permite ventanas emergentes para conectar Xero"); return; }
-
-      let resolved = false;
-      const done = () => { resolved = true; window.removeEventListener("message", handler); clearInterval(timer); if (popup && !popup.closed) popup.close(); };
-
-      const handler = (e: MessageEvent) => {
-        if (e.data?.type !== "xero-oauth") return;
-        done();
-        if (e.data.status === "connected") {
-          toast.success("Xero conectado exitosamente");
-          queryClient.invalidateQueries({ queryKey: ["xero-connections"] });
-        } else {
-          toast.error("Error al conectar Xero", { description: e.data.detail || "Error desconocido" });
-        }
-      };
-      window.addEventListener("message", handler);
-
-      const timer = setInterval(() => {
-        if (popup.closed && !resolved) {
-          done();
-          toast.error("Conexión cancelada", { description: "Cerraste la ventana de Xero sin completar la autenticación" });
-        }
-      }, 500);
-    }).catch((e: any) => toast.error("Error al iniciar conexión", { description: e.message }));
-  }
+function LimitRow({ label, used, limit, unit = "" }: { label: string; used: number; limit: number; unit?: string }) {
+  const pct = Math.min((used / limit) * 100, 100);
+  const color = pct >= 90 ? "bg-destructive" : pct >= 75 ? "bg-amber-500" : "bg-primary";
+  return (
+    <div className="flex items-center gap-3">
+      <span className="w-36 text-[11px] text-muted-foreground">{label}</span>
+      <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+        <div className={`h-full rounded-full ${color} transition-all`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="font-mono text-[11px] tabular-nums text-muted-foreground min-w-[4rem] text-right">
+        {unit}{used.toFixed(1)} / {unit}{limit}
+      </span>
+    </div>
+  );
 }
 
 function NotificationToggle({
