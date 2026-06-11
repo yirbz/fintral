@@ -94,7 +94,8 @@ export function SettingsPage() {
   const session = useSession();
   const queryClient = useQueryClient();
   const {data: settingsQuery_data, isLoading: settingsQuery_isLoading} = useQuery({ queryKey: ["settings"], queryFn: getSettings });
-  const {data: webhooksQuery_data, isLoading: webhooksQuery_isLoading} = useQuery({ queryKey: ["webhooks"], queryFn: getWebhooks });
+  const webhooksQuery = useQuery({ queryKey: ["webhooks"], queryFn: getWebhooks });
+  const {data: webhooksQuery_data, isLoading: webhooksQuery_isLoading} = webhooksQuery;
   const {data: statsQuery_data} = useQuery({ queryKey: ["statistics", "30d"], queryFn: () => getStatistics("30d") });
 
   const editable = useMemo(() => {
@@ -879,9 +880,9 @@ function WebhooksSection({
     }
   }
 
-  const webhooks = (webhooksQuery_data as WebhookEndpoint[] | undefined) ?? [];
+  const webhooks = (webhooksQuery.data as WebhookEndpoint[] | undefined) ?? [];
 
-  if (webhooksQuery_isLoading) {
+  if (webhooksQuery.isLoading) {
     return (
       <Card>
         <CardHeader>
