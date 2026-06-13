@@ -104,6 +104,8 @@ export interface Invoice {
     tone: "slate" | "sky" | "amber" | "red" | "emerald" | "indigo";
     locked: boolean;
   } | null;
+  dgii_validation_status?: string | null;
+  dgii_validation_detail?: string | null;
 }
 
 export interface NotificationItem {

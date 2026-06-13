@@ -15,7 +15,7 @@ from jose import JWTError, jwt
 from jose.jwk import construct as construct_jwk
 from passlib.context import CryptContext
 
-from app.config import SECRET_KEY, SUPABASE_URL
+from app.config import APP_JWT_SECRET_KEY, SUPABASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -119,12 +119,12 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=300))
     to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=LEGACY_ALGORITHM)
+    return jwt.encode(to_encode, APP_JWT_SECRET_KEY, algorithm=LEGACY_ALGORITHM)
 
 
 def decode_access_token(token: str) -> dict | None:
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[LEGACY_ALGORITHM])
+        payload = jwt.decode(token, APP_JWT_SECRET_KEY, algorithms=[LEGACY_ALGORITHM])
         return payload
     except JWTError:
         return None

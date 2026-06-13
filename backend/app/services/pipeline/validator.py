@@ -149,7 +149,6 @@ class PostExtractionValidator:
         """
         total = data.get("total_amount")
         tax = data.get("tax_amount")
-        transaction_type = data.get("transaction_type")
 
         if total is None or tax is None:
             return None
@@ -163,12 +162,6 @@ class PostExtractionValidator:
         if ecf_type in ("14", "44", "16", "46"):
             if tax > 0:
                 return "Para comprobantes de Regímenes Especiales (B14/E44) o Exportaciones (B16/E46), el ITBIS debe ser 0% (exento/tasa cero)."
-            return None
-
-        # Non-deductible checks for expenses
-        if transaction_type == "expense" and ecf_type in ("02", "32", "17", "47"):
-            if tax > 0:
-                return "Las facturas de consumo (B02/E32) o pagos al exterior (B17/E47) no generan crédito fiscal de ITBIS por adelantar."
             return None
 
         if tax <= 0:

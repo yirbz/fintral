@@ -275,7 +275,6 @@ class InvoiceRepository:
             Invoice.organization_id == org_id,
             Invoice.is_deleted.is_(False),
             Invoice.cancelled_at.is_(None),
-            Invoice.is_electronic.is_(False),
             Invoice.status != "draft",
         )
 

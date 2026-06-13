@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 import httpx
 
-from app.config import IS_DEVELOPMENT, SECRET_KEY
+from app.config import IS_DEVELOPMENT, APP_JWT_SECRET_KEY
 from app.core.reference_data import get_cached_domain
 from app.dependencies.tenant import TenantContext, require_tenant
 from app.models import Client, Product, EcfSequence, Invoice, Organization
@@ -1288,7 +1288,7 @@ async def register_company(
     ctx: TenantContext = Depends(require_tenant),
 ):
     import base64
-    from app.config import SECRET_KEY
+    from app.config import APP_JWT_SECRET_KEY
     from app.utils.dates import utc_now
 
     clean_rnc = re.sub(r"[^0-9]", "", rnc)
@@ -1389,14 +1389,14 @@ async def register_company(
                     "emissionFinished": {
                         "status": "active",
                         "url": webhook_url,
-                        "headers": {"x-api-key": SECRET_KEY},
+                        "headers": {"x-api-key": APP_JWT_SECRET_KEY},
                     }
                 },
                 "general": {
                     "governmentStatusChanged": {
                         "status": "active",
                         "url": f"{webhook_url}/status",
-                        "headers": {"x-api-key": SECRET_KEY},
+                        "headers": {"x-api-key": APP_JWT_SECRET_KEY},
                     }
                 },
             },
@@ -1634,7 +1634,7 @@ async def reset_certification(ctx: TenantContext = Depends(require_tenant)):
 
 @router.post("/alanube/webhook")
 async def alanube_webhook(request: Request, x_api_key: Optional[str] = Header(None, alias="x-api-key")):
-    if not x_api_key or x_api_key != SECRET_KEY:
+    if not x_api_key or x_api_key != APP_JWT_SECRET_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     payload = await request.json()
@@ -3026,3 +3026,361 @@ async def test_alanube_connection(payload: AlanubeConfig):
         return {"ok": True, "company": result}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+class OfflineInvoiceItem(BaseModel):
+    localId: int
+    provisionalEncf: str
+    formData: EmitRequest
+    createdAt: datetime
+
+
+class BatchSyncRequest(BaseModel):
+    invoices: List[OfflineInvoiceItem]
+
+
+class BatchSyncResult(BaseModel):
+    localId: int
+    success: bool
+    invoiceId: Optional[str] = None
+    encf: Optional[str] = None
+    error: Optional[str] = None
+
+
+class BatchSyncResponse(BaseModel):
+    results: List[BatchSyncResult]
+
+
+@router.post("/sync/batch", response_model=BatchSyncResponse)
+async def sync_batch_invoices(
+    payload: BatchSyncRequest,
+    ctx: TenantContext = Depends(require_tenant)
+):
+    """
+    Receives a batch of offline-created invoices, emits each via Alanube,
+    saves them to the local Postgres database, and returns results.
+    """
+    results = []
+
+    # 1. Validate organization is ECF authorized
+    if not ctx.organization.is_ecf_authorized:
+        for inv in payload.invoices:
+            results.append(
+                BatchSyncResult(
+                    localId=inv.localId,
+                    success=False,
+                    error="La empresa no está autorizada para emitir comprobantes electrónicos.",
+                )
+            )
+        return BatchSyncResponse(results=results)
+
+    for inv in payload.invoices:
+        try:
+            # 2. Resolve active sequence and increment
+            sequence = (
+                ctx.db.query(EcfSequence)
+                .filter(
+                    EcfSequence.tenant_id == ctx.tenant_id,
+                    EcfSequence.organization_id == ctx.org_id,
+                    EcfSequence.ecf_type == inv.formData.ecf_type,
+                    EcfSequence.is_active.is_(True),
+                )
+                .first()
+            )
+
+            if not sequence:
+                results.append(
+                    BatchSyncResult(
+                        localId=inv.localId,
+                        success=False,
+                        error=f"No hay una secuencia activa para el tipo {inv.formData.ecf_type}.",
+                    )
+                )
+                continue
+
+            if sequence.current_number >= sequence.end_number:
+                results.append(
+                    BatchSyncResult(
+                        localId=inv.localId,
+                        success=False,
+                        error=f"El rango de secuencia e-CF para el tipo {inv.formData.ecf_type} está agotado.",
+                    )
+                )
+                continue
+
+            sequence.current_number += 1
+            is_electronic_seq = sequence.prefix == "E"
+            if is_electronic_seq:
+                encf = f"{sequence.prefix}{inv.formData.ecf_type:02d}{sequence.current_number:010d}"
+            else:
+                encf = f"{sequence.prefix}{inv.formData.ecf_type:02d}{sequence.current_number:08d}"
+
+            # 3. Resolve buyer
+            buyer_name = inv.formData.buyer_name or ""
+            buyer_rnc = inv.formData.buyer_rnc or ""
+            buyer_address = inv.formData.buyer_address or ""
+
+            if inv.formData.mode == "detailed" and inv.formData.client_id:
+                client = (
+                    ctx.db.query(Client)
+                    .filter(
+                        Client.id == UUID(inv.formData.client_id),
+                        Client.tenant_id == ctx.tenant_id,
+                        Client.organization_id == ctx.org_id,
+                        Client.deleted_at.is_(None),
+                    )
+                    .first()
+                )
+                if client:
+                    buyer_name = client.name or "Consumidor Final"
+                    buyer_rnc = client.tax_id or "132109122"
+                    buyer_address = client.address or ""
+
+            if not buyer_rnc:
+                buyer_rnc = "132109122"
+            if not buyer_name:
+                buyer_name = "Consumidor Final"
+
+            # Persist buyer if they don't exist
+            if inv.formData.mode != "detailed" or not inv.formData.client_id:
+                is_fallback_rnc = buyer_rnc in ("", "132109122", "000000000")
+                if not is_fallback_rnc and buyer_rnc:
+                    existing = (
+                        ctx.db.query(Client)
+                        .filter(
+                            Client.tenant_id == ctx.tenant_id,
+                            Client.organization_id == ctx.org_id,
+                            Client.tax_id == buyer_rnc,
+                            Client.deleted_at.is_(None),
+                        )
+                        .first()
+                    )
+                    if not existing:
+                        client = Client(
+                            tenant_id=ctx.tenant_id,
+                            organization_id=ctx.org_id,
+                            name=buyer_name,
+                            tax_id=buyer_rnc,
+                            address=buyer_address or None,
+                            phone=inv.formData.buyer_phone or None,
+                            email=inv.formData.buyer_email or None,
+                        )
+                        ctx.db.add(client)
+
+            sender_rnc = re.sub(r"[^0-9]", "", ctx.organization.tax_id or "") or "132109122"
+            sender_name = ctx.organization.name or "Fintral"
+
+            # 4. Build Alanube payload and enable deferred delivery flag
+            org = ctx.organization
+            sender_phone_list = [org.phone] if org.phone else None
+            alanube_payload, subtotal, itbis_total, total_amount = _build_emit_alanube_payload(
+                encf=encf,
+                sequence=sequence,
+                ecf_type=inv.formData.ecf_type,
+                sender_rnc=sender_rnc,
+                sender_name=sender_name,
+                buyer_name=buyer_name,
+                buyer_rnc=buyer_rnc,
+                items=inv.formData.items,
+                income_type=int(inv.formData.income_type) if inv.formData.income_type else 1,
+                payment_type=inv.formData.payment_type,
+                payment_method=inv.formData.payment_method,
+                payment_splits=[s.model_dump() for s in inv.formData.payment_splits] if inv.formData.payment_splits else None,
+                reference_ecf=inv.formData.reference_ecf,
+                reference_date=inv.formData.reference_date,
+                modification_code=inv.formData.modification_code,
+                sender_address=org.fiscal_address,
+                sender_municipality=org.municipality,
+                sender_province=org.province,
+                sender_phone=sender_phone_list,
+                sender_email=org.email_contact,
+                sender_website=org.website,
+                sender_economic_activity=org.economic_activity,
+                buyer_address=buyer_address,
+                buyer_phone=inv.formData.buyer_phone,
+                buyer_email=inv.formData.buyer_email,
+                stamp_date=inv.createdAt.date().isoformat(),
+            )
+
+            # Mark as deferred delivery (DGII requirement for offline invoices)
+            if "idDoc" in alanube_payload:
+                alanube_payload["idDoc"]["deferredDeliveryIndicator"] = 1
+
+            # Build line items
+            line_items = []
+            for idx, item in enumerate(inv.formData.items):
+                gross = item.quantity * item.unit_price
+                discount_amt = gross * ((item.discount_rate or 0) / 100.0)
+                net = gross - discount_amt
+                tax_amt = net * ((item.tax_rate or 0) / 100.0)
+                line_items.append(
+                    {
+                        "line": idx + 1,
+                        "name": item.description,
+                        "quantity": item.quantity,
+                        "unit_price": item.unit_price,
+                        "discount_rate": item.discount_rate or 0,
+                        "tax_rate": item.tax_rate or 0,
+                        "total": round(net + tax_amt, 2),
+                    }
+                )
+
+            raw_data = {
+                "ecf_type": inv.formData.ecf_type,
+                "payment_type": inv.formData.payment_type,
+                "payment_method": inv.formData.payment_method,
+                "notes": inv.formData.notes,
+                "mode": inv.formData.mode,
+                "reference_ecf": inv.formData.reference_ecf,
+                "reference_date": inv.formData.reference_date.isoformat() if inv.formData.reference_date else None,
+                "buyer_name": buyer_name,
+                "buyer_rnc": buyer_rnc,
+                "buyer_address": buyer_address,
+                "provisional_encf": inv.provisionalEncf,
+            }
+
+            payment_cond = "credito" if inv.formData.payment_type == 2 else "contado"
+            invoice_due_date = None
+            if payment_cond == "credito":
+                invoice_due_date = inv.createdAt + timedelta(days=30)
+
+            # 5. Create local invoice record
+            invoice = Invoice(
+                tenant_id=ctx.tenant_id,
+                organization_id=ctx.org_id,
+                filename="Factura Emitida Offline",
+                file_type="xml" if is_electronic_seq else "manual",
+                vendor_name=ctx.organization.name,
+                vendor_tax_id=ctx.organization.tax_id,
+                rnc_comprador=buyer_rnc,
+                invoice_date=inv.createdAt,
+                total_amount=total_amount,
+                tax_amount=itbis_total,
+                currency="DOP",
+                transaction_type="income",
+                source_type="billing",
+                ecf_type=str(inv.formData.ecf_type),
+                is_electronic=is_electronic_seq,
+                processed=False,
+                status="draft",
+                line_items_data=json.dumps(line_items, ensure_ascii=False),
+                raw_extracted_data=json.dumps(raw_data, ensure_ascii=False),
+                payment_condition=payment_cond,
+                due_date=invoice_due_date,
+            )
+            ctx.db.add(invoice)
+            ctx.db.flush()
+
+            # Physical NCF handles locally
+            if not is_electronic_seq:
+                invoice.invoice_number = encf
+                invoice.status = "verified"
+                invoice.processed = True
+                raw_data.update(
+                    {
+                        "security_code": "LOCAL_NCF",
+                        "track_id": "LOCAL_NCF",
+                        "legal_status": "ACCEPTED",
+                    }
+                )
+                invoice.raw_extracted_data = json.dumps(raw_data, ensure_ascii=False)
+                invoice.updated_at = datetime.utcnow()
+                ctx.db.commit()
+                invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
+                results.append(
+                    BatchSyncResult(
+                        localId=inv.localId,
+                        success=True,
+                        invoiceId=str(invoice.id),
+                        encf=encf,
+                    )
+                )
+                continue
+
+            # Electronic e-CF transmit to Alanube
+            alanube_service = AlanubeService()
+            try:
+                res = await alanube_service.emit_document(
+                    ecf_type=inv.formData.ecf_type,
+                    payload=alanube_payload,
+                    company_id=ctx.organization.alanube_company_id,
+                )
+
+                track_id = res.get("id") or res.get("trackId")
+                pdf_url = res.get("pdfUrl") or res.get("pdf_url")
+                xml_url = res.get("xmlUrl") or res.get("xml_url")
+                security_code = res.get("securityCode") or res.get("security_code")
+                legal_status = res.get("legalStatus") or res.get("legal_status") or "ACCEPTED"
+
+                response_code = None
+                errors = res.get("errors") or []
+                if errors and isinstance(errors, list) and len(errors) > 0:
+                    response_code = errors[0].get("code")
+
+                is_async = response_code in ("AEP2006", "AEP2XXX", "AP19101") or not track_id
+
+                document_stamp_url = res.get("documentStampUrl") or res.get("document_stamp_url")
+                qr_url = document_stamp_url or (
+                    f"https://dgii.gov.do/consulta/ecf?rnc={sender_rnc}&encf={encf}&trackId={track_id}"
+                    if track_id else None
+                )
+
+                raw_data.update(
+                    {
+                        "security_code": security_code,
+                        "track_id": track_id,
+                        "legal_status": legal_status,
+                        "pdf_url": pdf_url,
+                        "xml_url": xml_url,
+                        "document_stamp_url": document_stamp_url,
+                        "qr_url": qr_url,
+                        "async": is_async,
+                    }
+                )
+
+                invoice.invoice_number = encf
+                invoice.file_path = xml_url
+                invoice.processed_path = pdf_url
+                invoice.raw_extracted_data = json.dumps(raw_data, ensure_ascii=False)
+                invoice.updated_at = datetime.utcnow()
+
+                if is_async:
+                    invoice.status = "draft"
+                    invoice.processed = False
+                else:
+                    invoice.status = "verified"
+                    invoice.processed = True
+
+                ctx.db.commit()
+                invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
+
+                results.append(
+                    BatchSyncResult(
+                        localId=inv.localId,
+                        success=True,
+                        invoiceId=str(invoice.id),
+                        encf=encf,
+                    )
+                )
+
+            except Exception as inner_e:
+                ctx.db.rollback()
+                results.append(
+                    BatchSyncResult(
+                        localId=inv.localId,
+                        success=False,
+                        error=f"Alanube transmission error: {str(inner_e)}",
+                    )
+                )
+
+        except Exception as e:
+            results.append(
+                BatchSyncResult(
+                    localId=inv.localId,
+                    success=False,
+                    error=str(e),
+                )
+            )
+
+    return BatchSyncResponse(results=results)
+

@@ -181,6 +181,27 @@ class InvoiceProcessingService:
 
         invoice.audit_flags = json.dumps(warnings, ensure_ascii=False)
 
+        dgii_code = extracted_data.get("dgii_security_code")
+        if dgii_code:
+            invoice.dgii_security_code = str(dgii_code)
+
+        dgii_val_status = extracted_data.get("dgii_validation_status")
+        if dgii_val_status:
+            invoice.dgii_validation_status = str(dgii_val_status)
+
+        dgii_val_date = extracted_data.get("dgii_validation_date")
+        if dgii_val_date:
+            parsed_date = self._parse_invoice_date(dgii_val_date)
+            if parsed_date:
+                invoice.dgii_validation_date = parsed_date
+
+        dgii_detail = extracted_data.get("dgii_validation_detail")
+        if dgii_detail:
+            if isinstance(dgii_detail, dict):
+                invoice.dgii_validation_detail = json.dumps(dgii_detail, ensure_ascii=False)
+            else:
+                invoice.dgii_validation_detail = str(dgii_detail)
+
         if persist_raw:
             invoice.raw_extracted_data = json.dumps(extracted_data, ensure_ascii=False)
 
@@ -358,16 +379,18 @@ class InvoiceProcessingService:
 
             auto_verify = source_type in ("ecf", "xml")
             if auto_verify:
-                if source_type == "ecf":
-                    seal = extracted_data.get("electronic_seal", {})
-                    invoice.status = "verified" if seal.get("valid") else "draft"
-                else:
-                    invoice.status = "verified"
+                invoice.status = "verified"
             else:
                 invoice.status = "draft"
 
         if not invoice.ingestion_source:
             invoice.ingestion_source = "manual_entry"
+
+        # ── Auto-classify fiscal status after extraction ──
+        if invoice.fiscal_status in (None, "pending_review"):
+            from app.services.fiscal_classifier import fiscal_classifier
+            new_status, _ = fiscal_classifier.classify(invoice)
+            invoice.fiscal_status = new_status
 
         db.commit()
         db.refresh(invoice)

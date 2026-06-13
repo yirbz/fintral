@@ -472,6 +472,7 @@ class TestCancellationVsDeletion:
                 processed=True,
                 cancelled_at=utc_now(),
                 cancellation_type="04",
+                status="verified",
             )
             db.add(inv)
             db.commit()

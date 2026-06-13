@@ -233,6 +233,7 @@ class OpenAIInvoiceProcessor:
 
             ENFOQUE REPÚBLICA DOMINICANA (impuestos y comprobantes):
             - Prioriza detectar RNC (9 dígitos, a veces con guiones) y NCF (comprobante fiscal, p. ej. B01, B02, E31, etc.).
+            - Las fechas en facturas dominicanas SIEMPRE usan formato DD/MM/YYYY. Nunca las interpretes como MM/DD/YYYY.
             - Si identificas el NCF, conserva la estructura completa (letra + tipo + secuencia).
             - Identifica el ITBIS: busca palabras "ITBIS", "Impuesto" o líneas de impuestos. Si hay ITBIS explícito, úsalo como tax_amount.
             - Si hay propina legal (10%) o cargos de servicio, menciónalo en audit_warnings (no confundir con ITBIS).
@@ -255,7 +256,6 @@ class OpenAIInvoiceProcessor:
             - Si la imagen es muy borrosa o ilegible (no puedes leer la mayoría del texto), añade "Documento poco legible".
             - Si NO hay NCF visible en absoluto en la factura, añade "Falta NCF".
             - Si el ITBIS calculado no coincide con el 18% del monto gravable, añade "Posible error en ITBIS".
-            - Si la fecha de emisión es del año anterior o más antigua, añade "Factura antigua".
             - Si ves propinas o cargos no deducibles (alcohol, entretenimiento), menciónalo.
 
             PROHIBIDO TERMINANTEMENTE — NUNCA añadas estos warnings:
@@ -873,6 +873,7 @@ class OpenAIInvoiceProcessor:
 
             ENFOQUE REPÚBLICA DOMINICANA (impuestos y comprobantes):
             - Prioriza detectar RNC (9 dígitos, a veces con guiones) y NCF (comprobante fiscal, p. ej. B01, B02, E31, etc.).
+            - Las fechas en facturas dominicanas SIEMPRE usan formato DD/MM/YYYY. Nunca las interpretes como MM/DD/YYYY.
             - Si identificas el NCF, conserva la estructura completa (letra + tipo + secuencia).
             - Identifica el ITBIS: busca "ITBIS", "Impuesto" o líneas de impuestos. Si hay ITBIS explícito, úsalo como tax_amount.
             - Si hay propina legal (10%) o cargos de servicio, menciónalo en audit_warnings (no confundir con ITBIS).
@@ -894,7 +895,6 @@ class OpenAIInvoiceProcessor:
             - Si la imagen es muy borrosa o ilegible, añade "Documento poco legible".
             - Si NO hay NCF visible en absoluto, añade "Falta NCF".
             - Si el ITBIS calculado no coincide con el 18% del monto gravable, añade "Posible error en ITBIS".
-            - Si la fecha de emisión es del año anterior o más antigua, añade "Factura antigua".
             - Si ves propinas o cargos no deducibles (alcohol, entretenimiento), menciónalo.
 
             PROHIBIDO TERMINANTEMENTE — NUNCA añadas estos warnings:

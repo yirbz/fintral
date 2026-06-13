@@ -33,10 +33,10 @@ services:
     environment:
       # ── Infra (topology loaded from local .env) ──
       - ENVIRONMENT=${LOCAL_ENVIRONMENT:-${ENVIRONMENT:-DEVELOPMENT}}
-      - BACKEND_PORT=${LOCAL_BACKEND_PORT:-${BACKEND_PORT:-8000}}
+      - BACKEND_PORT=8000
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_STORAGE_BUCKET=${SUPABASE_STORAGE_BUCKET:-invoices}
-      - DATABASE_URL=${LOCAL_DATABASE_URL:-${DATABASE_URL}}
+      - DATABASE_URL=${LOCAL_DATABASE_URL:-${DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:5440/invoices}}
       - REDIS_URL=${LOCAL_REDIS_URL:-${REDIS_URL}}
       # ── Secrets (inherited from Doppler via shell — no default) ──
       - APP_JWT_SECRET_KEY
@@ -82,7 +82,7 @@ services:
       dockerfile: Dockerfile.dev
     container_name: fintral-frontend-dev
     environment:
-      - BACKEND_URL=http://backend:${LOCAL_BACKEND_PORT:-${BACKEND_PORT:-8000}}
+      - BACKEND_URL=http://backend:8000
       - NEXT_PUBLIC_ENVIRONMENT=${LOCAL_ENVIRONMENT:-${ENVIRONMENT:-DEVELOPMENT}}
       - NEXT_PUBLIC_APP_URL=${LOCAL_NEXT_PUBLIC_APP_URL:-${NEXT_PUBLIC_APP_URL:-${PUBLIC_APP_URL:-http://localhost:3000}}}
       # Optional overrides:

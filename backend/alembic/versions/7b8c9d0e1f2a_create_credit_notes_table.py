@@ -104,11 +104,10 @@ def upgrade() -> None:
     )
 
     # ── 2. Drop the obsolete parent_invoice_id column ────────────────────
-    op.drop_constraint(
-        "invoices_parent_invoice_id_fkey", "invoices", type_="foreignkey"
-    )
-    op.drop_index("ix_invoices_parent_invoice_id", table_name="invoices")
-    op.drop_column("invoices", "parent_invoice_id")
+    op.execute("ALTER TABLE invoices DROP CONSTRAINT IF EXISTS invoices_parent_invoice_id_fkey")
+    op.execute("ALTER TABLE invoices DROP CONSTRAINT IF EXISTS fk_invoices_parent_invoice")
+    op.execute("DROP INDEX IF EXISTS ix_invoices_parent_invoice_id")
+    op.execute("ALTER TABLE invoices DROP COLUMN IF EXISTS parent_invoice_id")
 
 
 def downgrade() -> None:

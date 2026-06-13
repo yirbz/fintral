@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
+from app.services.dgii_validation import dgii_validation_service
 from app.services.pipeline.base import ProcessingResult
 from app.services.pipeline.categorizer import categorizer
 from app.services.pipeline.classifier import classifier
@@ -68,6 +69,8 @@ class PipelineOrchestrator:
             )
 
             if result.success:
+                if result.warnings:
+                    result.data.setdefault("audit_warnings", []).extend(result.warnings)
                 normalized = self.normalizer.normalize(
                     result.data,
                     source_type=source_type,
@@ -212,12 +215,62 @@ class PipelineOrchestrator:
         elif strategy == "xlsx_processor":
             return xlsx_processor.process(file_path)
         elif strategy in ("image_preprocessor", "pdf_image"):
+            qr_result = self._process_image_with_qr(file_path)
+            if qr_result.success and qr_result.confidence >= CONFIDENCE_THRESHOLD:
+                return qr_result
             return self._process_image_with_ocr(file_path)
         else:
             return ProcessingResult(
                 success=False,
                 error=f"Formato de archivo no soportado ({strategy}). Usa JPG, PNG, PDF, XML o XLSX.",
                 source_type=source_type,
+                confidence=0.0,
+            )
+
+    def _process_image_with_qr(self, file_path: str) -> ProcessingResult:
+        """Try QR-based extraction first — free, fast, and high-confidence."""
+        try:
+            qr_codes = image_preprocessor.detect_qr_codes(file_path)
+            if not qr_codes:
+                return ProcessingResult(
+                    success=False,
+                    source_type="image_qr",
+                    confidence=0.0,
+                )
+
+            for qr in qr_codes:
+                if qr.get("is_dgii_ecf") and qr.get("parsed"):
+                    data = dgii_validation_service.extract_invoice_data_from_qr(qr["text"])
+                    if data:
+                        data["line_items"] = []
+                        data["currency"] = "DOP"
+                        data["vendor_country"] = "DOM"
+                        data["country_detection_method"] = "dgii_qr"
+                        data["country_confidence"] = 1.0
+                        data["qr_raw_url"] = qr["text"]
+                        logger.info(
+                            "QR-based extraction successful for %s: NCF=%s, RNC=%s",
+                            file_path, data.get("invoice_number"), data.get("vendor_tax_id"),
+                        )
+                        return ProcessingResult(
+                            success=True,
+                            data=data,
+                            source_type="image_qr",
+                            confidence=1.0,
+                            warnings=[],
+                        )
+
+            return ProcessingResult(
+                success=False,
+                source_type="image_qr",
+                confidence=0.0,
+            )
+
+        except Exception as e:
+            logger.debug("QR extraction failed for %s: %s", file_path, e)
+            return ProcessingResult(
+                success=False,
+                source_type="image_qr",
                 confidence=0.0,
             )
 
