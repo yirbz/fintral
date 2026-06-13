@@ -1209,6 +1209,10 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                       alt="Factura"
                       className={`max-h-72 w-full cursor-zoom-in rounded-b-md border-t object-contain transition-opacity duration-300 ${imageLoaded ? "opacity-100" : "opacity-0"}`}
                       src={image_data.optimized_image}
+                      width={0}
+                      height={0}
+                      sizes="100vw"
+                      unoptimized
                       onLoad={() => setImageLoaded(true)}
                       onError={() => setImageLoaded(true)}
                     />

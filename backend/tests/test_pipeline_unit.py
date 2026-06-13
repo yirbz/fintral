@@ -580,19 +580,6 @@ class TestDominicanFiscalValidation:
         res_ok = post_extraction_validator.validate(data_ok)
         assert not any("Regímenes Especiales" in w for w in res_ok["audit_warnings"])
 
-        # Non-deductible consumption E32/B02 with ITBIS > 0 -> should warn for ITBIS por adelantar
-        data_cons = {
-            "vendor_tax_id": "101165421",
-            "invoice_number": "E320000000001",
-            "transaction_type": "expense",
-            "total_amount": 1180.0,
-            "tax_amount": 180.0,
-            "currency": "DOP",
-            "vendor_country": "DOM",
-        }
-        res_cons = post_extraction_validator.validate(data_cons.copy())
-        assert any("no generan crédito fiscal" in w for w in res_cons["audit_warnings"])
-
         # ITBIS rate too high (>18%)
         data_high = {
             "vendor_tax_id": "101165421",

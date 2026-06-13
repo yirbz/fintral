@@ -66,6 +66,38 @@ def format_user_datetime(dt: datetime, tz_name: str = USER_DEFAULT_TZ) -> str:
 # ── Date parsing (invoice dates, user input) ─────────────────────────────
 
 
+def _parse_delimited_date(value: str, sep: str) -> Optional[date]:
+    """Try DD/MM/YYYY first, then MM/DD/YYYY. If both valid, prefer DD/MM/YYYY."""
+    parts = value.split(sep)
+    if len(parts) != 3:
+        return None
+    a, b, y_str = parts
+    if len(y_str) not in (2, 4):
+        return None
+    century = "20" if len(y_str) == 2 else ""
+    try:
+        a_int, b_int, y_int = int(a), int(b), int(y_str) if len(y_str) == 4 else int(century + y_str)
+    except ValueError:
+        return None
+    if y_int < 100:
+        y_int += 2000
+    if not (1 <= y_int <= 9999):
+        return None
+    # Try DD/MM
+    if 1 <= b_int <= 12:
+        try:
+            return date(y_int, b_int, a_int)
+        except ValueError:
+            pass
+    # Try MM/DD
+    if 1 <= a_int <= 12:
+        try:
+            return date(y_int, a_int, b_int)
+        except ValueError:
+            pass
+    return None
+
+
 def parse_date_loose(value: Union[str, datetime, date, None]) -> Optional[date]:
     """Parse a date string in various formats. Returns date object (no time)."""
     if value is None:
@@ -75,11 +107,16 @@ def parse_date_loose(value: Union[str, datetime, date, None]) -> Optional[date]:
     if isinstance(value, date):
         return value
     value = str(value).strip()
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%Y/%m/%d", "%Y%m%d"):
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
         try:
             return datetime.strptime(value, fmt).date()
         except (ValueError, TypeError):
             continue
+    # Delimited dates: smart DD/MM vs MM/DD disambiguation
+    for sep in ("/", "-", "."):
+        result = _parse_delimited_date(value, sep)
+        if result is not None:
+            return result
     return None
 
 
@@ -91,12 +128,17 @@ def parse_datetime_loose(value: Union[str, datetime, None]) -> Optional[datetime
         return ensure_utc(value)
     value = str(value).strip()
     for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S%z",
-                "%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y"):
+                "%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
         try:
             parsed = datetime.strptime(value, fmt)
             return parsed.replace(tzinfo=_UTC)
         except (ValueError, TypeError):
             continue
+    # Delimited dates: smart DD/MM vs MM/DD disambiguation
+    for sep in ("/", "-", "."):
+        d = _parse_delimited_date(value, sep)
+        if d is not None:
+            return datetime(d.year, d.month, d.day, tzinfo=_UTC)
     return None
 
 

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.config import ADMIN_EMAIL, ADMIN_FULL_NAME, ADMIN_PASSWORD, FINTRAL_DISABLE_WS_HEARTBEAT, IS_PRODUCTION
+from app.config import ADMIN_EMAIL, ADMIN_FULL_NAME, ADMIN_PASSWORD, IS_PRODUCTION
 from app.core.auth import get_password_hash
 from app.core.logging import setup_logging
 from app.core.reference_data import seed_reference_data
@@ -292,12 +292,8 @@ async def run_startup(db: Session) -> None:
 
     logger.info("")
     logger.info("--- Phase 5/5: Services ---")
-    disable_heartbeat = FINTRAL_DISABLE_WS_HEARTBEAT
-    if not disable_heartbeat:
-        asyncio.create_task(start_heartbeat_task())
-        logger.info("Heartbeat task started for WebSocket connections")
-    else:
-        logger.info("Heartbeat task disabled by environment configuration")
+    asyncio.create_task(start_heartbeat_task())
+    logger.info("Heartbeat task started for WebSocket connections")
 
     asyncio.create_task(start_dgii_health_task())
     logger.info("DGII health check scheduler started (daily at 06:00 UTC)")

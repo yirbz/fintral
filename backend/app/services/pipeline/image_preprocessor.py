@@ -367,4 +367,52 @@ class ImagePreprocessor:
         return pil_img, quality
 
 
+    def detect_qr_codes(self, image_path: str) -> list[dict]:
+        img = cv2.imread(image_path)
+        if img is None:
+            logger.warning("Could not load image for QR detection: %s", image_path)
+            return []
+
+        detector = cv2.QRCodeDetector()
+        decoded_text, points, _ = detector.detectAndDecode(img)
+
+        results = []
+        if decoded_text:
+            from app.services.dgii_validation import dgii_validation_service
+            qr_data = dgii_validation_service.parse_qr_url(decoded_text)
+            results.append({
+                "text": decoded_text,
+                "points": points.tolist() if points is not None else None,
+                "parsed": qr_data.to_dict() if qr_data else None,
+                "is_dgii_ecf": qr_data is not None,
+            })
+            logger.info("QR code detected in %s: %s", image_path, decoded_text[:80])
+
+        return results
+
+    def detect_qr_codes_bytes(self, image_data: bytes) -> list[dict]:
+        nparr = np.frombuffer(image_data, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None:
+            logger.warning("Could not decode image bytes for QR detection")
+            return []
+
+        detector = cv2.QRCodeDetector()
+        decoded_text, points, _ = detector.detectAndDecode(img)
+
+        results = []
+        if decoded_text:
+            from app.services.dgii_validation import dgii_validation_service
+            qr_data = dgii_validation_service.parse_qr_url(decoded_text)
+            results.append({
+                "text": decoded_text,
+                "points": points.tolist() if points is not None else None,
+                "parsed": qr_data.to_dict() if qr_data else None,
+                "is_dgii_ecf": qr_data is not None,
+            })
+            logger.info("QR code detected in image bytes: %s", decoded_text[:80])
+
+        return results
+
+
 image_preprocessor = ImagePreprocessor()

@@ -30,7 +30,17 @@ def upgrade() -> None:
     op.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS payment_status VARCHAR(20)")
     op.execute("CREATE INDEX IF NOT EXISTS ix_invoices_parent_invoice_id ON invoices (parent_invoice_id)")
     op.execute("CREATE INDEX IF NOT EXISTS ix_invoices_status ON invoices (status)")
-    op.execute("ALTER TABLE invoices ADD CONSTRAINT fk_invoices_parent_invoice FOREIGN KEY (parent_invoice_id) REFERENCES invoices (id)")
+    op.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'fk_invoices_parent_invoice'
+            ) THEN
+                ALTER TABLE invoices ADD CONSTRAINT fk_invoices_parent_invoice
+                    FOREIGN KEY (parent_invoice_id) REFERENCES invoices (id);
+            END IF;
+        END $$;
+    """)
 
 
 def downgrade() -> None:

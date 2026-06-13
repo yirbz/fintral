@@ -32,21 +32,21 @@ export default function ProfesionalPlanPage() {
             <tbody>
               <tr className="border-b border-[#e3e8ee]/60 hover:bg-[#f6f9fc]/10">
                 <td className="p-4 font-medium">1 Mes</td>
-                <td className="p-4 text-right">RD$ 3,500.00</td>
+                <td className="p-4 text-right">RD$ 2,999.00</td>
                 <td className="p-4 text-right text-[#a8c3de]">—</td>
-                <td className="p-4 text-right font-medium">RD$ 3,500.00</td>
+                <td className="p-4 text-right font-medium">RD$ 2,999.00</td>
               </tr>
               <tr className="border-b border-[#e3e8ee]/60 hover:bg-[#f6f9fc]/10">
                 <td className="p-4 font-medium">3 Meses (Trimestral)</td>
-                <td className="p-4 text-right">RD$ 9,450.00</td>
+                <td className="p-4 text-right">RD$ 8,097.00</td>
                 <td className="p-4 text-right text-emerald-500 font-medium">10%</td>
-                <td className="p-4 text-right font-medium text-[#0EA5E9]">RD$ 3,150.00</td>
+                <td className="p-4 text-right font-medium text-[#0EA5E9]">RD$ 2,699.00</td>
               </tr>
               <tr className="hover:bg-[#f6f9fc]/10">
                 <td className="p-4 font-medium">12 Meses (Anual)</td>
-                <td className="p-4 text-right">RD$ 33,600.00</td>
+                <td className="p-4 text-right">RD$ 28,790.00</td>
                 <td className="p-4 text-right text-emerald-500 font-medium">20%</td>
-                <td className="p-4 text-right font-medium text-[#0EA5E9]">RD$ 2,800.00</td>
+                <td className="p-4 text-right font-medium text-[#0EA5E9]">RD$ 2,399.16</td>
               </tr>
             </tbody>
           </table>
@@ -61,14 +61,15 @@ export default function ProfesionalPlanPage() {
         <h2 className="text-[18px] font-semibold tracking-tight text-[#0d253d]">Características Incluidas</h2>
         <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-0 list-none">
           {[
-            "500 facturas mensuales",
-            "Hasta 3 usuarios registrados",
-            "OCR avanzado con Inteligencia Artificial",
+            "1 Organización Emisora e-CF incluida",
+            "500 facturas electrónicas (e-CF) mensuales",
+            "500 documentos OCR al mes",
+            "Usuarios ilimitados para toda la organización",
             "Validación NCF contra DGII",
             "Reporte 606 automático y estructurado",
             "Integración de facturación por WhatsApp",
             "Acceso completo a API y Webhooks",
-            "Soporte prioritario (máx. 4h de respuesta)"
+            "Soporte prioritario por email y chat (máx. 4h)"
           ].map((feat, i) => (
             <li key={i} className="flex items-center gap-2 text-[13px] text-[#273951]">
               <CheckCircle2 className="size-4 text-[#0EA5E9] shrink-0" />
@@ -86,37 +87,28 @@ export default function ProfesionalPlanPage() {
           <div>
             <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">1. Alcance y Límites de Consumo</h3>
             <p>
-              El cupo mensual es de hasta <strong>500 facturas/mes</strong>. El número de facturas no acumuladas expira al finalizar el ciclo de facturación mensual y no es acumulable para períodos subsiguientes.
+              El cupo mensual incluye hasta <strong>500 facturas/mes</strong> en la organización principal. El excedente se factura mensualmente a razón de **RD$ 9.00** ($0.15 USD) por comprobante e-CF emitido. Los folios de facturas no consumidas expiran al finalizar el ciclo de facturación mensual y no son acumulables.
             </p>
           </div>
 
           <div>
-            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">2. Límites de Conexión de API</h3>
+            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">2. Capacidad de Extensión Modular</h3>
             <p>
-              La API REST y los Webhooks asociados al plan Profesional tienen restricciones técnicas para garantizar la estabilidad del servicio:
+              El cliente puede añadir organizaciones estándar (+RD$ 600/mes) o facturadoras adicionales (+RD$ 1,500/mes) bajo la misma suscripción base, permitiendo gestionar múltiples entidades jurídicas de forma centralizada.
             </p>
-            <ul className="list-disc pl-5 mt-2 space-y-1 text-[14px]">
-              <li>Tasa de solicitudes de API: Máximo 1,000 solicitudes por hora.</li>
-              <li>Endpoints de Webhooks: Hasta 3 URL de destino activas simultáneamente.</li>
-            </ul>
           </div>
 
           <div>
-            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">3. SLA de Soporte</h3>
+            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">3. Usuarios Ilimitados y Consumo</h3>
             <p>
-              Fintral se compromete a brindar soporte técnico con prioridad profesional bajo los siguientes términos:
+              No existen límites en el número de usuarios que pueden agregarse a la organización. Sin embargo, todos los usuarios autorizados consumen del mismo pool compartido de facturas, OCR y cuotas de consulta de IA (1,000 consultas de IA mensuales incluidas). Exceder el cupo de IA requerirá la compra de bloques adicionales (500 consultas por $10 USD).
             </p>
-            <ul className="list-disc pl-5 mt-2 space-y-1 text-[14px]">
-              <li><strong>Tiempo de respuesta:</strong> Menos de 4 horas en horario laboral.</li>
-              <li><strong>Horarios:</strong> Lunes a viernes de 8:00 AM a 6:00 PM (hora dominicana).</li>
-              <li><strong>Canales:</strong> Chat directo en la plataforma y correo de soporte prioritario.</li>
-            </ul>
           </div>
 
           <div>
-            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">4. Cancelación y Retención de Datos</h3>
+            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">4. Exclusiones de Responsabilidad Fiscal</h3>
             <p>
-              La cancelación de la suscripción Profesional puede realizarse en cualquier momento por el administrador del panel. Tras la baja efectiva del servicio, los datos se mantendrán disponibles por 90 días para su descarga en formato estructurado antes de proceder a la eliminación permanente.
+              Fintral opera estrictamente como herramienta de software intermediaria para la transmisión y estructuración de datos. Es responsabilidad exclusiva del cliente fiscalizar y auditar la exactitud contable e impositiva de sus emisiones ante la DGII.
             </p>
           </div>
         </div>

@@ -162,11 +162,7 @@ export function UploadPage() {
       const file = files[i];
       const key = keys[i];
       try {
-        const { pending_upload } = await createPendingUpload(file);
-        setUploadStatuses((prev) =>
-          prev.map((s) => (s.key === key ? { ...s, status: "uploading", name: `Procesando ${file.name}...` } : s))
-        );
-        await processPendingUpload(pending_upload.id);
+        await createPendingUpload(file);
         successCount++;
         setUploadStatuses((prev) =>
           prev.map((s) => (s.key === key ? { ...s, status: "done" as const } : s))
@@ -187,16 +183,9 @@ export function UploadPage() {
       }
     }
 
-    if (successCount > 0) toast.success(
-      <div className="flex items-center gap-2">
-        <span>{successCount} factura{successCount !== 1 ? "s" : ""} procesada{successCount !== 1 ? "s" : ""}</span>
-        <Link href="/dashboard/upload/revisions" className="ml-1 underline underline-offset-2 font-medium">
-          Ir a revisiones
-        </Link>
-      </div>
-    );
-    if (errorCount > 0 && successCount === 0) toast.error(`${errorCount} archivo${errorCount !== 1 ? "s" : ""} no se pudieron procesar`);
-    else if (errorCount > 0) toast.warning(`${successCount} archivo${successCount !== 1 ? "s" : ""} procesado${successCount !== 1 ? "s" : ""}, ${errorCount} fallaron`);
+    if (successCount > 0) toast.success(`${successCount} factura${successCount !== 1 ? "s" : ""} subida${successCount !== 1 ? "s" : ""}. Ve a "Captura" para procesarlas.`);
+    if (errorCount > 0 && successCount === 0) toast.error(`${errorCount} archivo${errorCount !== 1 ? "s" : ""} no se pudieron subir`);
+    else if (errorCount > 0) toast.warning(`${successCount} archivo${successCount !== 1 ? "s" : ""} subido${successCount !== 1 ? "s" : ""}, ${errorCount} fallaron`);
     setTimeout(() => setUploadStatuses([]), 6000);
     invalidateAll();
   }, [invalidateAll]);

@@ -78,8 +78,10 @@ def _normalize_ncf(value: Optional[str]) -> str:
     return (value or "").strip().upper()
 
 
-def _expected_dgii_format(invoice: Invoice) -> Optional[str]:
+def _expected_dgii_format(invoice: Invoice, is_ecf_authorized: bool = False) -> Optional[str]:
     if invoice.is_electronic:
+        if invoice.transaction_type == "expense" and not is_ecf_authorized:
+            return "606"
         return None
     if invoice.cancelled_at and invoice.transaction_type == "income":
         return "608"
@@ -208,8 +210,9 @@ def _build_invoice_dgii_status(
     invoice: Invoice,
     latest_statuses: dict[str, dict[str, dict[str, Optional[str]]]],
     confirmed_ncfs_by_format: dict[str, set[str]],
+    is_ecf_authorized: bool = False,
 ) -> dict[str, Any]:
-    fmt = _expected_dgii_format(invoice)
+    fmt = _expected_dgii_format(invoice, is_ecf_authorized=is_ecf_authorized)
     if not fmt:
         return {
             "format": None,
@@ -296,6 +299,7 @@ def _serialize_invoices_with_dgii_status(ctx: TenantContext, invoices: list[Invo
     invoice_ids = [invoice.id for invoice in invoices]
     latest_statuses = _load_latest_invoice_statuses(ctx, invoice_ids)
     confirmed_ncfs_by_format = _load_confirmed_ncf_sets(ctx)
+    is_ecf_authorized = getattr(ctx.organization, "is_ecf_authorized", False) if ctx else False
 
     payload: list[dict[str, Any]] = []
     for invoice in invoices:
@@ -304,6 +308,7 @@ def _serialize_invoices_with_dgii_status(ctx: TenantContext, invoices: list[Invo
             invoice=invoice,
             latest_statuses=latest_statuses,
             confirmed_ncfs_by_format=confirmed_ncfs_by_format,
+            is_ecf_authorized=is_ecf_authorized,
         )
         payload.append(data)
     return payload

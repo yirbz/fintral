@@ -27,15 +27,17 @@ const SECTIONS: DocSection[] = [
     ]
   },
   {
-    title: "Plan Profesional",
+    title: "Planes Base",
     items: [
-      { href: "/docs/plans/profesional", label: "Detalles del Plan", icon: FileText }
+      { href: "/docs/plans/inicial", label: "Plan Inicial", icon: FileText },
+      { href: "/docs/plans/profesional", label: "Plan Profesional", icon: FileText },
+      { href: "/docs/plans/despacho", label: "Plan Despacho Contable", icon: FileText }
     ]
   },
   {
-    title: "Plan Empresarial",
+    title: "Extensiones",
     items: [
-      { href: "/docs/plans/empresarial", label: "Detalles del Plan", icon: FileText }
+      { href: "/docs/plans/organizaciones-extra", label: "Organizaciones Adicionales", icon: FileText }
     ]
   }
 ]
