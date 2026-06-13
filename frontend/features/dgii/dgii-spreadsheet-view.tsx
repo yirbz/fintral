@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { Loader2, CheckCircle2, XCircle, AlertTriangle, ShieldCheck } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, AlertTriangle, ShieldCheck, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   updateDgiiFields,
@@ -52,6 +52,8 @@ function getColumns(format: DgiiFormat, referenceOptions: DgiiReferenceOptions):
       return [
         { key: "_status", label: "Estatus", short: "Est.", width: 52, type: "readonly",
           getValue: statusValue },
+        { key: "vendor_name", label: "Razón Social", short: "Proveedor", width: 160, type: "readonly",
+          getValue: inv => inv.vendor_name },
         { key: "vendor_tax_id", label: "RNC / Cédula", short: "RNC", width: 100, type: "text",
           getValue: inv => inv.vendor_tax_id },
         { key: "_tipo_id", label: "Tipo Id", short: "TId", width: 44, type: "readonly",
@@ -127,6 +129,8 @@ function getColumns(format: DgiiFormat, referenceOptions: DgiiReferenceOptions):
       return [
         { key: "_status", label: "Estatus", short: "Est.", width: 52, type: "readonly",
           getValue: statusValue },
+        { key: "vendor_name", label: "Razón Social", short: "Proveedor", width: 160, type: "readonly",
+          getValue: inv => inv.vendor_name },
         { key: "vendor_tax_id", label: "RNC / Cédula o Pasaporte", short: "RNC", width: 100, type: "text",
           getValue: inv => inv.vendor_tax_id },
         { key: "_tipo_id", label: "Tipo Identificación", short: "TId", width: 44, type: "readonly",
@@ -202,6 +206,8 @@ function getColumns(format: DgiiFormat, referenceOptions: DgiiReferenceOptions):
       return [
         { key: "_status", label: "Estatus", short: "Est.", width: 52, type: "readonly",
           getValue: statusValue },
+        { key: "vendor_name", label: "Razón Social", short: "Proveedor", width: 160, type: "readonly",
+          getValue: inv => inv.vendor_name },
         { key: "invoice_number", label: "Número Comprobante Fiscal", short: "NCF", width: 140, type: "text",
           getValue: inv => inv.invoice_number },
         { key: "invoice_date", label: "Fecha Comprobante", short: "Fecha", width: 100, type: "date",
@@ -216,26 +222,49 @@ function getColumns(format: DgiiFormat, referenceOptions: DgiiReferenceOptions):
 
 // ── Editable Cell ──────────────────────────────────────────────────────
 
-function SpreadsheetCell({ col, value, isEditing, onChange, onCommit, onStartEdit }: {
+function SpreadsheetCell({ col, value, isEditing, onChange, onCommit, onStartEdit, onValidate, isValidating }: {
   col: ColDef;
   value: string;
   isEditing: boolean;
   onChange: (v: string) => void;
   onCommit: (nextValue?: string) => void;
   onStartEdit: () => void;
+  onValidate?: () => void;
+  isValidating?: boolean;
 }) {
   if (col.key === "_status") {
     return (
       <div className={cn(
-        "flex items-center justify-center h-full text-[10px] font-bold tracking-wide",
+        "group/status relative flex items-center justify-center h-full text-[10px] font-bold tracking-wide transition-colors",
         value === "OK" && "text-emerald-700 bg-emerald-50",
         value === "ERROR" && "text-red-600 bg-red-50",
         value === "BLOCK" && "text-indigo-700 bg-indigo-50",
       )}>
-        {value === "OK" && <CheckCircle2 className="size-3 mr-0.5" />}
-        {value === "ERROR" && <XCircle className="size-3 mr-0.5" />}
-        {value === "BLOCK" && <ShieldCheck className="size-3 mr-0.5" />}
-        {value}
+        {isValidating ? (
+          <Loader2 className="size-3 animate-spin text-primary" />
+        ) : (
+          <>
+            <div className="flex items-center justify-center group-hover/status:opacity-0 transition-opacity">
+              {value === "OK" && <CheckCircle2 className="size-3 mr-0.5" />}
+              {value === "ERROR" && <XCircle className="size-3 mr-0.5" />}
+              {value === "BLOCK" && <ShieldCheck className="size-3 mr-0.5" />}
+              <span>{value}</span>
+            </div>
+            {onValidate && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onValidate();
+                }}
+                title="Validar ante DGII"
+                className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/status:opacity-100 bg-primary text-primary-foreground hover:bg-primary/95 transition-all text-[9px] font-medium rounded-none"
+              >
+                <Globe className="size-3 mr-0.5" /> Validar
+              </button>
+            )}
+          </>
+        )}
       </div>
     );
   }
@@ -321,9 +350,23 @@ interface DgiiSpreadsheetViewProps {
   invoices: DgiiPreviewInvoice[];
   format: DgiiFormat;
   onRefresh: () => Promise<void>;
+  onSelectInvoice?: (inv: DgiiPreviewInvoice) => void;
+  onValidateInvoice?: (invoiceId: string) => Promise<void>;
+  validatingIds?: Record<string, boolean>;
+  onBulkValidate?: () => Promise<void>;
+  isBulkValidating?: boolean;
 }
 
-export function DgiiSpreadsheetView({ invoices, format, onRefresh }: DgiiSpreadsheetViewProps) {
+export function DgiiSpreadsheetView({
+  invoices,
+  format,
+  onRefresh,
+  onSelectInvoice,
+  onValidateInvoice,
+  validatingIds,
+  onBulkValidate,
+  isBulkValidating
+}: DgiiSpreadsheetViewProps) {
   const { options: referenceOptions } = useDgiiReferenceOptions();
   const columns = useMemo(() => getColumns(format, referenceOptions), [format, referenceOptions]);
   const [editCell, setEditCell] = useState<{ row: number; col: string } | null>(null);
@@ -396,8 +439,25 @@ export function DgiiSpreadsheetView({ invoices, format, onRefresh }: DgiiSpreads
             </span>
           )}
         </div>
-        <div className="text-[10px] text-muted-foreground">
-          Click en cualquier celda para editar · Enter o seleccionar para guardar
+        <div className="flex items-center gap-3">
+          {onBulkValidate && invoices.length > 0 && (
+            <button
+              type="button"
+              disabled={isBulkValidating}
+              onClick={(e) => { e.stopPropagation(); void onBulkValidate(); }}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-md border border-primary/30 bg-primary/5 hover:bg-primary/10 text-primary text-[10px] font-medium transition-all"
+            >
+              {isBulkValidating ? (
+                <Loader2 className="size-2.5 animate-spin" />
+              ) : (
+                <Globe className="size-2.5" />
+              )}
+              {isBulkValidating ? "Validando..." : "Validar todo en masa"}
+            </button>
+          )}
+          <div className="text-[10px] text-muted-foreground">
+            Click en cualquier celda para editar · Enter o seleccionar para guardar
+          </div>
         </div>
       </div>
 
@@ -437,7 +497,9 @@ export function DgiiSpreadsheetView({ invoices, format, onRefresh }: DgiiSpreads
                       rowIdx % 2 === 0 ? "bg-white" : "bg-slate-50/50",
                       isError && "bg-red-50/20",
                       isBlocked && "bg-indigo-50/40",
+                      onSelectInvoice && "cursor-pointer",
                     )}
+                    onDoubleClick={() => onSelectInvoice?.(inv)}
                   >
                     {/* Row number */}
                     <td className="px-1.5 py-0 text-[10px] text-center text-muted-foreground border-r border-border/30 sticky left-0 bg-inherit z-[5] font-mono">
@@ -466,6 +528,8 @@ export function DgiiSpreadsheetView({ invoices, format, onRefresh }: DgiiSpreads
                             onChange={setEditValue}
                             onCommit={commitEdit}
                             onStartEdit={() => startEdit(rowIdx, col, rawValue)}
+                            onValidate={onValidateInvoice ? () => onValidateInvoice(inv.id) : undefined}
+                            isValidating={validatingIds?.[inv.id]}
                           />
                         </td>
                       );

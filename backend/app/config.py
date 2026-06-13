@@ -32,8 +32,7 @@ BACKEND_PORT: int = int(os.getenv("BACKEND_PORT", os.getenv("PORT", "8000")))
 # Deprecated: use BACKEND_PORT instead
 _ = os.getenv("PORT")  # kept for backwards compat during migration
 
-APP_JWT_SECRET_KEY: str = os.getenv("APP_JWT_SECRET_KEY", os.getenv("SECRET_KEY", ""))
-SECRET_KEY: str = APP_JWT_SECRET_KEY
+APP_JWT_SECRET_KEY: str = os.getenv("APP_JWT_SECRET_KEY", "")
 
 # ===========================================================================
 # Database (PostgreSQL only)
@@ -134,16 +133,6 @@ REMEMBER_ME_EXPIRE_DAYS: int = int(os.getenv("REMEMBER_ME_EXPIRE_DAYS", "30"))
 # Defaults to ./uploads and ./static relative to the app root.
 # In Docker: /app/uploads and /app/static (handled by volumes).
 FINTRAL_DATA_DIR: str = os.getenv("FINTRAL_DATA_DIR", os.path.join(os.getcwd(), "data"))
-
-# ===========================================================================
-# Feature flags
-# ===========================================================================
-# Set to "true" to disable the WebSocket heartbeat ping task.
-# Useful in dev when you don't need real-time connections.
-FINTRAL_DISABLE_WS_HEARTBEAT: bool = os.getenv("FINTRAL_DISABLE_WS_HEARTBEAT", "false").lower() == "true"
-# Deprecated alias — remove after Doppler migration
-if os.getenv("DISABLE_HEARTBEAT_TASK", "false").lower() == "true":
-    FINTRAL_DISABLE_WS_HEARTBEAT = True
 
 # ===========================================================================
 # Integrations: OAuth + Third-party APIs

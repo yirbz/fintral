@@ -119,6 +119,10 @@ export interface DgiiPreviewInvoice {
   reporting_state?: "reportable" | "blocked_confirmed_ncf";
   reporting_note?: string | null;
   dgii_fields: DgiiRawFields;
+  file_path?: string;
+  file_url?: string | null;
+  dgii_validation_status?: string | null;
+  dgii_security_code?: string | null;
 }
 
 export interface DgiiSummary {
@@ -439,5 +443,108 @@ export async function overrideInvoiceDgiiStatus(
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status, error_detail: errorDetail, notes }),
+  });
+}
+
+export async function validateInvoiceDgii(
+  invoiceId: string
+): Promise<{ invoice_id: string; validation: any }> {
+  return apiFetch<{ invoice_id: string; validation: any }>(`/api/dgii/validation/invoice/${invoiceId}`, {
+    method: "POST",
+  });
+}
+
+export interface DgiiConciliateInvoice {
+  id: string;
+  vendor_name: string;
+  invoice_number: string;
+  total_amount: number | null;
+  fiscal_status: string;
+  problems: { code: string; message: string; severity: "error" | "warning" }[];
+  suggested_actions: string[];
+  editable_fields: Record<string, { current: any; suggestion: any }>;
+  [key: string]: any;
+}
+
+export interface DgiiConciliateResult {
+  format: string;
+  period: string;
+  can_export: boolean;
+  summary: {
+    total_ready: number;
+    total_conflicts: number;
+    total_deferred_in: number;
+    total_amount_ready: number;
+    total_itbis_ready: number;
+    deadline: string;
+    days_remaining: number;
+  };
+  conflicts: DgiiConciliateInvoice[];
+  ready: DgiiConciliateInvoice[];
+  deferred_in: {
+    id: string;
+    vendor_name: string;
+    invoice_number: string;
+    total_amount: number | null;
+    fiscal_period_override: string | null;
+  }[];
+}
+
+export async function dgiiConciliate(body: {
+  format: string;
+  period?: string;
+}): Promise<DgiiConciliateResult> {
+  return apiFetch("/api/dgii/conciliate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function dgiiConciliateFix(
+  invoiceId: string,
+  body: { fields: Record<string, string> }
+): Promise<{ status: string; invoice_id: string; fiscal_status: string; reasons: string[] }> {
+  return apiFetch(`/api/dgii/conciliate/${invoiceId}/fix`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function dgiiConciliateDefer(
+  invoiceId: string,
+  body: { target_period: string }
+): Promise<{ status: string; invoice_id: string; fiscal_status: string; target_period: string }> {
+  return apiFetch(`/api/dgii/conciliate/${invoiceId}/defer`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function dgiiConciliateExclude(
+  invoiceId: string,
+  body: { reason: string }
+): Promise<{ status: string; invoice_id: string; fiscal_status: string; exclusion_reason: string }> {
+  return apiFetch(`/api/dgii/conciliate/${invoiceId}/exclude`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function dgiiVerifyNcf(body: {
+  invoice_ids: string[];
+}): Promise<{
+  results: any[];
+  total: number;
+  found: number;
+  not_found: number;
+}> {
+  return apiFetch("/api/dgii/verify-ncf", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
 }

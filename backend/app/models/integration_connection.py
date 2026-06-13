@@ -6,13 +6,13 @@ from cryptography.fernet import Fernet
 from sqlalchemy import Boolean, Column, DateTime, Index, String, Text
 from uuid_utils import uuid7
 
-from app.config import SECRET_KEY
+from app.config import APP_JWT_SECRET_KEY
 from app.database import Base, GUID
 from app.utils.dates import utc_now
 
 
 def _get_fernet() -> Fernet:
-    raw = SECRET_KEY.encode("utf-8") if SECRET_KEY else b"fintral-dev-fallback-key-2026!"
+    raw = APP_JWT_SECRET_KEY.encode("utf-8") if APP_JWT_SECRET_KEY else b"fintral-dev-fallback-key-2026!"
     key = base64.urlsafe_b64encode(hashlib.sha256(raw).digest())
     return Fernet(key)
 

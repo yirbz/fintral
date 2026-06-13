@@ -16,10 +16,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from app.config import SUPABASE_STORAGE_BUCKET, SUPABASE_URL
 from app.core.container import export_service
 from app.dependencies.tenant import TenantContext, require_tenant
 from app.models import DgiiSubmission, Invoice, InvoiceDgiiStatus
 from app.repositories import InvoiceRepository
+from app.services.supabase_storage import download_file
 from app.utils.dates import utc_now
 
 logger = logging.getLogger(__name__)
@@ -29,6 +31,44 @@ invoice_repo = InvoiceRepository()
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────
+
+class DgiiConciliateRequest(BaseModel):
+    format: str = "606"
+    period: Optional[str] = None
+
+
+class DgiiFixRequest(BaseModel):
+    fields: Dict[str, Any] = {}
+
+
+class DgiiDeferRequest(BaseModel):
+    target_period: str
+
+
+class DgiiExcludeRequest(BaseModel):
+    reason: str = ""
+
+
+class DgiiVerifyNcfRequest(BaseModel):
+    invoice_ids: List[str]
+
+
+class ConciliationProblem(BaseModel):
+    code: str
+    message: str
+    severity: str  # "error" or "warning"
+
+
+class ConciliationConflict(BaseModel):
+    id: str
+    vendor_name: str
+    invoice_number: str
+    total_amount: Optional[float]
+    fiscal_status: str
+    problems: List[ConciliationProblem]
+    suggested_actions: List[str]
+    editable_fields: Dict[str, Any]
+
 
 class DgiiExportRequest(BaseModel):
     format: str  # "dgii_606" | "dgii_607" | "dgii_608"
@@ -325,6 +365,97 @@ _CONSUMER_FINAL_ID_THRESHOLD = 250_000
 
 ITBIS_RATE = 0.18
 ITBIS_TOLERANCE = 0.02  # 2% tolerance for rounding
+
+
+# ── Electronic issuer restriction helpers ────────────────────────────────────
+
+def _get_electronic_issuer_restrictions(ctx: TenantContext) -> dict:
+    """
+    Retorna las restricciones de reportes según si la organización es emisora electrónica.
+
+    Si NO es emisora: sin restricciones — puede reportar cualquier comprobante.
+    Si SÍ es emisora:
+      - 606: solo compras a proveedores NO emisores (NCFs que NO empiecen con E)
+      - 607: solo ventas con NCF físico (B0<N>) como fallback; la cola offline
+             se valida desde el frontend
+      - 608: prohibido
+    """
+    is_issuer = bool(ctx.organization.is_ecf_authorized)
+    if not is_issuer:
+        return {
+            "is_electronic_issuer": False,
+            "restrictions": {},
+        }
+
+    return {
+        "is_electronic_issuer": True,
+        "restrictions": {
+            "dgii_606": {
+                "restricted": True,
+                "rule": "non_issuer_suppliers_only",
+                "message": "Como emisor electrónico, solo puedes reportar compras de proveedores "
+                           "no emisores. Las facturas con NCF electrónico (E*) se excluyen "
+                           "automáticamente.",
+            },
+            "dgii_607": {
+                "restricted": True,
+                "rule": "physical_fallback_only",
+                "message": "Como emisor electrónico, solo puedes reportar ventas con "
+                           "comprobantes físicos (B0*). Las facturas electrónicas (E*) se "
+                           "reportan directamente a la DGII.",
+            },
+            "dgii_608": {
+                "restricted": True,
+                "rule": "prohibited",
+                "message": "Los emisores electrónicos no pueden generar Formulario 608. "
+                           "Las anulaciones de comprobantes electrónicos se gestionan "
+                           "directamente en el sistema de facturación electrónica.",
+            },
+        },
+    }
+
+
+def _filter_invoices_by_issuer_restrictions(
+    invoices: list,
+    fmt: str,
+    restrictions: dict,
+) -> tuple[list, int]:
+    """
+    Filtra facturas según las restricciones de emisor electrónico.
+    Retorna (invoices_filtradas, cantidad_excluidas).
+    """
+    fmt_restrictions = restrictions.get("restrictions", {}).get(fmt, {})
+    if not fmt_restrictions.get("restricted"):
+        return invoices, 0
+
+    rule = fmt_restrictions.get("rule")
+    excluded = 0
+    filtered = []
+
+    for inv in invoices:
+        ncf = (inv.invoice_number or "").strip().upper()
+        if rule == "non_issuer_suppliers_only":
+            # Incluir solo facturas donde el NCF NO es electrónico (no empieza con E)
+            # o no tiene NCF (probablemente de fuente no electrónica)
+            if ncf and ncf.startswith("E"):
+                excluded += 1
+                continue
+            filtered.append(inv)
+
+        elif rule == "physical_fallback_only":
+            # Incluir solo facturas de venta (income) con NCF físico B0*
+            if inv.transaction_type != "income":
+                excluded += 1
+                continue
+            if ncf and not ncf.startswith("B0"):
+                excluded += 1
+                continue
+            filtered.append(inv)
+
+        else:
+            filtered.append(inv)
+
+    return filtered, excluded
 
 
 # ── Validation engine ─────────────────────────────────────────────────────
@@ -960,6 +1091,16 @@ async def dgii_preview(
     se aplican antes de la validación. Las acciones que modifican la DB
     (recalculate_itbis, assign_goods_type) son irreversibles.
     """
+    # ── Electronic issuer restrictions ──────────────────────────────────
+    restrictions = _get_electronic_issuer_restrictions(ctx)
+    fmt_restrictions = restrictions.get("restrictions", {}).get(body.format, {})
+
+    if fmt_restrictions.get("rule") == "prohibited":
+        raise HTTPException(
+            status_code=400,
+            detail=fmt_restrictions["message"],
+        )
+
     transaction_type = _format_to_transaction_type(body.format)
 
     date_from, date_to = _resolve_dates(body)
@@ -991,6 +1132,33 @@ async def dgii_preview(
 
     confirmed_ncfs = _get_confirmed_reported_ncfs(ctx, body.format.replace("dgii_", ""))
     invoices = [inv for inv in invoices if not _is_confirmed_ncf_blocked(inv, confirmed_ncfs)]
+
+    # Filter by fiscal_status + include deferred from past periods
+    period_val = body.period or report_period
+    invoices = [inv for inv in invoices if inv.fiscal_status in ("valid", "pending_review", "invalid")]
+    deferred_from_past = ctx.db.query(Invoice).filter(
+        Invoice.tenant_id == ctx.tenant_id,
+        Invoice.organization_id == ctx.org_id,
+        Invoice.is_deleted.is_(False),
+        Invoice.fiscal_status == "deferred",
+        Invoice.fiscal_period_override == period_val,
+    )
+    if transaction_type:
+        deferred_from_past = deferred_from_past.filter(Invoice.transaction_type == transaction_type)
+    invoices.extend(deferred_from_past.all())
+
+    # ── Apply electronic issuer restrictions ────────────────────────────
+    invoices, excluded_count = _filter_invoices_by_issuer_restrictions(
+        invoices, body.format, restrictions,
+    )
+    restrictions_applied = None
+    if fmt_restrictions.get("restricted"):
+        restrictions_applied = {
+            "format": body.format,
+            "rule": fmt_restrictions["rule"],
+            "message": fmt_restrictions["message"],
+            "excluded_invoices": excluded_count,
+        }
 
     # Aplicar auto-fixes (pueden modificar la DB)
     invoices, fix_report = _apply_auto_fixes(invoices, body.auto_fixes, ctx.db, body.format)
@@ -1027,6 +1195,7 @@ async def dgii_preview(
             "vendor_search": body.vendor_search,
         },
         "fixes_applied": fix_report,
+        "restrictions_applied": restrictions_applied,
         **stats,
     }
 
@@ -1047,6 +1216,16 @@ async def dgii_export(
     """
     if body.format not in ("dgii_606", "dgii_607", "dgii_608"):
         raise HTTPException(status_code=400, detail=f"Formato '{body.format}' no válido. Use dgii_606, dgii_607 o dgii_608.")
+
+    # ── Electronic issuer restrictions ──────────────────────────────────
+    restrictions = _get_electronic_issuer_restrictions(ctx)
+    fmt_restrictions = restrictions.get("restrictions", {}).get(body.format, {})
+
+    if fmt_restrictions.get("rule") == "prohibited":
+        raise HTTPException(
+            status_code=400,
+            detail=fmt_restrictions["message"],
+        )
 
     transaction_type = _format_to_transaction_type(body.format)
     date_from, date_to = _resolve_dates(body)
@@ -1094,6 +1273,37 @@ async def dgii_export(
                 "Las facturas encontradas ya tienen NCF confirmado por DGII "
                 "y no pueden re-reportarse."
             ),
+        )
+
+    # ── Filtrar por fiscal_status (conciliation-ready) ────────────────
+    # Only export invoices marked as fiscally valid
+    invoices = [inv for inv in invoices if inv.fiscal_status == "valid"]
+
+    # Also include deferred invoices whose period_override matches this period
+    if hasattr(body, 'period') and body.period:
+        deferred_from_past = ctx.db.query(Invoice).filter(
+            Invoice.tenant_id == ctx.tenant_id,
+            Invoice.organization_id == ctx.org_id,
+            Invoice.is_deleted.is_(False),
+            Invoice.fiscal_status == "deferred",
+            Invoice.fiscal_period_override == body.period,
+        )
+        if transaction_type:
+            deferred_from_past = deferred_from_past.filter(Invoice.transaction_type == transaction_type)
+        invoices.extend(deferred_from_past.all())
+
+    # ── Apply electronic issuer restrictions ────────────────────────────
+    invoices, excluded_count = _filter_invoices_by_issuer_restrictions(
+        invoices, body.format, restrictions,
+    )
+
+    if not invoices:
+        detail = "No se encontraron facturas fiscalmente válidas para este período. Usa el panel de conciliación para revisar conflictos."
+        if fmt_restrictions.get("restricted"):
+            detail = fmt_restrictions["message"]
+        raise HTTPException(
+            status_code=404,
+            detail=detail,
         )
 
     # Aplicar auto-fixes (pueden modificar la DB)
@@ -1874,6 +2084,19 @@ async def dgii_pending_invoices(
     }
 
 
+@router.get("/report-restrictions")
+async def dgii_report_restrictions(
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """
+    Retorna las restricciones de reportes DGII según si la organización
+    es emisora electrónica. El frontend usa esto para:
+    - Deshabilitar formularios no permitidos (608)
+    - Mostrar advertencias sobre filtros automáticos (606/607)
+    """
+    return _get_electronic_issuer_restrictions(ctx)
+
+
 @router.post("/auto-generate")
 async def dgii_auto_generate(
     format: str = "606",
@@ -1933,6 +2156,7 @@ async def dgii_auto_generate(
         for inv in current_invoices
         if str(inv.id) not in reported_ids
         and (_invoice_ncf(inv) not in confirmed_ncfs)
+        and inv.fiscal_status in ("valid", "pending_review", "invalid")
     ]
 
     # ── 2. Facturas de períodos anteriores nunca reportadas ──
@@ -2013,6 +2237,466 @@ async def dgii_auto_generate(
         },
         "invoices": previews,
     }
+
+
+# ── Conciliation endpoints ───────────────────────────────────────────────
+
+@router.post("/conciliate")
+async def dgii_conciliate(
+    body: DgiiConciliateRequest,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """
+    Diagnóstico pre-export para el panel de conciliación.
+
+    Retorna:
+    - ready[]: facturas listas (fiscal_status = 'valid')
+    - conflicts[]: facturas con problemas que el usuario debe resolver
+    - deferred[]: facturas diferidas de períodos anteriores que caen en este
+    - summary: totales, montos, conteos
+    """
+    fmt = f"dgii_{body.format}"
+    transaction_type = _format_to_transaction_type(fmt)
+    report_rnc = _organization_report_rnc(ctx)
+
+    period = body.period or datetime.now().strftime("%Y%m")
+    date_from, date_to = _period_to_range(period)
+
+    # ── Query all invoices for this period ──
+    query = ctx.db.query(Invoice).filter(
+        Invoice.tenant_id == ctx.tenant_id,
+        Invoice.organization_id == ctx.org_id,
+        Invoice.is_deleted.is_(False),
+        Invoice.invoice_date >= date_from,
+        Invoice.invoice_date <= date_to,
+    )
+    if transaction_type:
+        query = query.filter(Invoice.transaction_type == transaction_type)
+
+    invoices = query.order_by(Invoice.invoice_date.asc()).all()
+
+    # ── Also fetch deferred invoices from previous periods targeting this one ──
+    deferred_in = ctx.db.query(Invoice).filter(
+        Invoice.tenant_id == ctx.tenant_id,
+        Invoice.organization_id == ctx.org_id,
+        Invoice.is_deleted.is_(False),
+        Invoice.fiscal_status == "deferred",
+        Invoice.fiscal_period_override == period,
+    ).all()
+
+    # ── Classify each invoice ──
+    from app.services.fiscal_classifier import fiscal_classifier
+
+    ready: List[dict] = []
+    conflicts: List[dict] = []
+
+    confirmed_ncfs = _get_confirmed_reported_ncfs(ctx, body.format)
+    reported_ids = _get_reported_invoice_ids(ctx, body.format, period)
+
+    for inv in invoices:
+        # Skip already reported
+        if str(inv.id) in reported_ids or _invoice_ncf(inv) in confirmed_ncfs:
+            continue
+
+        # Re-classify on the fly
+        if inv.fiscal_status in ("valid", "deferred", "non_deductible"):
+            status = inv.fiscal_status
+            reasons: list = []
+        else:
+            status, reasons = fiscal_classifier.classify(inv)
+
+        problems = []
+        for r in reasons:
+            severity = "error"
+            problems.append({"code": "CLASSIFICATION", "message": r, "severity": severity})
+
+        preview = _invoice_preview(inv, fmt, {}, report_rnc=report_rnc)
+        suggested = _suggested_actions(status)
+
+        entry = {
+            "id": str(inv.id),
+            "vendor_name": inv.vendor_name or "",
+            "invoice_number": inv.invoice_number or "",
+            "total_amount": inv.total_amount,
+            "fiscal_status": status,
+            "problems": problems,
+            "suggested_actions": suggested,
+            "editable_fields": {
+                "vendor_tax_id": {"current": inv.vendor_tax_id, "suggestion": None},
+                "invoice_number": {"current": inv.invoice_number, "suggestion": None},
+                "goods_services_type": {"current": inv.goods_services_type or "", "suggestion": None},
+            },
+            **preview,
+        }
+
+        if status in ("invalid", "pending_review"):
+            conflicts.append(entry)
+        elif status == "valid":
+            ready.append(entry)
+
+    # ── Summary ──
+    ready_total = sum(inv.total_amount or 0 for inv in invoices if str(inv.id) in {r["id"] for r in ready})
+
+    today = datetime.now()
+    if today.day < 15:
+        deadline = today.replace(day=15)
+    else:
+        next_month = today.month + 1
+        next_year = today.year
+        if next_month > 12:
+            next_month = 1
+            next_year += 1
+        deadline = today.replace(year=next_year, month=next_month, day=15)
+
+    days_remaining = (deadline - today).days
+
+    can_export = len(conflicts) == 0 and len(ready) > 0
+
+    return {
+        "format": body.format,
+        "period": period,
+        "can_export": can_export,
+        "summary": {
+            "total_ready": len(ready),
+            "total_conflicts": len(conflicts),
+            "total_deferred_in": len(deferred_in),
+            "total_amount_ready": round(ready_total, 2),
+            "total_itbis_ready": round(sum(inv.tax_amount or 0 for inv in invoices if str(inv.id) in {r["id"] for r in ready}), 2),
+            "deadline": deadline.strftime("%Y-%m-%d"),
+            "days_remaining": max(0, days_remaining),
+        },
+        "conflicts": conflicts[:50],
+        "ready": ready[:50],
+        "deferred_in": [
+            {
+                "id": str(inv.id),
+                "vendor_name": inv.vendor_name or "",
+                "invoice_number": inv.invoice_number or "",
+                "total_amount": inv.total_amount,
+                "fiscal_period_override": inv.fiscal_period_override,
+            }
+            for inv in deferred_in
+        ],
+    }
+
+
+@router.patch("/conciliate/{invoice_id}/fix")
+async def dgii_conciliate_fix(
+    invoice_id: str,
+    body: DgiiFixRequest,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """
+    Edita campos de una factura en conflicto y re-clasifica
+    fiscal_status automáticamente.
+    """
+    invoice = invoice_repo.get_including_trashed(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+
+    from app.routers.dgii import _COLUMN_FIELDS, _RAW_DGII_FIELDS
+
+    # Update column fields
+    for field, value in body.fields.items():
+        if field in _COLUMN_FIELDS:
+            if field == "invoice_date" and isinstance(value, str):
+                from datetime import datetime as dt
+                setattr(invoice, field, dt.strptime(value, "%Y-%m-%d"))
+            elif field in ("total_amount", "tax_amount") and value is not None:
+                try:
+                    setattr(invoice, field, float(value))
+                except (ValueError, TypeError):
+                    raise HTTPException(status_code=400, detail=f"Valor inválido para {field}")
+            else:
+                setattr(invoice, field, value)
+
+    # Update raw_extracted_data fields
+    raw_updates = {k: v for k, v in body.fields.items() if k in _RAW_DGII_FIELDS}
+    if raw_updates:
+        raw = {}
+        if invoice.raw_extracted_data:
+            try:
+                raw = json.loads(invoice.raw_extracted_data)
+            except (json.JSONDecodeError, TypeError):
+                raw = {}
+        for k, v in raw_updates.items():
+            if v is None or v == "":
+                raw.pop(k, None)
+            else:
+                raw[k] = v
+        invoice.raw_extracted_data = json.dumps(raw, ensure_ascii=False)
+
+    invoice.updated_at = utc_now()
+
+    # Re-classify
+    from app.services.fiscal_classifier import fiscal_classifier
+    new_status, reasons = fiscal_classifier.classify(invoice)
+    invoice.fiscal_status = new_status
+
+    ctx.db.commit()
+    ctx.db.refresh(invoice)
+
+    return {
+        "status": "ok",
+        "invoice_id": str(invoice.id),
+        "fiscal_status": new_status,
+        "reasons": reasons,
+    }
+
+
+@router.patch("/conciliate/{invoice_id}/defer")
+async def dgii_conciliate_defer(
+    invoice_id: str,
+    body: DgiiDeferRequest,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """
+    Diferir una factura a un período fiscal futuro.
+    fiscal_status → 'deferred', fiscal_period_override → target_period.
+    """
+    invoice = invoice_repo.get_including_trashed(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+
+    if not re.match(r"^\d{6}$", body.target_period):
+        raise HTTPException(status_code=400, detail="target_period debe ser YYYYMM")
+
+    invoice.fiscal_status = "deferred"
+    invoice.fiscal_period_override = body.target_period
+    invoice.fiscal_exclusion_reason = None
+    invoice.updated_at = utc_now()
+    ctx.db.commit()
+
+    return {
+        "status": "ok",
+        "invoice_id": str(invoice.id),
+        "fiscal_status": "deferred",
+        "target_period": body.target_period,
+    }
+
+
+@router.patch("/conciliate/{invoice_id}/exclude")
+async def dgii_conciliate_exclude(
+    invoice_id: str,
+    body: DgiiExcludeRequest,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """
+    Marcar una factura como no deducible fiscalmente.
+    Se excluye permanentemente del 606.
+    """
+    invoice = invoice_repo.get_including_trashed(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+
+    invoice.fiscal_status = "non_deductible"
+    invoice.fiscal_exclusion_reason = body.reason or "No especificado"
+    invoice.fiscal_period_override = None
+    invoice.updated_at = utc_now()
+    ctx.db.commit()
+
+    return {
+        "status": "ok",
+        "invoice_id": str(invoice.id),
+        "fiscal_status": "non_deductible",
+        "exclusion_reason": invoice.fiscal_exclusion_reason,
+    }
+
+
+@router.post("/verify-ncf")
+async def dgii_verify_ncf(
+    body: DgiiVerifyNcfRequest,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """
+    Verifica NCFs contra el portal público de la DGII (consulta viva).
+    Ejecuta on-demand desde el panel de conciliación.
+    
+    Para cada factura:
+    - Si tiene dgii_security_code (e-CF): valida usando RNC + e-NCF + monto + código de seguridad
+    - Si no (física): consulta el NCF en ncf.aspx de la DGII
+    - Actualiza dgii_validation_status según el resultado
+    - Re-clasifica fiscal_status
+    """
+    from app.services.dgii_scraper import dgii_scraper
+    from app.services.dgii_validation import dgii_validation_service
+
+    invoices = invoice_repo.list_by_ids(ctx.db, body.invoice_ids, ctx.tenant_id, ctx.org_id)
+    if not invoices:
+        raise HTTPException(status_code=404, detail="No se encontraron facturas")
+
+    results = []
+    for inv in invoices:
+        ncf = (inv.invoice_number or "").strip()
+        rnc = (inv.vendor_tax_id or "").strip()
+        security_code = (inv.dgii_security_code or "").strip()
+        total_amount = inv.total_amount
+
+        # Extract QR first if we are missing any of: NCF, RNC, or security code (e-CF)
+        is_electronic_by_ncf = ncf.upper().startswith("E")
+        needs_qr = not ncf or not rnc or (is_electronic_by_ncf and not security_code)
+
+        if needs_qr and inv.file_path:
+            qr_data = await _extract_qr_from_invoice_image(inv.file_path)
+            if qr_data:
+                if qr_data.get("codigo_seguridad"):
+                    security_code = qr_data.get("codigo_seguridad")
+                if qr_data.get("rnc_emisor"):
+                    rnc = qr_data.get("rnc_emisor")
+                if qr_data.get("encf"):
+                    ncf = qr_data.get("encf")
+                if not total_amount or total_amount == 0:
+                    total_amount = qr_data.get("monto_total")
+
+        if not ncf or not rnc:
+            results.append({
+                "invoice_id": str(inv.id),
+                "ncf": ncf,
+                "status": "skipped",
+                "reason": "Factura sin NCF o RNC. Sube un archivo con el QR visible.",
+            })
+            continue
+
+        # e-CF: use security code validation (needs RNC + e-NCF + amount + security code)
+        is_ecf = str(ncf).strip().upper().startswith("E")
+        if is_ecf:
+            if not security_code or not total_amount:
+                results.append({
+                    "invoice_id": str(inv.id),
+                    "ncf": ncf,
+                    "status": "error",
+                    "reason": "Comprobante electrónico (e-CF) requiere Código de Seguridad y Monto Total.",
+                })
+                continue
+
+            ecf_result = await dgii_validation_service.validate_ecf_from_data(
+                rnc_emisor=rnc,
+                encf=ncf,
+                monto_total=total_amount,
+                codigo_seguridad=security_code,
+            )
+            if ecf_result.status == "error":
+                results.append({
+                    "invoice_id": str(inv.id),
+                    "ncf": ncf,
+                    "status": "error",
+                    "razon_social": ecf_result.razon_social,
+                    "tipo_comprobante": None,
+                    "estado_dgii": ecf_result.estado_dgii,
+                    "vigencia": None,
+                    "reason": ecf_result.error,
+                })
+                continue
+
+            # Persist security code and other fields if successfully verified
+            if not inv.dgii_security_code and security_code:
+                inv.dgii_security_code = security_code
+            if total_amount and not inv.total_amount:
+                inv.total_amount = total_amount
+            if rnc and inv.vendor_tax_id != rnc:
+                inv.vendor_tax_id = rnc
+            if ncf and inv.invoice_number != ncf:
+                inv.invoice_number = ncf
+            inv.is_electronic = True
+
+            inv.dgii_validation_status = ecf_result.status
+            inv.dgii_validation_detail = json.dumps({
+                "razon_social": ecf_result.razon_social,
+                "tipo_comprobante": None,
+                "estado": ecf_result.estado_dgii,
+                "verified_by": "ecf_validation",
+            }, ensure_ascii=False)
+            
+            if ecf_result.status in ("accepted", "registered"):
+                inv.fiscal_status = "valid"
+            else:
+                from app.services.fiscal_classifier import fiscal_classifier
+                new_status, _ = fiscal_classifier.classify(inv)
+                inv.fiscal_status = new_status
+
+            inv.dgii_validation_date = utc_now()
+            inv.updated_at = utc_now()
+
+            results.append({
+                "invoice_id": str(inv.id),
+                "ncf": ncf,
+                "status": ecf_result.status,
+                "razon_social": ecf_result.razon_social,
+                "tipo_comprobante": None,
+                "estado_dgii": ecf_result.estado_dgii,
+                "vigencia": None,
+            })
+            continue
+
+        # Physical invoice: use NCF scraper (RNC + NCF only)
+        result = await dgii_scraper.consultar_ncf(rnc, ncf)
+
+        if result.blocked:
+            results.append({
+                "invoice_id": str(inv.id),
+                "ncf": ncf,
+                "status": "blocked",
+                "reason": "DGII bloqueó la solicitud temporalmente",
+            })
+            continue
+
+        if result.found:
+            inv.dgii_validation_status = "accepted"
+            inv.fiscal_status = "valid"
+            inv.dgii_validation_detail = json.dumps({
+                "razon_social": result.razon_social,
+                "tipo_comprobante": result.tipo_comprobante,
+                "estado": result.estado,
+                "vigencia": result.vigencia,
+                "verified_by": "ncf_scraper",
+            }, ensure_ascii=False)
+        else:
+            inv.dgii_validation_status = "not_found"
+            from app.services.fiscal_classifier import fiscal_classifier
+            new_status, _ = fiscal_classifier.classify(inv)
+            inv.fiscal_status = new_status
+
+        # Update RNC & NCF if modified by QR
+        if rnc and inv.vendor_tax_id != rnc:
+            inv.vendor_tax_id = rnc
+        if ncf and inv.invoice_number != ncf:
+            inv.invoice_number = ncf
+        if not inv.dgii_security_code and security_code:
+            inv.dgii_security_code = security_code
+            inv.is_electronic = True
+
+        inv.dgii_validation_date = utc_now()
+        inv.updated_at = utc_now()
+
+        results.append({
+            "invoice_id": str(inv.id),
+            "ncf": ncf,
+            "status": "found" if result.found else "not_found",
+            "razon_social": result.razon_social,
+            "tipo_comprobante": result.tipo_comprobante,
+            "estado_dgii": result.estado,
+            "vigencia": result.vigencia,
+        })
+
+    ctx.db.commit()
+
+    return {
+        "results": results,
+        "total": len(results),
+        "found": sum(1 for r in results if r.get("status") in ("found", "accepted", "registered")),
+        "not_found": sum(1 for r in results if r.get("status") in ("not_found", "rejected")),
+    }
+
+
+def _suggested_actions(fiscal_status: str) -> List[str]:
+    mapping = {
+        "invalid": ["edit", "defer", "mark_non_deductible"],
+        "pending_review": ["edit", "defer", "mark_non_deductible"],
+        "valid": [],
+        "deferred": [],
+        "non_deductible": [],
+    }
+    return mapping.get(fiscal_status, ["edit"])
 
 
 def _build_auto_generate_message(new_count: int, past_count: int, fixes: dict) -> str:
@@ -2138,7 +2822,7 @@ def _compute_pending_summary(ctx: TenantContext) -> dict:
         query = ctx.db.query(Invoice).filter(
             Invoice.tenant_id == ctx.tenant_id,
             Invoice.organization_id == ctx.org_id,
-            Invoice.is_electronic.is_(False),
+            Invoice.status != "draft",
         )
 
         if trans_type:
@@ -2213,7 +2897,6 @@ def _query_voided_invoices(ctx, date_from, date_to, body: DgiiExportRequest):
         Invoice.organization_id == ctx.org_id,
         Invoice.cancelled_at.isnot(None),
         Invoice.transaction_type == "income",
-        Invoice.is_electronic.is_(False),
     )
     if date_from:
         query = query.filter(Invoice.cancelled_at >= date_from)
@@ -2292,6 +2975,10 @@ def _invoice_preview(
     # Extract raw DGII fields for inline editing
     dgii_fields = _extract_raw_dgii_fields(inv, raw_cache)
 
+    file_url = None
+    if inv.file_path:
+        file_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{inv.file_path.lstrip('/')}"
+
     return {
         "id": str(inv.id),
         "vendor_name": inv.vendor_name or "",
@@ -2303,6 +2990,8 @@ def _invoice_preview(
         "goods_services_type": inv.goods_services_type or "",
         "category": inv.category or "",
         "source_type": inv.source_type or "",
+        "file_path": inv.file_path or "",
+        "file_url": file_url,
         "validation_status": v["status"],
         "validation_errors": v["errors"],
         "validation_warnings": v["warnings"],
@@ -2310,4 +2999,70 @@ def _invoice_preview(
         "reporting_state": reporting_state,
         "reporting_note": reporting_note,
         "dgii_fields": dgii_fields,
+        "dgii_validation_status": inv.dgii_validation_status or "unchecked",
+        "dgii_security_code": inv.dgii_security_code or "",
     }
+
+
+async def _extract_qr_from_invoice_image(file_path: str) -> Optional[Dict[str, Any]]:
+    """Download invoice file from Supabase storage and try to extract QR data.
+    
+    Supports parsing hyperlinks and plain-text URLs from PDF documents
+    as well as decoding QR codes from image data.
+    """
+    from app.services.dgii_validation import DgiiValidationService
+
+    try:
+        data = download_file(file_path)
+        if not data:
+            logger.warning("Could not download invoice file: %s", file_path)
+            return None
+
+        # If it is a PDF, parse hyperlinks and text links to extract DGII ConsultaTimbreFC URLs
+        if file_path.lower().endswith(".pdf"):
+            import io
+            import PyPDF2
+            
+            try:
+                reader = PyPDF2.PdfReader(io.BytesIO(data))
+                for page in reader.pages:
+                    # 1. Search page text for DGII validation URL pattern
+                    text = page.extract_text() or ""
+                    url_matches = re.findall(r'https?://fc\.dgii\.gov\.do/ecf/ConsultaTimbreFC[^\s"\'><]+', text)
+                    for url in url_matches:
+                        parsed = DgiiValidationService.parse_qr_url(url)
+                        if parsed:
+                            logger.info("QR URL extracted from PDF text: %s", file_path)
+                            return parsed.to_dict()
+                    
+                    # 2. Search PDF annotation links (clickable hotspots)
+                    if "/Annots" in page:
+                        annots = page["/Annots"]
+                        for annot in annots:
+                            annot_obj = annot.get_object()
+                            if "/A" in annot_obj and "/URI" in annot_obj["/A"]:
+                                uri = annot_obj["/A"]["/URI"]
+                                if "ConsultaTimbreFC" in uri:
+                                    parsed = DgiiValidationService.parse_qr_url(uri)
+                                    if parsed:
+                                        logger.info("QR URL extracted from PDF links: %s", file_path)
+                                        return parsed.to_dict()
+            except Exception as pdf_err:
+                logger.error("Failed to parse PDF links/text for QR extraction: %s", pdf_err)
+
+        # Use image QR decoding strategy (either image format or fallback for PDFs)
+        qr_results = DgiiValidationService.detect_qr_codes_bytes(data)
+        if not qr_results:
+            logger.info("No QR code found in file bytes: %s", file_path)
+            return None
+
+        for qr in qr_results:
+            parsed = qr.get("parsed")
+            if parsed:
+                logger.info("QR extracted from image bytes: %s", file_path)
+                return parsed
+
+        return None
+    except Exception as e:
+        logger.error("QR extraction failed for %s: %s", file_path, e)
+        return None
