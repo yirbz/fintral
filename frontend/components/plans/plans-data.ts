@@ -36,22 +36,23 @@ export const PLAN_TIERS: PlanTier[] = [
     id: "inicial",
     name: "Inicial",
     description:
-      "Perfecto para independientes, contadores y pequeños negocios.",
+      "Ideal para profesionales independientes y freelancers que buscan automatizar contabilidad. Permite facturar e-CF agregando organizaciones adicionales.",
     features: [
       {
-        text: "100 facturas al mes",
+        text: "Contabilidad, Reportes y e-CF",
         included: true,
-        subtext: "Límite renovable mensualmente",
+        subtext:
+          "Emisión de e-CF disponible mediante organizaciones adicionales",
       },
       {
-        text: "1 usuario",
+        text: "50 documentos OCR al mes",
         included: true,
-        subtext: "Acceso individual seguro",
+        subtext: "Extracción digital de facturas de compra",
       },
       {
-        text: "OCR básico",
+        text: "Usuarios Ilimitados",
         included: true,
-        subtext: "Extracción digital de PDFs e imágenes",
+        subtext: "Invita a tu equipo sin costo extra",
       },
       {
         text: "Validación NCF contra DGII",
@@ -59,9 +60,9 @@ export const PLAN_TIERS: PlanTier[] = [
         subtext: "Consulta en línea con servidores DGII",
       },
       {
-        text: "Reporte 606 manual",
+        text: "Reporte 606 automático",
         included: true,
-        subtext: "Exportación a plantilla oficial de DGII",
+        subtext: "Generación automática desde compras",
       },
       {
         text: "Soporte por correo electrónico",
@@ -69,49 +70,48 @@ export const PLAN_TIERS: PlanTier[] = [
         subtext: "Atención técnica en menos de 24h",
       },
       {
-        text: "WhatsApp Business Ingestion",
-        included: false,
-        subtext: "Subida de facturas vía chat",
+        text: "Agregar Org. Estándar",
+        included: true,
+        subtext: "+RD$ 600/mes por empresa extra",
+      },
+      {
+        text: "Agregar Org. Emisora e-CF",
+        included: true,
+        subtext: "+RD$ 1,500/mes por empresa extra",
       },
       {
         text: "API y Webhooks",
         included: false,
-        subtext: "Integración con otros sistemas",
-      },
-      {
-        text: "Integración con ERP",
-        included: false,
-        subtext: "QuickBooks, SAP y Dynamics",
       },
     ],
-    prices: { "1m": 1500, "3m": 4050, "12m": 14400 },
+    prices: { "1m": 999, "3m": 2697, "12m": 9590 }, // $17 USD/mo (~999 RD$)
   },
   {
     id: "profesional",
     name: "Profesional",
     description:
-      "Para equipos en crecimiento que necesitan automatización e inteligencia.",
+      "Para PyMEs en crecimiento que necesitan emitir facturas electrónicas (e-CF) válidas ante la DGII.",
     popular: true,
     features: [
       {
-        text: "500 facturas al mes",
+        text: "Emisión e-CF DGII",
         included: true,
-        subtext: "Perfecto para negocios estables",
+        subtext: "Certificación e integración completa",
       },
       {
-        text: "3 usuarios",
+        text: "500 facturas electrónicas/mes",
         included: true,
-        subtext: "Espacios de trabajo colaborativos",
+        subtext: "Excedente a solo RD$ 9.00 / e-CF",
       },
       {
-        text: "OCR avanzado + IA",
+        text: "500 documentos OCR al mes",
         included: true,
-        subtext: "Procesamiento inteligente con visión artificial",
+        subtext: "Procesamiento automático inteligente con IA",
       },
       {
-        text: "Validación NCF contra DGII",
+        text: "Usuarios Ilimitados",
         included: true,
-        subtext: "Consulta automática en tiempo real",
+        subtext: "Acceso colaborativo compartido",
       },
       {
         text: "Reporte 606 automático",
@@ -119,81 +119,81 @@ export const PLAN_TIERS: PlanTier[] = [
         subtext: "Generación instantánea sin digitar",
       },
       {
-        text: "Soporte prioritario",
+        text: "WhatsApp Ingestion",
         included: true,
-        subtext: "Atención rápida por chat y email",
-      },
-      {
-        text: "WhatsApp Business Ingestion",
-        included: true,
-        subtext: "Tus clientes suben facturas vía chat",
+        subtext: "Envío de facturas por chat",
       },
       {
         text: "API y Webhooks",
         included: true,
-        subtext: "Automatización e integración de datos",
+        subtext: "Integración de sistemas externos",
       },
       {
-        text: "Integración con ERP",
-        included: false,
-        subtext: "QuickBooks, SAP y Dynamics",
+        text: "Agregar Org. Estándar",
+        included: true,
+        subtext: "+RD$ 600/mes por empresa extra",
+      },
+      {
+        text: "Agregar Org. Emisora e-CF",
+        included: true,
+        subtext: "+RD$ 1,500/mes por empresa extra",
       },
     ],
-    highlightedFeature: "Popular",
-    prices: { "1m": 3500, "3m": 9450, "12m": 33600 },
+    highlightedFeature: "Recomendado",
+    prices: { "1m": 2999, "3m": 8097, "12m": 28790 }, // $50 USD/mo (~2999 RD$)
   },
   {
-    id: "empresarial",
-    name: "Empresarial",
+    id: "despacho",
+    name: "Despacho Contable",
     description:
-      "Para grandes empresas que requieren procesar un volumen masivo y soporte dedicado.",
+      "Para contadores independientes y firmas que gestionan múltiples clientes de forma centralizada.",
     features: [
       {
-        text: "Facturas ilimitadas",
+        text: "Dashboard Multi-Entidad",
         included: true,
-        subtext: "Procesa sin límites de volumen",
+        subtext: "Monitorea toda tu cartera en un solo lugar",
       },
       {
-        text: "Usuarios ilimitados",
+        text: "Usuarios Ilimitados",
         included: true,
-        subtext: "Gestión avanzada de roles y permisos",
+        subtext: "Para staff de la firma y clientes",
       },
       {
-        text: "OCR + AI Vision completo",
+        text: "1,000 documentos OCR al mes",
         included: true,
-        subtext: "XML de e-CF, recibos arrugados y más",
+        subtext: "Pool de procesamiento compartido",
       },
       {
-        text: "Validación NCF contra DGII",
+        text: "500 e-CF en org. principal",
         included: true,
-        subtext: "Monitoreo continuo de validez fiscal",
+        subtext: "Para la facturación de tu firma",
       },
       {
         text: "Reportes DGII (606/607/608)",
         included: true,
-        subtext: "Formatos listos para la oficina virtual",
+        subtext: "Formatos automáticos listos para enviar",
       },
       {
-        text: "Soporte dedicado 24/7",
+        text: "Agregar Org. Estándar",
         included: true,
-        subtext: "Ejecutivo de cuenta exclusivo para tu empresa",
+        subtext: "+RD$ 600/mes por empresa extra",
       },
       {
-        text: "WhatsApp Business Ingestion",
+        text: "Agregar Org. Emisora e-CF",
         included: true,
-        subtext: "Canal multi-agente y automatizado",
+        subtext: "+RD$ 1,500/mes por empresa extra",
       },
       {
-        text: "API y Webhooks",
+        text: "Soporte prioritario por WhatsApp",
         included: true,
-        subtext: "Acceso dedicado de alta velocidad",
+        subtext: "Respuesta garantizada",
       },
       {
-        text: "Integración con ERP",
+        text: "Integración con ERPs",
         included: true,
-        subtext: "Conexión bidireccional nativa con ERPs",
+        subtext: "QuickBooks, SAP y Odoo",
       },
     ],
-    prices: { "1m": 8000, "3m": 21600, "12m": 76800 },
+    prices: { "1m": 7999, "3m": 21597, "12m": 76790 }, // $135 USD/mo (~7999 RD$)
   },
 ];

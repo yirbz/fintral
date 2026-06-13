@@ -76,34 +76,35 @@ export default function PlansClient() {
                   <th className="text-left py-4 px-6 text-[#64748d] font-semibold text-[11px] uppercase tracking-[0.1em]">Característica</th>
                   <th className="text-center py-4 px-6 text-[#0d253d] font-medium">Inicial</th>
                   <th className="text-center py-4 px-6 text-[#0EA5E9] font-semibold bg-[#0EA5E9]/[0.03] border-x border-[#e3e8ee]/40">Profesional</th>
-                  <th className="text-center py-4 px-6 text-[#0d253d] font-medium">Empresarial</th>
+                  <th className="text-center py-4 px-6 text-[#0d253d] font-medium">Despacho Contable</th>
                 </tr>
               </thead>
               <tbody>
                 {[
-                  ["Facturas al mes", "100", "500", "Ilimitadas"],
-                  ["Usuarios", "1", "3", "Ilimitados"],
-                  ["OCR básico", "Sí", "Sí", "Sí"],
-                  ["OCR avanzado + IA", "—", "Sí", "Sí"],
-                  ["AI Vision completo", "—", "—", "Sí"],
+                  ["Emisión e-CF DGII", "Disponible vía Org. Extra", "500 e-CF / mes incl.", "500 e-CF / mes incl. (Org. Principal)"],
+                  ["Costo e-CF excedente", "—", "RD$ 9.00 / e-CF", "RD$ 9.00 / e-CF"],
+                  ["Documentos OCR / mes", "50 / mes", "500 / mes (con IA)", "1,000 / mes (Pool de la firma)"],
+                  ["Usuarios autorizados", "Ilimitados (Compartidos)", "Ilimitados (Compartidos)", "Ilimitados (Compartidos)"],
+                  ["Dashboard Multi-Entidad", "—", "—", "Sí (Firma + Clientes)"],
+                  ["Org. Estándar Adicional", "+RD$ 600 / mes", "+RD$ 600 / mes", "+RD$ 600 / mes"],
+                  ["Org. Emisora e-CF Adicional", "+RD$ 1,500 / mes", "+RD$ 1,500 / mes", "+RD$ 1,500 / mes"],
                   ["Validación NCF DGII", "Sí", "Sí", "Sí"],
-                  ["Reporte 606 manual", "Sí", "—", "—"],
-                  ["Reporte 606 automático", "—", "Sí", "Sí"],
-                  ["Reportes 607/608", "—", "—", "Sí"],
+                  ["Reporte 606", "Automático (IA)", "Automático (IA)", "Automático (IA)"],
+                  ["Reportes 607 / 608", "—", "—", "Sí (Automáticos)"],
                   ["WhatsApp Business", "—", "Sí", "Sí"],
                   ["API y Webhooks", "—", "Sí", "Sí"],
-                  ["Integración ERP", "—", "—", "Sí"],
-                  ["Soporte", "Email", "Prioritario", "Dedicado 24/7"],
+                  ["Integración ERP (QuickBooks/Odoo)", "—", "—", "Sí"],
+                  ["Soporte técnico", "Email", "Prioritario (Email/Chat)", "Dedicado 24/7 + WhatsApp"],
                 ].map(([feature, basic, pro, enterprise], i) => (
                   <tr key={i} className="border-b border-[#e3e8ee]/60 hover:bg-[#f6f9fc]/20 transition-colors">
                     <td className="py-4 px-6 text-[#273951] font-light">{feature}</td>
                     {[basic, pro, enterprise].map((val, j) => (
                       <td key={j} className={cn(
-                        "text-center py-4 px-6 font-light",
+                        "text-center py-4 px-6 font-light text-[13px]",
                         j === 1 && "bg-[#0EA5E9]/[0.03] border-x border-[#e3e8ee]/40 text-[#0EA5E9] font-normal",
                         val === "Sí" ? "text-[#0EA5E9]" : val === "—" ? "text-[#a8c3de]" : "text-[#0d253d]",
-                        // Apply tabular numerals to numeric metrics
-                        (val.match(/^\d+$/) || val === "Ilimitadas" || val === "Ilimitados") && "tabular-nums font-medium"
+                        // Apply tabular numerals to numeric metrics or pricing
+                        (val.match(/\d/) || val.includes("Ilimitado") || val.includes("Adicional") || val.includes("excedente")) && "tabular-nums font-medium"
                       )}>
                         {val === "Sí" ? <Check className="size-4 mx-auto text-[#0EA5E9]" /> : val}
                       </td>

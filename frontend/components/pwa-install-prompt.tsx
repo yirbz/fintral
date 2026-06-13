@@ -185,7 +185,7 @@ export function PwaInstallPrompt() {
                 </span>
                 <p className="leading-relaxed text-muted-foreground">
                   Desplázate hacia abajo y selecciona{" "}
-                  <strong className="text-foreground">"Agregar a pantalla de inicio"</strong>{" "}
+                  <strong className="text-foreground">&quot;Agregar a pantalla de inicio&quot;</strong>{" "}
                   <Download className="inline-block mx-1 h-4 w-4 text-foreground" />.
                 </p>
               </div>
@@ -196,7 +196,7 @@ export function PwaInstallPrompt() {
                   3
                 </span>
                 <p className="leading-relaxed text-muted-foreground font-medium">
-                  Confirma tocando <strong className="text-foreground">"Agregar"</strong> en la esquina superior derecha. ¡Listo!
+                  Confirma tocando <strong className="text-foreground">&quot;Agregar&quot;</strong> en la esquina superior derecha. ¡Listo!
                 </p>
               </div>
             </div>

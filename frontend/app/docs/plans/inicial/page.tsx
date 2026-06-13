@@ -1,11 +1,11 @@
 import { CheckCircle2 } from "lucide-react"
 
-export default function ProfesionalPlanPage() {
+export default function InicialPlanPage() {
   return (
     <article className="animate-fade-in space-y-8">
       <div className="border-b border-[#e3e8ee] pb-6">
         <h1 className="text-[28px] sm:text-[34px] font-light leading-tight tracking-tight text-[#0d253d] mb-2 font-brand">
-          Detalles del Plan Profesional
+          Detalles del Plan Inicial
         </h1>
         <p className="text-[13px] text-[#64748d]">
           Última actualización: Junio 2026 · Planes Comerciales Fintral
@@ -13,7 +13,7 @@ export default function ProfesionalPlanPage() {
       </div>
 
       <p className="text-[15px] leading-relaxed font-light text-[#273951]">
-        El plan <strong>Profesional</strong> está diseñado para equipos en crecimiento y contadores independientes que necesitan automatización real en su gestión fiscal sin intervención manual constante.
+        El plan <strong>Inicial</strong> está concebido para profesionales independientes, freelancers y pequeños negocios que inicialmente no requieren emitir comprobantes fiscales electrónicos (e-CF) en su organización base, pero desean automatizar su contabilidad, validar NCFs y generar reportes fiscales de compras automáticamente. Permite habilitar facturación electrónica de forma modular agregando organizaciones adicionales facturadoras.
       </p>
 
       {/* ── PRECIOS ── */}
@@ -32,21 +32,21 @@ export default function ProfesionalPlanPage() {
             <tbody>
               <tr className="border-b border-[#e3e8ee]/60 hover:bg-[#f6f9fc]/10">
                 <td className="p-4 font-medium">1 Mes</td>
-                <td className="p-4 text-right">RD$ 2,999.00</td>
+                <td className="p-4 text-right">RD$ 999.00</td>
                 <td className="p-4 text-right text-[#a8c3de]">—</td>
-                <td className="p-4 text-right font-medium">RD$ 2,999.00</td>
+                <td className="p-4 text-right font-medium">RD$ 999.00</td>
               </tr>
               <tr className="border-b border-[#e3e8ee]/60 hover:bg-[#f6f9fc]/10">
                 <td className="p-4 font-medium">3 Meses (Trimestral)</td>
-                <td className="p-4 text-right">RD$ 8,097.00</td>
+                <td className="p-4 text-right">RD$ 2,697.00</td>
                 <td className="p-4 text-right text-emerald-500 font-medium">10%</td>
-                <td className="p-4 text-right font-medium text-[#0EA5E9]">RD$ 2,699.00</td>
+                <td className="p-4 text-right font-medium text-[#0EA5E9]">RD$ 899.00</td>
               </tr>
               <tr className="hover:bg-[#f6f9fc]/10">
                 <td className="p-4 font-medium">12 Meses (Anual)</td>
-                <td className="p-4 text-right">RD$ 28,790.00</td>
+                <td className="p-4 text-right">RD$ 9,590.00</td>
                 <td className="p-4 text-right text-emerald-500 font-medium">20%</td>
-                <td className="p-4 text-right font-medium text-[#0EA5E9]">RD$ 2,399.16</td>
+                <td className="p-4 text-right font-medium text-[#0EA5E9]">RD$ 799.16</td>
               </tr>
             </tbody>
           </table>
@@ -61,15 +61,14 @@ export default function ProfesionalPlanPage() {
         <h2 className="text-[18px] font-semibold tracking-tight text-[#0d253d]">Características Incluidas</h2>
         <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-0 list-none">
           {[
-            "1 Organización Emisora e-CF incluida",
-            "500 facturas electrónicas (e-CF) mensuales",
-            "500 documentos OCR al mes",
-            "Usuarios ilimitados para toda la organización",
-            "Validación NCF contra DGII",
+            "Contabilidad y Reportes Financieros",
+            "50 documentos OCR al mes",
+            "Usuarios ilimitados para la organización",
+            "Validación NCF contra servidores de la DGII",
             "Reporte 606 automático y estructurado",
-            "Integración de facturación por WhatsApp",
-            "Acceso completo a API y Webhooks",
-            "Soporte prioritario por email y chat (máx. 4h)"
+            "Exportación directa a plantilla DGII",
+            "Soporte técnico por correo electrónico (máx. 24h)",
+            "Extensible con Organizaciones Adicionales"
           ].map((feat, i) => (
             <li key={i} className="flex items-center gap-2 text-[13px] text-[#273951]">
               <CheckCircle2 className="size-4 text-[#0EA5E9] shrink-0" />
@@ -85,30 +84,30 @@ export default function ProfesionalPlanPage() {
         
         <div className="space-y-4">
           <div>
-            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">1. Alcance y Límites de Consumo</h3>
+            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">1. Emisión de Facturación Electrónica (e-CF)</h3>
             <p>
-              El cupo mensual incluye hasta <strong>500 facturas/mes</strong> en la organización principal. El excedente se factura mensualmente a razón de **RD$ 9.00** ($0.15 USD) por comprobante e-CF emitido. Los folios de facturas no consumidas expiran al finalizar el ciclo de facturación mensual y no son acumulables.
+              La <strong>organización principal (base)</strong> incluida en el Plan Inicial no permite la emisión de comprobantes fiscales electrónicos (e-CF). Sin embargo, el cliente puede facturar electrónicamente bajo este mismo plan adquiriendo de forma modular una o más <strong>Organizaciones Facturadoras e-CF adicionales (+RD$ 1,500/mes)</strong>, sin verse obligado a migrar al Plan Profesional.
             </p>
           </div>
 
           <div>
-            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">2. Capacidad de Extensión Modular</h3>
+            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">2. Procesamiento de Documentos (OCR)</h3>
             <p>
-              El cliente puede añadir organizaciones estándar (+RD$ 600/mes) o facturadoras adicionales (+RD$ 1,500/mes) bajo la misma suscripción base, permitiendo gestionar múltiples entidades jurídicas de forma centralizada.
+              Incluye la extracción inteligente de datos para hasta <strong>50 documentos de compra/gastos al mes</strong>. El procesamiento excedente no está disponible en este plan base; requiere actualizar a un plan superior para disponer de una cuota de OCR mayor.
             </p>
           </div>
 
           <div>
-            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">3. Usuarios Ilimitados y Consumo</h3>
+            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">3. Usuarios Ilimitados</h3>
             <p>
-              No existen límites en el número de usuarios que pueden agregarse a la organización. Sin embargo, todos los usuarios autorizados consumen del mismo pool compartido de facturas, OCR y cuotas de consulta de IA (1,000 consultas de IA mensuales incluidas). Exceder el cupo de IA requerirá la compra de bloques adicionales (500 consultas por $10 USD).
+              No hay límite en el número de miembros del equipo o asesores externos que puede invitar. Sin embargo, todos los usuarios autorizados comparten la cuota única de 50 documentos OCR mensuales de la organización.
             </p>
           </div>
 
           <div>
-            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">4. Exclusiones de Responsabilidad Fiscal</h3>
+            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">4. Generación Automática del Reporte 606</h3>
             <p>
-              Fintral opera estrictamente como herramienta de software intermediaria para la transmisión y estructuración de datos. Es responsabilidad exclusiva del cliente fiscalizar y auditar la exactitud contable e impositiva de sus emisiones ante la DGII.
+              Las facturas digitalizadas y cargadas mediante OCR se procesan y clasifican automáticamente en la plataforma para pre-llenar y generar el formato 606 sin digitación manual. Es mandatorio que el usuario valide la exactitud de los gastos clasificados antes de su remisión final a la DGII.
             </p>
           </div>
         </div>
