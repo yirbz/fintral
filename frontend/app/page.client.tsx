@@ -16,6 +16,7 @@ import { BillingMetricsCard } from "@/components/landing/BillingMetricsCard";
 import { IntegrationsGrid } from "@/components/landing/IntegrationsGrid";
 import { CountUp } from "@/components/landing/CountUp";
 import { PricingSection } from "@/components/plans/PricingSection";
+import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
 import { useScrollReveal } from "@/hooks/useScrollReveal";
 
 function StickyNav() {
@@ -195,8 +196,15 @@ function RevealStagger({
 }
 
 export default function LandingPage() {
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.matchMedia("(display-mode: standalone)").matches) {
+      window.location.replace("/login");
+    }
+  }, []);
+
   return (
     <main className="relative min-h-screen bg-white font-sans text-[#0d253d] selection:bg-[#0EA5E9]/20 selection:text-[#0d253d]">
+      <PwaInstallPrompt />
       <StickyNav />
       {/*
         HERO SECTION
