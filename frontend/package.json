@@ -55,6 +55,11 @@
     "vaul": "^1.1.2",
     "zod": "^4.4.3"
   },
+  "pnpm": {
+    "patchedDependencies": {
+      "dgii-utils@2.0.0": "patches/dgii-utils@2.0.0.patch"
+    }
+  },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.14",

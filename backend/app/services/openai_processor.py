@@ -12,6 +12,7 @@ from typing import Optional
 from app.services.cost_control import CostControlService
 from app.config import OPENAI_API_KEY, AI_MODEL_NAME, SUPABASE_URL
 from app.services.llm_processor import OLLAMA_HOST, OLLAMA_MODEL
+from app.services.llm_providers import LLMProviderFactory
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 GEMINI_MODEL = AI_MODEL_NAME
@@ -33,13 +34,16 @@ class OpenAIInvoiceProcessor:
         elif self.api_key.lower() in ("ollama", "local"):
             self.client = None
             logger.info("Using Ollama local LLM: model=%s host=%s", self.ollama_model, self.ollama_host)
-        elif self.api_key.startswith("AIza"):
+        elif self.api_key.startswith("AIza") or "gemini" in AI_MODEL_NAME.lower():
             self.client = None
             logger.info("Using Google Gemini for AI processing")
         elif self.api_key.startswith("demo"):
             self.client = None
             logger.warning("Demo API key detected — limited functionality")
         else:
+            # For OpenAI keys (or unknown key format), try to create the client.
+            # If it fails (e.g. the key is a Gemini key with a new prefix), the
+            # fallback chain in process_invoice will redirect to Gemini.
             try:
                 self.client = openai.OpenAI(api_key=self.api_key)
                 logger.info("OpenAI API key configured successfully")
@@ -159,9 +163,10 @@ class OpenAIInvoiceProcessor:
         if not api_key:
             print("❌ API key missing - returning error")
             return {"error": "API key not configured. Please set it in Settings."}
-        
-        is_ollama = api_key.lower() in ("ollama", "local")
-        is_gemini = api_key.startswith("AIza")
+
+        provider_type = LLMProviderFactory.detect_provider_type(api_key, AI_MODEL_NAME)
+        is_ollama = provider_type == "ollama"
+        is_gemini = provider_type == "gemini"
         if not is_gemini and not is_ollama:
             client = self._get_client(org_id=org_id, user_id=user_id)
             if not client:
@@ -798,9 +803,10 @@ class OpenAIInvoiceProcessor:
         if not api_key:
             print("❌ API key missing - returning error")
             return {"error": "API key not configured. Please set it in Settings."}
-        
-        is_ollama = api_key.lower() in ("ollama", "local")
-        is_gemini = api_key.startswith("AIza")
+
+        provider_type = LLMProviderFactory.detect_provider_type(api_key, AI_MODEL_NAME)
+        is_ollama = provider_type == "ollama"
+        is_gemini = provider_type == "gemini"
         if not is_gemini and not is_ollama:
             client = self._get_client(org_id=org_id, user_id=user_id)
             if not client:
