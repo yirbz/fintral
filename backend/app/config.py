@@ -28,9 +28,7 @@ IS_DEVELOPMENT: bool = ENVIRONMENT == "DEVELOPMENT"
 # Server
 # ===========================================================================
 # TCP port the backend HTTP server binds to (uvicorn)
-BACKEND_PORT: int = int(os.getenv("BACKEND_PORT", os.getenv("PORT", "8000")))
-# Deprecated: use BACKEND_PORT instead
-_ = os.getenv("PORT")  # kept for backwards compat during migration
+BACKEND_PORT: int = int(os.getenv("PORT", os.getenv("BACKEND_PORT", "8000")))
 
 APP_JWT_SECRET_KEY: str = os.getenv("APP_JWT_SECRET_KEY", "")
 

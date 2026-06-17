@@ -46,17 +46,15 @@ COPY --chown=appuser:appuser . .
 
 USER appuser
 
-EXPOSE 8000
-
-ENV PORT=${BACKEND_PORT}
+EXPOSE ${BACKEND_PORT}
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=15s --retries=2 \
-    CMD python -c "import urllib.request, os; urllib.request.urlopen('http://localhost:' + os.environ.get('BACKEND_PORT', '8000') + '/', timeout=5)" || exit 1
+    CMD python -c "import urllib.request, os; urllib.request.urlopen('http://localhost:' + os.environ.get('PORT', os.environ.get('BACKEND_PORT', '8000')) + '/', timeout=5)" || exit 1
 
 ENTRYPOINT ["tini", "--"]
 CMD sh -c 'exec gunicorn main:app \
     --worker-class uvicorn.workers.UvicornWorker \
-    --bind "0.0.0.0:${BACKEND_PORT:-8000}" \
+    --bind "0.0.0.0:${PORT:-${BACKEND_PORT:-8000}}" \
     --workers "${WEB_CONCURRENCY:-1}" \
     --timeout 120 \
     --graceful-timeout 30 \
