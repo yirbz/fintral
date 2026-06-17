@@ -15,7 +15,7 @@ GOLDEN RULE: The LLM NEVER generates fiscal data.
 
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
@@ -27,11 +27,7 @@ from app.dependencies.tenant import TenantContext
 from app.models import (
     DgiiSubmission,
     Invoice,
-    InvoiceDgiiStatus,
     Notification,
-    Organization,
-    Tenant,
-    User,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,9 +63,17 @@ def register_tool(
 @register_tool(
     name="get_invoice_summary",
     description=(
-        "Obtiene un resumen de facturas para la organización: "
-        "cantidad total, monto total, desglose por tipo (income/expense) "
-        "y por estado de pago."
+        "Obtiene un resumen de TODAS las facturas REGISTRADAS en el sistema "
+        "(importadas por OCR, XML de proveedores —incluyendo e-CF de "
+        "proveedores—, carga manual) para la organización: cantidad total, "
+        "monto total, desglose por tipo (income/expense), cuántas son "
+        "electrónicas de proveedores y estado de pago. "
+        "Cuenta TODAS las facturas, estén archivadas o activas. "
+        "NO incluye e-CF emitidos por la propia organización a la DGII "
+        "(usa get_emitted_invoices para eso). "
+        "Funciona para CUALQUIER organización, incluso si no es emisora "
+        "electrónica. Esta es la herramienta por defecto para consultas "
+        "sobre facturas registradas, subidas, importadas, escaneadas o de proveedores."
     ),
     parameters={
         "type": "object",
@@ -90,7 +94,6 @@ def get_invoice_summary(
     query = db.query(Invoice).filter(
         Invoice.tenant_id == tenant_id,
         Invoice.organization_id == org_id,
-        Invoice.deleted_at.is_(None),
     )
 
     now = datetime.utcnow()
@@ -123,6 +126,21 @@ def get_invoice_summary(
         expense.with_entities(func.sum(Invoice.total_amount)).scalar() or 0.0
     )
 
+    # Count e-CF received FROM suppliers (electronic invoices the org imported).
+    # Excludes org-emitted e-CF (which have transaction_type='income' + source_type='billing').
+    supplier_ecf = query.filter(
+        Invoice.is_electronic.is_(True),
+        Invoice.ecf_type.isnot(None),
+        ~(
+            (Invoice.transaction_type == "income")
+            & (Invoice.source_type == "billing")
+        ),
+    )
+    supplier_ecf_count = supplier_ecf.count()
+    supplier_ecf_amount = (
+        supplier_ecf.with_entities(func.sum(Invoice.total_amount)).scalar() or 0.0
+    )
+
     # Pending payments
     pending = query.filter(
         Invoice.payment_status.in_(["pending", "overdue"])
@@ -143,6 +161,10 @@ def get_invoice_summary(
         "expense": {
             "count": expense_count,
             "amount": round(expense_amount, 2),
+        },
+        "supplier_ecf": {
+            "count": supplier_ecf_count,
+            "amount": round(supplier_ecf_amount, 2),
         },
         "pending_payments": {
             "count": pending_count,
@@ -772,9 +794,10 @@ def get_submission_status(
 @register_tool(
     name="get_invoice_status_overview",
     description=(
-        "Obtiene un resumen del estado de las facturas: "
+        "Obtiene un resumen del estado de TODAS las facturas: "
         "cuántas están draft, verified, voided; "
         "cuántas pendientes de pago, pagadas, vencidas. "
+        "Cuenta facturas archivadas y activas."
         "Responde a '¿Cómo están mis facturas?'."
     ),
     parameters={
@@ -790,7 +813,6 @@ def get_invoice_status_overview(
     base = db.query(Invoice).filter(
         Invoice.tenant_id == tenant_id,
         Invoice.organization_id == org_id,
-        Invoice.deleted_at.is_(None),
     )
 
     # By status (DGII workflow)
@@ -828,6 +850,78 @@ def get_invoice_status_overview(
     }
 
 
+# ── Tool: Emitted e-CF invoices ──────────────────────────────────────────
+
+
+@register_tool(
+    name="get_emitted_invoices",
+    description=(
+        "Obtiene la cantidad de facturas EMITIDAS por la organización "
+        "como VENDEDOR (tanto e-CF electrónicos como NCF físicos) "
+        "durante un período. Cuenta las facturas de venta que la "
+        "organización generó en su sistema de facturación (facturas de "
+        "crédito fiscal, facturas de consumo, notas de débito/crédito, "
+        "comprobantes físicos B01-B04). "
+        "NO incluye facturas de proveedores registradas en el sistema "
+        "(usa get_invoice_summary para eso). "
+        "Cuenta TODAS las emisiones, estén archivadas o activas. "
+        "Responde a preguntas como '¿Cuántas facturas emití este mes?' "
+        "o '¿Cuántos comprobantes he emitido?'."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "period": {
+                "type": "string",
+                "description": "Período: 'month' (este mes), 'quarter' (este trimestre), 'year' (este año), o 'all'",
+                "enum": ["month", "quarter", "year", "all"],
+            }
+        },
+        "required": [],
+    },
+)
+def get_emitted_invoices(
+    db: Session, tenant_id: UUID, org_id: UUID, period: str = "month"
+) -> dict[str, Any]:
+    """Returns count of e-CF invoices emitted to DGII.
+
+    Only counts invoices the org EMITTED as issuer/seller (created via
+    the emission pipeline, not imported from suppliers).
+    Differentiator: emitted invoices have transaction_type="income"
+    and source_type="billing" (set by the emission pipeline).
+    Counts ALL emissions regardless of archive/deleted status.
+    """
+    query = db.query(Invoice).filter(
+        Invoice.tenant_id == tenant_id,
+        Invoice.organization_id == org_id,
+        Invoice.transaction_type == "income",
+        Invoice.source_type == "billing",
+    )
+
+    now = datetime.utcnow()
+    if period == "month":
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        query = query.filter(Invoice.created_at >= start)
+    elif period == "quarter":
+        quarter_month = ((now.month - 1) // 3) * 3 + 1
+        start = now.replace(
+            month=quarter_month, day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+        query = query.filter(Invoice.created_at >= start)
+    elif period == "year":
+        start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        query = query.filter(Invoice.created_at >= start)
+
+    total_count = query.count()
+    total_amount = query.with_entities(func.sum(Invoice.total_amount)).scalar() or 0.0
+
+    return {
+        "period": period,
+        "total_count": total_count,
+        "total_amount": round(total_amount, 2),
+    }
+
+
 # ===========================================================================
 # AI Chat Service
 # ===========================================================================
@@ -843,11 +937,13 @@ CHAT_SYSTEM_PROMPT = """Eres un asistente fiscal especializado en Fintral, una p
 5. **Contexto multi-tenant.** El usuario pertenece a una organización específica. siempre habla en el contexto de SU organización.
 6. **Usa el nombre de la organización** cuando sea relevante para personalizar la respuesta.
 7. **Menciona las fechas** para que el usuario sepa que los datos son actuales.
+8. **Las facturas NUNCA se eliminan permanentemente.** Todas las facturas permanecen en el sistema. El archivo (is_deleted=True) es solo una vista: las facturas archivadas se cuentan igual que las activas. NO ignores facturas archivadas en los conteos.
 
 ## CAPACIDADES DISPONIBLES:
 
 Puedes responder preguntas sobre:
-- Resumen de facturas (ingresos vs gastos, cantidades, montos totales)
+- Facturas EMITIDAS por tu organización como vendedor (e-CF electrónicos + NCF físicos emitidos): cuántas, montos totales
+- Facturas subidas/registradas (importadas por OCR, XML, o manual — incluye e-CF de proveedores): resumen, ingresos vs gastos, cuántas son e-CF de proveedores
 - ITBIS: calcula ITBIS cobrado, pagado y neto a pagar o a favor
 - Pagos pendientes y vencidos (con antigüedad: 30, 60, 90+ días)
 - Proveedores con deuda pendiente
@@ -856,6 +952,34 @@ Puedes responder preguntas sobre:
 - Comparativa mensual (este mes vs mes anterior)
 - Estado general de facturas (draft, verified, voided, pending, paid, overdue)
 - Actividad reciente del sistema (últimas facturas y notificaciones)
+
+## DISTINCIÓN IMPORTANTE — NO ES AMBIGUA:
+
+El campo `is_electronic` NO distingue entre emitidas y recibidas.
+Un proveedor también puede emitir e-CF. La distinción real es:
+
+1. **FACTURAS EMITIDAS por la org** (org es VENDEDOR / emisor):
+   - Incluye TANTO e-CF electrónicos como NCF físicos de venta
+   - Preguntas con palabras CLAVE: "emití", "emitidas", "facturas de venta",
+     "comprobantes emitidos", "facturas de crédito fiscal", "e-CF enviados",
+     "cuántas facturas he hecho como emisor", "facturas que he facturado"
+   - → Usa SIEMPRE `get_emitted_invoices`
+
+2. **Facturas REGISTRADAS / SUBIDAS** (org es RECEPTOR / comprador):
+   - Preguntas con palabras CLAVE: "subí", "subidas", "importadas", "registradas",
+     "normales", "escaneadas", "cargué", "de proveedores", "de gastos",
+     "facturas en general", "cuántas tengo"
+   - → Usa SIEMPRE `get_invoice_summary`
+   - NOTA: get_invoice_summary incluye un campo `supplier_ecf` que cuenta los e-CF
+     recibidos de proveedores. Si preguntan por "facturas electrónicas" sin
+     especificar "emitidas", puedes usar get_invoice_summary y mencionar supplier_ecf.
+
+3. **Si la pregunta es ambigua** ("cuántas facturas electrónicas tengo?"):
+   - Puedes llamar a AMBAS herramientas y responder:
+     "Tienes X e-CF emitidos como emisor y Y e-CF de proveedores registrados"
+
+4. **NUNCA asumas que "facturas electrónicas" = "emitidas"**. Una factura
+   electrónica de un proveedor también es una factura electrónica.
 
 ## FORMATO DE RESPUESTA:
 
@@ -877,7 +1001,10 @@ class AIChatService:
     def __init__(self):
         self.tools = TOOL_REGISTRY
 
-    def _call_llm(self, prompt: str, system_prompt: str = "") -> Optional[str]:
+    def _call_llm(
+        self, prompt: str, system_prompt: str = "",
+        conversation: Optional[list[dict]] = None,
+    ) -> Optional[str]:
         """Call the configured LLM and return the response text."""
         if not AI_ASSISTANT_KEY or AI_ASSISTANT_KEY.startswith("demo"):
             logger.warning("No valid API key for AI chat")
@@ -887,7 +1014,7 @@ class AIChatService:
 
         # Detect provider
         if api_key.startswith("AIza"):
-            return self._call_gemini(prompt, system_prompt)
+            return self._call_gemini(prompt, system_prompt, conversation)
 
         try:
             import openai
@@ -896,6 +1023,10 @@ class AIChatService:
             messages = []
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
+            # Insert conversation history (last 6 exchanges max)
+            if conversation:
+                for msg in conversation[-12:]:
+                    messages.append(msg)
             messages.append({"role": "user", "content": prompt})
 
             response = client.chat.completions.create(
@@ -909,7 +1040,10 @@ class AIChatService:
             logger.error("LLM call failed: %s", e)
             return None
 
-    def _call_gemini(self, prompt: str, system_prompt: str = "") -> Optional[str]:
+    def _call_gemini(
+        self, prompt: str, system_prompt: str = "",
+        conversation: Optional[list[dict]] = None,
+    ) -> Optional[str]:
         """Call Google Gemini API."""
         import requests
 
@@ -920,6 +1054,14 @@ class AIChatService:
         if system_prompt:
             contents.append({"role": "user", "parts": [{"text": system_prompt}]})
             contents.append({"role": "model", "parts": [{"text": "Entendido. Estoy listo para ayudar."}]})
+        # Insert conversation history (last 6 exchanges max)
+        # Convert from OpenAI format {role, content} to Gemini {role, parts: [{text}]
+        if conversation:
+            for msg in conversation[-12:]:
+                contents.append({
+                    "role": "user" if msg.get("role") == "user" else "model",
+                    "parts": [{"text": msg.get("content", "")}],
+                })
         contents.append({"role": "user", "parts": [{"text": prompt}]})
 
         payload = {"contents": contents}
@@ -940,15 +1082,22 @@ class AIChatService:
             logger.error("Gemini call failed: %s", e)
             return None
 
-    def _format_response(self, data: Any, question: str, ctx: TenantContext) -> str:
+    def _format_response(
+        self, data: Any, question: str, ctx: TenantContext,
+        conversation: Optional[list[dict]] = None,
+    ) -> str:
         """Use LLM to format the real data into a natural response."""
         org_name = ctx.organization.name
+        conv_context = ""
+        if conversation:
+            recent = conversation[-4:]  # last 2 exchanges for formatting context
+            conv_lines = [f"  {m['role']}: {m['content'][:200]}" for m in recent]
+            conv_context = "Contexto reciente de la conversación:\n" + "\n".join(conv_lines) + "\n"
 
         format_prompt = f"""
 Tengo datos REALES de la base de datos para la organización "{org_name}".
 El usuario preguntó: "{question}"
-
-DATOS REALES:
+{conv_context}DATOS REALES:
 {json.dumps(data, indent=2, ensure_ascii=False)}
 
 Genera una respuesta natural y profesional en español usando SOLAMENTE estos datos.
@@ -962,7 +1111,7 @@ Responde con el texto directamente, sin JSON.
             "Hablas español. Nunca inventes datos."
         )
 
-        response = self._call_llm(format_prompt, system)
+        response = self._call_llm(format_prompt, system, conversation)
         return response or self._fallback_format(data, question)
 
     def _fallback_format(self, data: Any, question: str) -> str:
@@ -1008,7 +1157,8 @@ Responde con el texto directamente, sin JSON.
         return json.dumps(data, indent=2, ensure_ascii=False)
 
     def process_message(
-        self, message: str, ctx: TenantContext
+        self, message: str, ctx: TenantContext,
+        conversation: Optional[list[dict]] = None,
     ) -> dict[str, Any]:
         """
         Process a user message and return a grounded response.
@@ -1032,13 +1182,19 @@ Responde con el texto directamente, sin JSON.
 
         system = CHAT_SYSTEM_PROMPT + "\n\n" + "\n".join(tools_desc)
 
+        conv_context = ""
+        if conversation:
+            recent = conversation[-8:]  # last 4 exchanges for classification context
+            conv_lines = [f"  {m['role']}: {m['content'][:300]}" for m in recent]
+            conv_context = "\nConversación reciente:\n" + "\n".join(conv_lines)
+
         classification_prompt = f"""
 Contexto:
 - Organización: {ctx.organization.name} (ID: {org_id})
 - Usuario: {user.full_name or user.email}
 - Rol: {ctx.role}
 - Tenant ID: {tenant_id}
-
+{conv_context}
 Pregunta del usuario: "{message}"
 
 Responde con el JSON de la herramienta a utilizar y sus parámetros.
@@ -1046,7 +1202,7 @@ Si la pregunta no coincide con ninguna capacidad, responde con:
 {{"tool": "unknown", "params": {{"reason": "explica por qué no puedes responder"}}}}
 """
 
-        llm_response = self._call_llm(classification_prompt, system)
+        llm_response = self._call_llm(classification_prompt, system, conversation)
 
         if not llm_response:
             return {
@@ -1125,7 +1281,7 @@ Si la pregunta no coincide con ninguna capacidad, responde con:
             }
 
         # ── Step 5: Format response ──
-        response_text = self._format_response(data, message, ctx)
+        response_text = self._format_response(data, message, ctx, conversation)
 
         return {
             "response": response_text,

@@ -1,4 +1,3 @@
-import pytest
 from app.models import Invoice
 from app.routers.invoices import _expected_dgii_format
 

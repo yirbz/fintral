@@ -10,6 +10,7 @@ import {
   FileText, 
   Activity,
   Database,
+  CreditCard,
   ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
@@ -18,6 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 const NAV_ITEMS = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin/pagos", label: "Pagos", icon: CreditCard },
   { href: "/admin/reference", label: "Datos de Referencia", icon: Database },
 ];
 

@@ -193,3 +193,9 @@ session-ses_*.md
 # Misc project artifacts
 # ─────────────────────────────────────────────
 architecture_diagram.png
+GOAL.md
+
+# ─────────────────────────────────────────────
+# Playwright test artifacts
+# ─────────────────────────────────────────────
+frontend/test-results/

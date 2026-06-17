@@ -1,9 +1,8 @@
 import logging
 import time
 import requests
-import json
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List
+from typing import Dict, Optional, List
 import openai
 
 logger = logging.getLogger(__name__)

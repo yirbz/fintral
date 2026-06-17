@@ -26,8 +26,8 @@ export async function login(email: string, password: string, remember = false) {
 
     return result;
   } catch (err) {
-    if (err instanceof ApiError && err.status === 401) {
-      throw new Error("No disponible");
+    if (err instanceof ApiError) {
+      throw new Error(err.message);
     }
     throw err;
   }

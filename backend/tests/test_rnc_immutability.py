@@ -1,8 +1,5 @@
 import pytest
-from uuid import uuid4
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models import Organization, Tenant, User

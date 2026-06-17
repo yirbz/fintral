@@ -1,19 +1,21 @@
 ARG BACKEND_URL=http://localhost:8000
 
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm install --legacy-peer-deps
+RUN corepack enable && pnpm --version
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 ARG BACKEND_URL
 ENV BACKEND_URL=$BACKEND_URL
+RUN corepack enable && pnpm --version
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+RUN pnpm run build
 
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=builder /app/public ./public
@@ -23,3 +25,4 @@ COPY --from=builder /app/lib ./lib
 COPY --from=builder /app/package.json ./
 EXPOSE 3000
 CMD ["node", "server.js"]
+

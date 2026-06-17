@@ -1,4 +1,4 @@
-import { CheckCircle2 } from "lucide-react"
+import { CheckCircle2, LayoutDashboard, Users, HardDrive, FileText, Building2, Zap } from "lucide-react"
 
 export default function DespachoPlanPage() {
   return (
@@ -13,19 +13,19 @@ export default function DespachoPlanPage() {
       </div>
 
       <p className="text-[15px] leading-relaxed font-light text-[#273951]">
-        El plan <strong>Despacho Contable</strong> está diseñado específicamente para firmas de contabilidad, auditores y asesores independientes que gestionan múltiples clientes. Permite agregar clientes de manera modular con cuotas de uso y usuarios ilimitados.
+        El plan <strong>Despacho Contable</strong> está diseñado para firmas de contabilidad, auditores y profesionales que gestionan múltiples clientes de forma centralizada con un dashboard multi-entidad.
       </p>
 
       {/* ── PRECIOS ── */}
       <section className="space-y-4">
-        <h2 className="text-[18px] font-semibold tracking-tight text-[#0d253d]">Estructura de Precios Base</h2>
+        <h2 className="text-[18px] font-semibold tracking-tight text-[#0d253d]">Estructura de Precios y Ahorro</h2>
         <div className="overflow-x-auto rounded-xl border border-[#e3e8ee]">
           <table className="w-full text-left border-collapse text-[14px]">
             <thead>
               <tr className="bg-[#f6f9fc] border-b border-[#e3e8ee] text-[#0d253d]">
                 <th className="p-4 font-semibold">Período</th>
                 <th className="p-4 font-semibold text-right">Precio Total</th>
-                <th className="p-4 font-semibold text-right">Ahorro</th>
+                <th className="p-4 font-semibold text-right">Descuento</th>
                 <th className="p-4 font-semibold text-right text-[#0EA5E9]">Efectivo/mes</th>
               </tr>
             </thead>
@@ -37,97 +37,90 @@ export default function DespachoPlanPage() {
                 <td className="p-4 text-right font-medium">RD$ 7,999.00</td>
               </tr>
               <tr className="border-b border-[#e3e8ee]/60 hover:bg-[#f6f9fc]/10">
-                <td className="p-4 font-medium">3 Meses (Trimestral)</td>
-                <td className="p-4 text-right">RD$ 21,597.00</td>
-                <td className="p-4 text-right text-emerald-500 font-medium">10%</td>
-                <td className="p-4 text-right font-medium text-[#0EA5E9]">RD$ 7,199.00</td>
+                <td className="p-4 font-medium">3 Meses</td>
+                <td className="p-4 text-right">RD$ 23,277.00</td>
+                <td className="p-4 text-right text-emerald-500 font-medium">3%</td>
+                <td className="p-4 text-right font-medium text-[#0EA5E9]">RD$ 7,759.00</td>
+              </tr>
+              <tr className="border-b border-[#e3e8ee]/60 hover:bg-[#f6f9fc]/10">
+                <td className="p-4 font-medium">6 Meses</td>
+                <td className="p-4 text-right">RD$ 45,594.00</td>
+                <td className="p-4 text-right text-emerald-500 font-medium">5%</td>
+                <td className="p-4 text-right font-medium text-[#0EA5E9]">RD$ 7,599.00</td>
               </tr>
               <tr className="hover:bg-[#f6f9fc]/10">
                 <td className="p-4 font-medium">12 Meses (Anual)</td>
-                <td className="p-4 text-right">RD$ 76,790.00</td>
-                <td className="p-4 text-right text-emerald-500 font-medium">20%</td>
-                <td className="p-4 text-right font-medium text-[#0EA5E9]">RD$ 6,399.16</td>
+                <td className="p-4 text-right">RD$ 86,389.00</td>
+                <td className="p-4 text-right text-emerald-500 font-medium">10%</td>
+                <td className="p-4 text-right font-medium text-[#0EA5E9]">RD$ 7,199.08</td>
               </tr>
             </tbody>
           </table>
         </div>
         <p className="text-[12px] text-[#64748d] italic">
-          * Los precios están expresados en Pesos Dominicanos (DOP) y no incluyen ITBIS.
+          * Los precios están cotizados en Pesos Dominicanos (DOP) y no incluyen ITBIS.
         </p>
       </section>
 
       {/* ── CARACTERISTICAS ── */}
       <section className="space-y-4">
-        <h2 className="text-[18px] font-semibold tracking-tight text-[#0d253d]">Características Incluidas en el Plan Base</h2>
-        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-0 list-none">
+        <h2 className="text-[18px] font-semibold tracking-tight text-[#0d253d]">Características Incluidas</h2>
+        <ul className="space-y-3 pl-0 list-none">
           {[
-            "1 Organización Emisora e-CF incluida (la del despacho)",
-            "500 e-CF mensuales en la organización base",
-            "1,000 documentos OCR al mes (pool de la firma)",
-            "Usuarios ilimitados para todo el staff y clientes",
-            "Dashboard Multi-Entidad para gestionar clientes",
-            "Reportes fiscales completos (606, 607, 608)",
-            "Historial cruzado e informes de auditoría",
-            "Conexión nativa con ERPs (QuickBooks, Odoo)",
-            "Soporte prioritario 24/7 y vía WhatsApp"
+            { icon: LayoutDashboard, text: "Dashboard multi-entidad — monitorea toda tu cartera en un solo lugar" },
+            { icon: Users, text: "Usuarios ilimitados para staff de la firma y clientes" },
+            { icon: HardDrive, text: "1,000 documentos OCR al mes — pool compartido entre entidades" },
+            { icon: Zap, text: "10,000 consultas de IA al mes — pool compartido" },
+            { icon: FileText, text: "Reportes DGII completos (606/607/608) — generación automática" },
+            { icon: HardDrive, text: "25 GB de almacenamiento incluido" },
+            { icon: Building2, text: "20 entidades incluidas (adicionales a RD$ 600/mes c/u)" },
+            { icon: FileText, text: "Bloques de e-CF disponibles por compra separada — cada entidad con su saldo independiente" },
           ].map((feat, i) => (
             <li key={i} className="flex items-center gap-2 text-[13px] text-[#273951]">
-              <CheckCircle2 className="size-4 text-[#0EA5E9] shrink-0" />
-              <span>{feat}</span>
+              <feat.icon className="size-4 text-[#0EA5E9] shrink-0" />
+              <span>{feat.text}</span>
             </li>
           ))}
         </ul>
       </section>
 
-      {/* ── EXTENSIBILIDAD DE ORGANIZACIONES ── */}
-      <section className="space-y-4">
-        <h2 className="text-[18px] font-semibold tracking-tight text-[#0d253d]">Módulos de Extensión (Clientes adicionales)</h2>
-        <p className="text-[14px] leading-relaxed text-[#64748d]">
-          Puedes agregar clientes a tu cartera contratando extensiones individuales según su perfil operativo. Cada extensión tiene usuarios ilimitados:
-        </p>
-        
-        <div className="grid sm:grid-cols-2 gap-4">
-          <div className="p-5 rounded-2xl border border-[#e3e8ee] bg-[#f6f9fc]/20 space-y-2">
-            <h3 className="text-[15px] font-bold text-[#0d253d]">Organización Estándar</h3>
-            <p className="text-[12px] text-[#0EA5E9] font-semibold">RD$ 600.00 / mes (+$10 USD)</p>
-            <p className="text-[13px] text-[#64748d] leading-normal font-light">
-              Ideal para clientes que solo necesitan contabilidad interna y reportes. Incluye <strong>100 documentos OCR al mes</strong>. No permite facturación e-CF.
-            </p>
-          </div>
-
-          <div className="p-5 rounded-2xl border border-[#e3e8ee] bg-[#f6f9fc]/20 space-y-2">
-            <h3 className="text-[15px] font-bold text-[#0d253d]">Organización Facturadora</h3>
-            <p className="text-[12px] text-[#0EA5E9] font-semibold">RD$ 1,500.00 / mes (+$25 USD)</p>
-            <p className="text-[13px] text-[#64748d] leading-normal font-light">
-              Para clientes que emiten facturas electrónicas válidas ante la DGII. Incluye **200 facturas e-CF/mes** y **200 OCR/mes** dedicados.
-            </p>
-          </div>
-        </div>
-      </section>
-
       {/* ── CONDICIONES PARTICULARES ── */}
       <section className="space-y-4 text-[15px] font-light leading-relaxed text-[#273951]">
-        <h2 className="text-[18px] font-semibold tracking-tight text-[#0d253d]">Condiciones de Uso y Excedentes</h2>
-        
+        <h2 className="text-[18px] font-semibold tracking-tight text-[#0d253d]">Términos Particulares del Plan</h2>
+
         <div className="space-y-4">
           <div>
-            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">1. Excedentes por e-CF</h3>
+            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">1. Límites de Consumo</h3>
             <p>
-              Si una organización facturadora adicional supera sus 200 e-CF/mes, cada factura electrónica excedente se facturará a **RD$ 9.00** ($0.15 USD). Esto permite al contador transferir el costo del excedente directamente a la empresa cliente que generó el tráfico.
+               El plan incluye procesamiento OCR de hasta <strong>1,000 documentos al mes</strong>, <strong>10,000 consultas de IA al mes</strong> y almacenamiento de <strong>25 GB</strong> — todo compartido entre las entidades del despacho. Los recursos no consumidos expiran al finalizar el ciclo mensual. Si necesitas más capacidad, puedes contratar bloques adicionales desde el Store: IA (500 consultas por RD$ 600) y almacenamiento (10 GB por RD$ 300).
             </p>
           </div>
 
           <div>
-            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">2. Usuarios Ilimitados</h3>
+            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">2. Documentos Electrónicos (e-CF)</h3>
             <p>
-              Fintral no cobra cargos adicionales por usuario. Los recursos incluidos (facturas, OCR, queries de IA) son compartidos por todos los usuarios autorizados de la respectiva organización. Es responsabilidad del administrador del sistema monitorear y restringir los permisos para optimizar el consumo de recursos.
+              Las entidades bajo el despacho no incluyen cuota de e-CF en el plan base. Cada entidad puede adquirir bloques de documentos electrónicos desde el Store (100 e-CF por RD$ 950), manteniendo un saldo independiente por entidad. Esto permite que cada cliente del despajo gestione su propio presupuesto de facturación electrónica.
             </p>
           </div>
 
           <div>
-            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">3. Responsabilidad Fiscal Solidaria</h3>
+            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">3. Capacidad de Entidades</h3>
             <p>
-              Fintral es una herramienta tecnológica de procesamiento y transmisión de datos. No ejerce funciones de auditoría contable ni asesoría tributaria. El contador o firma contratante asume de forma única y exclusiva la responsabilidad de validar, fiscalizar y presentar la información económica ante la DGII.
+              El plan Despacho Contable incluye <strong>20 entidades gratis</strong>. Las entidades adicionales tienen un costo de <strong>RD$ 600/mes c/u</strong>. Cada entidad gestiona sus propios bloques de e-CF de forma independiente con saldo separado. Para gestionar más de 20 entidades, contacta a nuestro equipo de ventas para un plan enterprise personalizado.
+            </p>
+          </div>
+
+          <div>
+            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">4. Usuarios Ilimitados y Consumo Compartido</h3>
+            <p>
+              No existen límites en el número de usuarios por entidad. Todos los usuarios autorizados consumen del mismo pool compartido de OCR, almacenamiento y consultas de IA. El administrador del despacho es responsable del consumo agregado.
+            </p>
+          </div>
+
+          <div>
+            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">5. Exclusiones de Responsabilidad Fiscal</h3>
+            <p>
+              Fintral opera estrictamente como herramienta de software intermediaria para la transmisión y estructuración de datos. Es responsabilidad exclusiva del despacho y de cada cliente firmante fiscalizar y auditar la exactitud contable e impositiva de sus emisiones ante la DGII.
             </p>
           </div>
         </div>

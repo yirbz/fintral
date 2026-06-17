@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Shield, BookOpen, FileText } from "lucide-react"
+import { Shield, BookOpen, FileText, Lock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Logo } from "@/components/ui/logo"
 import { cn } from "@/lib/utils"
@@ -23,7 +23,8 @@ const SECTIONS: DocSection[] = [
     title: "General",
     items: [
       { href: "/docs", label: "Introducción", icon: BookOpen },
-      { href: "/docs/terms-conditions", label: "Términos Generales", icon: Shield }
+      { href: "/docs/terms-conditions", label: "Términos Generales", icon: Shield },
+      { href: "/docs/privacy", label: "Política de Privacidad", icon: Lock }
     ]
   },
   {
@@ -37,7 +38,7 @@ const SECTIONS: DocSection[] = [
   {
     title: "Extensiones",
     items: [
-      { href: "/docs/plans/organizaciones-extra", label: "Organizaciones Adicionales", icon: FileText }
+      { href: "/docs/plans/organizaciones-extra", label: "Entidades y Bloques", icon: FileText }
     ]
   }
 ]

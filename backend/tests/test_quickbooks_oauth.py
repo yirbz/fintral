@@ -9,7 +9,6 @@ Validates:
 
 import json
 from unittest.mock import patch
-from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -130,7 +129,7 @@ class TestOauthCallback:
         qb_logger.propagate = True
         caplog.set_level("INFO")
 
-        resp = client.get(self.CALLBACK_PATH, params={
+        client.get(self.CALLBACK_PATH, params={
             "code": "XABcode",
             "realmId": "12345",
             "state": "bad",

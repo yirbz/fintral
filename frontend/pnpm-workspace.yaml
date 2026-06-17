@@ -1,0 +1,6 @@
+onlyBuiltDependencies:
+  - sharp
+  - unrs-resolver
+
+patchedDependencies:
+  dgii-utils@2.0.0: patches/dgii-utils@2.0.0.patch

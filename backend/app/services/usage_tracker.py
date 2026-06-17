@@ -5,16 +5,15 @@ Leverages Redis for real-time rate-limit windows, PostgreSQL for monthly
 aggregates. Designed for high throughput — AI queries, e-CF emissions,
 OCR documents, and API calls all flow through here.
 """
-import json
 import logging
 from datetime import datetime, date
-from typing import Optional
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from sqlalchemy import case, func
+
 from app.core.redis import get_redis_client
-from app.models import UsageRecord, Organization
+from app.models import Invoice, PendingUpload, UsageRecord
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +38,75 @@ class UsageTracker:
     # ── Getters ─────────────────────────────────────────────────────
 
     def get_current_usage(self, org_id, plan_limits: dict) -> dict:
-        """Return current cycle usage + percentage for each resource."""
+        """Return current cycle usage + percentage for each resource.
+
+        Computes actual counts from invoices and pending uploads
+        rather than relying on UsageRecord (which may not be populated).
+        """
         cycle = _current_cycle()
+        year = cycle // 100
+        month = cycle % 100
+        cycle_start = date(year, month, 1)
+        if month == 12:
+            cycle_end = date(year + 1, 1, 1)
+        else:
+            cycle_end = date(year, month + 1, 1)
+
+        # ── Invoice-based counts ──────────────────────────────────
+        invoice_counts = (
+            self.db.query(
+                func.sum(
+                    case((Invoice.is_electronic.is_(True), 1), else_=0)
+                ).label("ecf_count"),
+                func.sum(
+                    case((Invoice.openai_tokens_used > 0, 1), else_=0)
+                ).label("ai_query_count"),
+                func.sum(
+                    case(
+                        (Invoice.source_type.in_(["image_ocr", "image_ai", "pdf_image"]), 1),
+                        else_=0,
+                    )
+                ).label("ocr_doc_count"),
+            )
+            .filter(
+                Invoice.organization_id == org_id,
+                Invoice.is_deleted.is_(False),
+                Invoice.created_at >= cycle_start,
+                Invoice.created_at < cycle_end,
+            )
+            .first()
+        )
+
+        ecf_count = invoice_counts.ecf_count or 0
+        ai_query_count = invoice_counts.ai_query_count or 0
+        ocr_doc_count = invoice_counts.ocr_doc_count or 0
+
+        # ── Storage: invoices + pending uploads ───────────────────
+        invoice_storage = (
+            self.db.query(func.coalesce(func.sum(Invoice.file_size), 0))
+            .filter(
+                Invoice.organization_id == org_id,
+                Invoice.is_deleted.is_(False),
+                Invoice.created_at >= cycle_start,
+                Invoice.created_at < cycle_end,
+            )
+            .scalar()
+        ) or 0
+
+        pending_storage = (
+            self.db.query(func.coalesce(func.sum(PendingUpload.file_size), 0))
+            .filter(
+                PendingUpload.organization_id == org_id,
+                PendingUpload.created_at >= cycle_start,
+                PendingUpload.created_at < cycle_end,
+            )
+            .scalar()
+        ) or 0
+
+        total_storage_bytes = invoice_storage + pending_storage
+        storage_mb = total_storage_bytes / (1024 * 1024)
+
+        # ── API calls from UsageRecord (no other source) ──────────
         record = (
             self.db.query(UsageRecord)
             .filter(
@@ -49,15 +115,7 @@ class UsageTracker:
             )
             .first()
         )
-        if not record:
-            return {
-                "cycle": cycle,
-                "ecf": {"used": 0, "limit": plan_limits.get("max_ecf_monthly", 0), "pct": 0},
-                "ai_queries": {"used": 0, "limit": plan_limits.get("max_ai_queries_monthly", 0), "pct": 0},
-                "ocr_docs": {"used": 0, "limit": plan_limits.get("max_ocr_docs_monthly", 0), "pct": 0},
-                "storage_mb": {"used": 0, "limit": plan_limits.get("max_storage_mb", 0), "pct": 0},
-                "api_calls": {"used": 0, "limit": plan_limits.get("max_api_calls_monthly", 0) or 0, "pct": 0},
-            }
+        api_call_count = record.api_call_count if record else 0
 
         limits = {
             "ecf": plan_limits.get("max_ecf_monthly", 0),
@@ -66,7 +124,6 @@ class UsageTracker:
             "storage_mb": plan_limits.get("max_storage_mb", 0),
             "api_calls": plan_limits.get("max_api_calls_monthly", 0) or 0,
         }
-        storage_mb = record.storage_bytes / (1024 * 1024) if record.storage_bytes else 0
 
         def pct(used, limit_val):
             if limit_val <= 0:
@@ -75,11 +132,11 @@ class UsageTracker:
 
         return {
             "cycle": cycle,
-            "ecf": {"used": record.ecf_count, "limit": limits["ecf"], "pct": pct(record.ecf_count, limits["ecf"])},
-            "ai_queries": {"used": record.ai_query_count, "limit": limits["ai_queries"], "pct": pct(record.ai_query_count, limits["ai_queries"])},
-            "ocr_docs": {"used": record.ocr_doc_count, "limit": limits["ocr_docs"], "pct": pct(record.ocr_doc_count, limits["ocr_docs"])},
+            "ecf": {"used": ecf_count, "limit": limits["ecf"], "pct": pct(ecf_count, limits["ecf"])},
+            "ai_queries": {"used": ai_query_count, "limit": limits["ai_queries"], "pct": pct(ai_query_count, limits["ai_queries"])},
+            "ocr_docs": {"used": ocr_doc_count, "limit": limits["ocr_docs"], "pct": pct(ocr_doc_count, limits["ocr_docs"])},
             "storage_mb": {"used": round(storage_mb, 2), "limit": limits["storage_mb"], "pct": pct(storage_mb, limits["storage_mb"])},
-            "api_calls": {"used": record.api_call_count, "limit": limits["api_calls"], "pct": pct(record.api_call_count, limits["api_calls"])},
+            "api_calls": {"used": api_call_count, "limit": limits["api_calls"], "pct": pct(api_call_count, limits["api_calls"])},
         }
 
     # ── Increment counters ──────────────────────────────────────────
@@ -106,6 +163,13 @@ class UsageTracker:
         cycle = _current_cycle()
         record = self._get_or_create(org_id, cycle)
         record.storage_bytes = bytes_val
+        self.db.commit()
+
+    def increment_storage(self, org_id, additional_bytes: int):
+        """Add to the storage counter (incremental, not absolute)."""
+        cycle = _current_cycle()
+        record = self._get_or_create(org_id, cycle)
+        record.storage_bytes = (record.storage_bytes or 0) + additional_bytes
         self.db.commit()
 
     def _increment(self, org_id, column: str, amount: int = 1):

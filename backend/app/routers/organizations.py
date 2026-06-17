@@ -4,7 +4,7 @@ from datetime import timedelta
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -71,6 +71,8 @@ def get_my_organization(ctx: TenantContext = Depends(require_tenant)):
         "role": ctx.role,
         "permissions": ctx.permissions,
         "settings_json": ctx.organization.settings_json,
+        "is_deleted": ctx.organization.is_deleted,
+        "deleted_at": ctx.organization.deleted_at.isoformat() if ctx.organization.deleted_at else None,
     }
 
 
@@ -91,6 +93,8 @@ def list_organizations(ctx: TenantContext = Depends(require_permission("org.crea
             "tax_id": o.tax_id,
             "country": o.country,
             "is_current": o.id == ctx.org_id,
+            "is_deleted": o.is_deleted,
+            "deleted_at": o.deleted_at.isoformat() if o.deleted_at else None,
         }
         for o in orgs
     ]
@@ -178,6 +182,8 @@ def create_organization(
         "fiscal_address": org.fiscal_address,
         "municipality": org.municipality,
         "province": org.province,
+        "is_deleted": org.is_deleted,
+        "deleted_at": org.deleted_at.isoformat() if org.deleted_at else None,
     }
 
 
@@ -221,7 +227,8 @@ def delete_organization(
     org = _get_org(ctx, org_id)
     if org.id == ctx.org_id:
         raise HTTPException(status_code=400, detail="No puedes eliminar la organización activa")
-    org.is_active = False
+    org.is_deleted = True
+    org.deleted_at = utc_now()
     ctx.db.commit()
     return {"ok": True}
 
@@ -509,7 +516,7 @@ async def switch_organization(
         )
 
     raw = membership.permissions
-    permissions = json.loads(raw) if raw else None
+    json.loads(raw) if raw else None
 
     # Build session response (same shape as /api/me)
     return {
@@ -539,6 +546,8 @@ async def switch_organization(
             "fiscal_address": org.fiscal_address,
             "municipality": org.municipality,
             "province": org.province,
+            "is_deleted": org.is_deleted,
+            "deleted_at": org.deleted_at.isoformat() if org.deleted_at else None,
         },
         "role": membership.role,
         "company_name": org.name or "",
@@ -593,6 +602,8 @@ def list_user_organizations(
                 "tax_id": org.tax_id,
                 "role": m.role,
                 "is_current": oid == str(ctx.org_id),
+                "is_deleted": org.is_deleted,
+                "deleted_at": org.deleted_at.isoformat() if org.deleted_at else None,
             }
         )
 
@@ -614,6 +625,13 @@ def get_role_defaults(role: str):
     if role not in ROLE_DEFAULT_PERMISSIONS:
         raise HTTPException(status_code=404, detail="Rol no encontrado")
     return {"role": role, "permissions": ROLE_DEFAULT_PERMISSIONS[role]}
+
+
+@router.get("/{org_id}/ecf-balance")
+def get_ecf_balance(org_id: UUID, ctx: TenantContext = Depends(require_tenant)):
+    """Get e-CF document balance for a specific organization."""
+    org = _get_org(ctx, org_id)
+    return {"organization_id": str(org.id), "balance": org.e_cf_balance or 0}
 
 
 # --- Helpers ---

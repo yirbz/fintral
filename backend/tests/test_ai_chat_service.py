@@ -5,9 +5,8 @@ and never hallucinate.
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 from uuid import uuid4
-from datetime import datetime
 from app.services.ai_chat_service import (
     AIChatService,
     get_invoice_summary,
@@ -188,7 +187,7 @@ class TestAIChatService:
     def test_init_registers_tools(self):
         """Service should have access to all registered tools."""
         service = AIChatService()
-        assert len(service.tools) == 10
+        assert len(service.tools) == 11
         for name in [
             "get_invoice_summary",
             "get_pending_payments",
@@ -200,6 +199,7 @@ class TestAIChatService:
             "get_monthly_comparison",
             "get_submission_status",
             "get_invoice_status_overview",
+            "get_emitted_invoices",
         ]:
             assert name in service.tools
 
@@ -227,7 +227,7 @@ class TestAIChatService:
 
     def test_process_message_empty_returns_help(self):
         """Empty/missing message should return help text."""
-        mock_ctx = MagicMock()
+        MagicMock()
         # This is handled by the router, not the service
         # Just verify service doesn't crash
         service = AIChatService()

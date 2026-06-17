@@ -54,7 +54,7 @@ function PreviewContent({ reportType, onClose }: { reportType: "ap" | "ar"; onCl
     setExporting(format);
     try {
       const blob = await exportApAr(reportType, format);
-      const timestamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+      const timestamp = new Date().toISOString().replace(/-/g, "").replace(/:/g, "").replace(/T/g, "").slice(0, 14);
       const slug = reportType === "ap" ? "cxp" : "cxc";
       const ext = format === "xlsx" ? "xlsx" : format === "csv" ? "csv" : "txt";
       triggerBlobDownload(blob, `reporte_${slug}_${timestamp}.${ext}`);

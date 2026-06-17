@@ -18,7 +18,7 @@ class WebhookSender:
         """
         try:
             # Buscar suscriptores scoped por tenant + org
-            query = db.query(WebhookEndpoint).filter(WebhookEndpoint.is_active == True)
+            query = db.query(WebhookEndpoint).filter(WebhookEndpoint.is_active)
             if tenant_id:
                 query = query.filter(WebhookEndpoint.tenant_id == tenant_id)
             if org_id:

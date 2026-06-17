@@ -536,7 +536,8 @@ export function SignUpForm({
     try {
       await verifyAndLogin(email, code);
       clearSignupState();
-      window.location.href = "/dashboard";
+      const isBillingSubdomain = typeof window !== "undefined" && window.location.hostname.startsWith("factura.");
+      window.location.href = isBillingSubdomain ? "/" : "/dashboard";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Código inválido");
     } finally {
@@ -623,9 +624,20 @@ export function SignUpForm({
 
       <p className="text-center text-xs leading-relaxed text-zinc-600">
         Al registrarte, aceptas nuestros{" "}
-        <button type="button" className="underline underline-offset-2 hover:text-zinc-400 bg-transparent border-none p-0 cursor-pointer inline text-xs">términos y condiciones</button>{" "}
+        <Link
+          href="/docs/terms-conditions"
+          className="underline underline-offset-2 hover:text-zinc-400 text-xs inline"
+        >
+          términos y condiciones
+        </Link>{" "}
         y{" "}
-        <button type="button" className="underline underline-offset-2 hover:text-zinc-400 bg-transparent border-none p-0 cursor-pointer inline text-xs">política de privacidad</button>.
+        <Link
+          href="/docs/privacy"
+          className="underline underline-offset-2 hover:text-zinc-400 text-xs inline"
+        >
+          política de privacidad
+        </Link>
+        .
       </p>
     </form>
   )

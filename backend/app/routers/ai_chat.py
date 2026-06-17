@@ -10,7 +10,7 @@ Rate-limited and quota-checked via PlanService.
 """
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from app.dependencies.tenant import TenantContext, require_tenant
 from app.services.ai_chat_service import AIChatService
@@ -24,8 +24,14 @@ router = APIRouter(prefix="/api/ai", tags=["ai"])
 chat_service = AIChatService()
 
 
+class ConversationMessage(BaseModel):
+    role: str  # "user" | "assistant"
+    content: str
+
+
 class ChatRequest(BaseModel):
     message: str
+    conversation: list[ConversationMessage] = []
 
 
 class ChatResponse(BaseModel):
@@ -77,8 +83,9 @@ async def chat(
                 response="❌ No se pudo procesar la consulta. Verifica tu plan de suscripción."
             )
 
-    # ── Process the AI query ────────────────────────────────────
-    result = chat_service.process_message(body.message.strip(), ctx)
+    # ── Process the AI query with conversation context ──────────
+    conversation = [{"role": m.role, "content": m.content} for m in body.conversation]
+    result = chat_service.process_message(body.message.strip(), ctx, conversation=conversation)
 
     # ── Record usage ────────────────────────────────────────────
     plan_svc.record_ai_query(ctx.org_id)

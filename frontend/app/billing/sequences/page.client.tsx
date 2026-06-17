@@ -327,6 +327,20 @@ export default function SequencesPage() {
       return;
     }
 
+    // 5. Range overlap check against existing sequences
+    for (const seq of sequences) {
+      if (seq.ecf_type !== form.ecf_type) continue;
+      if (form.start_number <= seq.end_number && form.end_number >= seq.start_number) {
+        toast.error(
+          `El rango ${form.prefix}${String(form.ecf_type).padStart(2, "0")}${form.start_number}-${form.end_number} ` +
+          `se solapa con el rango existente ` +
+          `${seq.prefix}${String(seq.ecf_type).padStart(2, "0")}${seq.start_number}-${seq.end_number}. ` +
+          `Los rangos no pueden superponerse.`
+        );
+        return;
+      }
+    }
+
     try {
       setSubmitting(true);
       await billingApi.createSequence(form);

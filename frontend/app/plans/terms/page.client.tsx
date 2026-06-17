@@ -94,68 +94,80 @@ export default function TermsClient() {
               <ul>
                 <li>
                   <strong>Inicial (RD$ 999 / mes):</strong> Diseñado para
-                  profesionales independientes y pequeños negocios. Incluye
-                  contabilidad y reportes, 50 documentos OCR al mes, usuarios
-                  ilimitados y validación NCF contra DGII. La organización base
-                  no incluye emisión de facturas electrónicas (e-CF), pero está
-                  disponible agregando organizaciones adicionales facturadoras.
+                  profesionales independientes y freelancers. Incluye
+                  contabilidad y reportes, 50 documentos OCR al mes con IA, usuarios
+                  ilimitados, validación NCF contra DGII y <strong>1 entidad gratis</strong>.
+                  Entidades adicionales a RD$ 600/mes c/u.
+                  Los documentos electrónicos (e-CF) se adquieren por separado
+                  mediante bloques desde el Store de la plataforma.
                 </li>
                 <li>
                   <strong>Profesional (RD$ 2,999 / mes):</strong> Diseñado para
-                  PyMEs en crecimiento. Incluye emisión de facturación
-                  electrónica (e-CF) certificada con 500 comprobantes incluidos
-                  al mes (excedente a RD$ 9.00 / e-CF), 500 documentos OCR al
-                  mes procesados con IA, usuarios ilimitados y reporte 606
-                  automático.
+                  PyMEs en crecimiento que emiten facturas electrónicas (e-CF).
+                  Incluye emisión e-CF DGII certificada, 500 documentos OCR al
+                  mes procesados con IA, reportes 606/607/608 automáticos,
+                  WhatsApp ingestion, API y webhooks, <strong>5 entidades gratis</strong>.
+                  Entidades adicionales a RD$ 600/mes c/u.
+                  Los documentos e-CF se adquieren por separado mediante bloques.
                 </li>
                 <li>
-                  <strong>Despacho Contable (RD$ 7,999 / mes):</strong> Diseñado para firmas y contadores independientes con múltiples clientes. Incluye dashboard multi-entidad, 500 comprobantes e-CF mensuales en la organización principal (firma), 1,000 documentos OCR al mes (pool de procesamiento compartido), usuarios ilimitados, reportes impositivos completos (606/607/608) e integración ERP.
+                  <strong>Despacho Contable (RD$ 7,999 / mes):</strong> Diseñado para firmas y contadores independientes con múltiples clientes. Incluye dashboard multi-entidad, 1,000 documentos OCR al mes (pool compartido), <strong>20 entidades gratis</strong> (adicionales a RD$ 600/mes c/u), reportes impositivos completos (606/607/608), integración ERP y soporte prioritario. Los documentos e-CF se adquieren por separado mediante bloques, con saldo independiente por entidad. Cada entidad gestiona su propio presupuesto de facturación electrónica.
                 </li>
               </ul>
               <p>
                 Adicionalmente, bajo cualquiera de los planes contratados, el
-                cliente puede agregar de forma modular{" "}
-                <strong>Organizaciones Adicionales (Clientes)</strong> a su
-                cuenta:
+                cliente puede agregar de forma modular las siguientes extensiones:
               </p>
               <ul>
                 <li>
-                  <strong>Organización Estándar (+RD$ 600 / mes):</strong> Para
-                  clientes que solo necesitan contabilidad interna y reportes.
-                  Incluye 100 documentos OCR al mes. No permite emisión de e-CF.
+                  <strong>Entidades:</strong> Cada plan incluye entidades gratuitas
+                  (1 en Inicial, 5 en Profesional, 20 en Despacho).
+                  Las entidades adicionales tienen un costo de RD$ 600/mes c/u.
+                  Cada entidad gestiona y paga sus propios bloques de e-CF de forma independiente.
                 </li>
                 <li>
-                  <strong>
-                    Organización Facturadora e-CF (+RD$ 1,500 / mes):
-                  </strong>{" "}
-                  Para clientes que emiten facturas electrónicas válidas ante la
-                  DGII. Incluye 200 e-CF/mes y 200 OCR/mes dedicados. Las
-                  facturas e-CF excedentes de esta organización se facturan a
-                  RD$ 9.00 / e-CF.
+                  <strong>Bloques de Documentos e-CF (RD$ 950 / 100 docs):</strong>{" "}
+                  Para adquirir documentos electrónicos que se acreditan al saldo
+                  de la organización. Costo efectivo de RD$ 9.50 por documento.
+                  También disponible pago por uso a RD$ 12.00/doc como respaldo.
+                  Cada entidad gestiona y paga sus propios bloques de forma independiente.
+                </li>
+                <li>
+                  <strong>Bloques de IA (RD$ 600 / 500 consultas):</strong>{" "}
+                  Consultas adicionales de inteligencia artificial para
+                  procesamiento y análisis.
+                </li>
+                <li>
+                  <strong>Bloques de Almacenamiento (RD$ 300 / 10 GB):</strong>{" "}
+                  Espacio adicional en la nube para documentos y facturas.
                 </li>
               </ul>
               <p>
                 Los precios están expresados en Pesos Dominicanos (DOP) y no
                 incluyen ITBIS. Fintral se reserva el derecho de modificar los
-                precios o las tarifas por excedente con una notificación previa
+                precios o las tarifas de extensiones con una notificación previa
                 de al menos 30 días.
               </p>
             </Section>
 
             <Section title="3. Períodos de facturación">
-              <p>Ofrecemos tres modalidades de facturación:</p>
+              <p>Ofrecemos cuatro modalidades de facturación con descuentos progresivos por compromiso:</p>
               <ul>
                 <li>
                   <strong>Mensual (1 mes):</strong> Facturación cada mes. Sin
-                  compromiso mínimo.
+                  compromiso mínimo. Sin descuento.
                 </li>
                 <li>
                   <strong>Trimestral (3 meses):</strong> Facturación cada 3
-                  meses con un 10% de descuento sobre el precio mensual.
+                  meses con un 3% de descuento sobre el precio mensual.
+                </li>
+                <li>
+                  <strong>Semestral (6 meses):</strong> Facturación cada 6
+                  meses con un 5% de descuento sobre el precio mensual.
                 </li>
                 <li>
                   <strong>Anual (12 meses):</strong> Facturación una vez al año
-                  con un 20% de descuento sobre el precio mensual.
+                  con un 10% de descuento sobre el precio mensual.
                 </li>
               </ul>
             </Section>

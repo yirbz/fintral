@@ -13,6 +13,7 @@ if config.config_file_name is not None and not config.attributes.get('skip_loggi
 # ── App metadata ──────────────────────────────────────────────────────────
 from app.config import DATABASE_URL  # noqa: E402
 from app.database import Base  # noqa: E402
+import app.models  # noqa: F401, E402
 
 target_metadata = Base.metadata
 

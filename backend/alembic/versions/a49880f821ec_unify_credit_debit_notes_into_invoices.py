@@ -51,7 +51,7 @@ def upgrade():
     ).fetchall()
 
     for row in rows:
-        cn_id = row[0]
+        row[0]
         invoice_date_val = row[7]  # credit_note_date
         ecf_type_val = row[5] if row[5] else ("34" if (row[4] or "").startswith(("B04", "E34")) else "33")
         transaction_type = "expense"

@@ -1,14 +1,11 @@
 import io
 import pytest
-from datetime import datetime, timedelta
-from uuid_utils import uuid7
 from sqlalchemy.orm import Session
 from fastapi.testclient import TestClient
 
 from app.models import Tenant, Organization, User, UploadLink, PendingUpload, Invoice
 from app.database import SessionLocal
 from app.dependencies.tenant import require_tenant, TenantContext
-from app.utils.dates import utc_now
 
 @pytest.fixture
 def db_session():
@@ -119,7 +116,7 @@ def test_public_upload_link_flow(test_tenant, test_org, test_user, db_session: S
             files={"file": ("factura_2.xml", file_obj_2, "text/xml")}
         )
         assert resp_upload_2.status_code == 200
-        upload_data_2 = resp_upload_2.json()["pending_upload"]
+        resp_upload_2.json()["pending_upload"]
 
         # Finalize and process uploads
         resp_process = client.post(f"/pending-uploads/public/{token}/process")

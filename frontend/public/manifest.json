@@ -2,7 +2,7 @@
   "name": "Fintral — Facturación Electrónica RD",
   "short_name": "Fintral",
   "description": "Plataforma de facturación electrónica y contabilidad",
-  "start_url": "/dashboard",
+  "start_url": "/login",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#0a0a0f",

@@ -288,11 +288,13 @@ def provision_local_user(db: Session, supabase_user: dict) -> User | None:
     db.add(org)
     db.flush()
 
+    from app.config import ADMIN_EMAIL
+
     user = User(
         email=email,
         full_name="",
         is_active=True,
-        is_superuser=False,
+        is_superuser=(email == ADMIN_EMAIL),
         supabase_uid=supabase_id,
         tenant_id=tenant.id,
     )

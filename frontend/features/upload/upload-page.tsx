@@ -16,6 +16,7 @@ import {
 import type { Invoice } from "@/lib/types";
 import { ApiError } from "@/lib/api/client";
 import { useSession } from "@/hooks/use-session";
+import { getMyPlan } from "@/lib/api/plans";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -29,6 +30,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -64,6 +66,8 @@ import {
   Clock,
   FileCheck,
   Link2,
+  Camera,
+  Bot,
 } from "lucide-react";
 
 const FILE_ACCEPT = ".jpg,.jpeg,.png,.pdf,.xml";
@@ -92,6 +96,76 @@ export function UploadPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deletingAll, setDeletingAll] = useState(false);
   const [processingResults, setProcessingResults] = useState<Record<string, { success: boolean; errorMsg?: string }>>({});
+  const [cameraActive, setCameraActive] = useState(false);
+  const [capturedCount, setCapturedCount] = useState(0);
+  const [flashActive, setFlashActive] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (cameraActive && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [cameraActive]);
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false
+      });
+      streamRef.current = stream;
+      setCameraActive(true);
+      setCapturedCount(0);
+    } catch (err) {
+      toast.error("No se pudo acceder a la cámara. Revisa los permisos del navegador.");
+      console.error("Camera error:", err);
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    setCameraActive(false);
+  };
+
+  const captureFrame = () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+
+    setFlashActive(true);
+    setTimeout(() => setFlashActive(false), 150);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return;
+        const file = new window.File([blob], `captura_${Date.now()}.jpg`, { type: "image/jpeg" });
+        uploadFiles([file]);
+        setCapturedCount((c) => c + 1);
+      },
+      "image/jpeg",
+      0.85
+    );
+  };
+
   const inputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
@@ -140,6 +214,7 @@ export function UploadPage() {
     queryClient.invalidateQueries({ queryKey: ["invoices"] });
     // queryClient.invalidateQueries({ queryKey: ["credit-notes"] }); // unified into invoices
     queryClient.invalidateQueries({ queryKey: ["statistics"] });
+    queryClient.invalidateQueries({ queryKey: ["plans", "my"] });
   }, [queryClient]);
 
   const uploadFiles = useCallback(async (fileList: FileList | File[]) => {
@@ -331,9 +406,10 @@ export function UploadPage() {
 
       <UploadNav active="upload" draftsCount={draftInvoices.length} />
 
-      <div className="space-y-6">
-            {/* Drop zone */}
-            <Card>
+      <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
+        <div className="lg:col-span-2 space-y-6">
+          {/* Drop zone */}
+          <Card>
               <CardHeader>
                 <CardTitle className="text-sm font-heading">Documentos</CardTitle>
                 <CardDescription className="text-xs">
@@ -341,6 +417,16 @@ export function UploadPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
+                {/* Mobile camera button */}
+                <Button
+                  onClick={startCamera}
+                  variant="outline"
+                  className="sm:hidden w-full h-11 text-xs gap-2 border-primary/25 hover:bg-primary/5 text-primary active:scale-[0.98] transition-all"
+                >
+                  <Camera className="size-4" />
+                  Cámara rápida (Captura múltiple)
+                </Button>
+
                 <div
                   onDrop={onDrop}
                   onDragOver={onDragOver}
@@ -749,8 +835,214 @@ export function UploadPage() {
                 )}
               </CardContent>
             </Card>
+        </div>
+
+        <div className="space-y-6">
+          <PlanLimitsWidget />
+        </div>
       </div>
 
+      {cameraActive && (
+        <div className="fixed inset-0 z-[100] bg-black flex flex-col justify-between select-none">
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800 text-white z-10">
+            <div className="flex items-center gap-2">
+              <Camera className="size-4 text-primary animate-pulse" />
+              <span className="text-sm font-semibold tracking-tight">Cámara Rápida Fintral</span>
+            </div>
+            <div className="text-xs font-mono bg-zinc-800 px-2 py-0.5 rounded-full">
+              Capturadas: {capturedCount}
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={stopCamera}
+              className="h-8 text-xs border-zinc-700 bg-transparent text-white hover:bg-zinc-800 hover:text-white"
+            >
+              Finalizar
+            </Button>
+          </div>
+
+          {/* Video stream container */}
+          <div className="relative flex-1 bg-black flex items-center justify-center overflow-hidden">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+            {/* Visual Flash overlay */}
+            <div
+              className={cn(
+                "absolute inset-0 bg-white z-[110] transition-opacity duration-150 pointer-events-none",
+                flashActive ? "opacity-100" : "opacity-0"
+              )}
+            />
+          </div>
+
+          {/* Bottom Shutter Controls */}
+          <div className="p-6 bg-zinc-950/90 border-t border-zinc-900 flex flex-col items-center gap-4 text-white z-10">
+            <p className="text-[11px] text-zinc-400 text-center max-w-[280px]">
+              Apunta a la factura y presiona el botón. Las fotos se subirán en segundo plano sin interrumpirte.
+            </p>
+            <div className="flex items-center justify-center w-full">
+              <button
+                type="button"
+                onClick={captureFrame}
+                className="group relative size-20 rounded-full border-4 border-white flex items-center justify-center transition-all active:scale-95 duration-100 bg-transparent"
+                aria-label="Capturar factura"
+              >
+                <span className="absolute size-14 bg-white rounded-full group-active:scale-90 transition-transform duration-100" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
+  );
+}
+
+function PlanLimitsWidget() {
+  const { data: planData, isLoading } = useQuery({
+    queryKey: ["plans", "my"],
+    queryFn: getMyPlan,
+  });
+
+  if (isLoading) {
+    return (
+      <Card className="border border-border/50 bg-card/50">
+        <CardHeader className="pb-3">
+          <Skeleton className="h-4 w-28 rounded-md" />
+          <Skeleton className="h-3 w-40 rounded-md mt-1" />
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Skeleton className="h-3 w-20 rounded-md" />
+            <Skeleton className="h-2 w-full rounded-full animate-pulse" />
+          </div>
+          <div className="space-y-2">
+            <Skeleton className="h-3 w-20 rounded-md" />
+            <Skeleton className="h-2 w-full rounded-full animate-pulse" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!planData || !planData.subscription) return null;
+
+  const usage = planData.usage;
+  const planName = planData.plan?.display_name || "Inicial (Gratis)";
+  
+  const ocrUsed = usage?.ocr_docs?.used ?? 0;
+  const ocrLimit = usage?.ocr_docs?.limit ?? 0;
+  const ocrPct = ocrLimit > 0 ? Math.min((ocrUsed / ocrLimit) * 100, 100) : 0;
+
+  const storageUsed = usage?.storage_mb?.used ?? 0;
+  const storageLimit = usage?.storage_mb?.limit ?? 0;
+  const storagePct = storageLimit > 0 ? Math.min((storageUsed / storageLimit) * 100, 100) : 0;
+
+  const aiUsed = usage?.ai_queries?.used ?? 0;
+  const aiLimit = usage?.ai_queries?.limit ?? 0;
+  const aiPct = aiLimit > 0 ? Math.min((aiUsed / aiLimit) * 100, 100) : 0;
+
+  return (
+    <Card className="border border-border/50 bg-card/50 backdrop-blur-xs">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
+          <Zap className="size-4 text-primary" />
+          Uso del Plan
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Límites del plan <strong className="text-foreground font-medium">{planName}</strong>
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Processing Limit Bar */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-medium text-muted-foreground flex items-center gap-1">
+              <FileText className="size-3.5" />
+              Procesamiento OCR
+            </span>
+            <span className="font-semibold tabular-nums text-foreground">
+              {ocrUsed} / {ocrLimit} docs
+            </span>
+          </div>
+          <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className={cn(
+                "h-full rounded-full transition-all duration-500",
+                ocrPct >= 90 ? "bg-destructive" : ocrPct >= 75 ? "bg-amber-500" : "bg-primary"
+              )}
+              style={{ width: `${ocrPct}%` }}
+            />
+          </div>
+          <p className="text-[10px] text-muted-foreground/80 leading-normal">
+            Cantidad de facturas que puedes analizar con IA este mes.
+          </p>
+        </div>
+
+        {/* Storage Limit Bar */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-medium text-muted-foreground flex items-center gap-1">
+              <Upload className="size-3.5" />
+              Almacenamiento
+            </span>
+            <span className="font-semibold tabular-nums text-foreground">
+              {storageUsed.toFixed(1)} MB / {storageLimit} MB
+            </span>
+          </div>
+          <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className={cn(
+                "h-full rounded-full transition-all duration-500",
+                storagePct >= 90 ? "bg-destructive" : storagePct >= 75 ? "bg-amber-500" : "bg-emerald-500"
+              )}
+              style={{ width: `${storagePct}%` }}
+            />
+          </div>
+          <p className="text-[10px] text-muted-foreground/80 leading-normal">
+            Espacio en disco para tus facturas y XMLs guardados.
+          </p>
+        </div>
+
+        {/* AI queries limits if any */}
+        {aiLimit > 0 && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium text-muted-foreground flex items-center gap-1">
+                <Bot className="size-3.5" />
+                Consultas al Asistente
+              </span>
+              <span className="font-semibold tabular-nums text-foreground">
+                {aiUsed} / {aiLimit} consultas
+              </span>
+            </div>
+            <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all duration-500",
+                  aiPct >= 90 ? "bg-destructive" : aiPct >= 75 ? "bg-amber-500" : "bg-indigo-500"
+                )}
+                style={{ width: `${aiPct}%` }}
+              />
+            </div>
+          </div>
+        )}
+      </CardContent>
+      {ocrUsed >= ocrLimit && ocrLimit > 0 && (
+        <CardFooter className="pt-0 border-t border-border/40 mt-3 p-3">
+          <div className="w-full text-center p-2 rounded-lg bg-destructive/5 border border-destructive/10">
+            <p className="text-[10px] text-destructive leading-normal">
+              ⚠️ Has agotado el límite de procesamiento mensual de tu plan. Mejora tu suscripción para seguir procesando facturas.
+            </p>
+          </div>
+        </CardFooter>
+      )}
+    </Card>
   );
 }

@@ -5,7 +5,6 @@ Router de invitaciones con registro para nuevos usuarios.
 - POST  /api/invitations/register   — Acepta invitación + crea cuenta + auto-login
 """
 import logging
-from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,7 +12,6 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.auth import create_access_token, get_password_hash
-import app.services.auth_service as auth_service
 from app.database import get_db
 from app.models import Invitation, Organization, User, UserOrganization
 from app.utils.dates import utc_now
