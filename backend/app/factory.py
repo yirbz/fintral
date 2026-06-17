@@ -27,10 +27,6 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Sistema de Gestión de Facturas", version="1.0.0")
 
-    @app.get("/health")
-    async def health():
-        return {"status": "ok"}
-
     static_dir = os.path.join(FINTRAL_DATA_DIR, "static")
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
