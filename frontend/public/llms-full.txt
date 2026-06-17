@@ -1,0 +1,163 @@
+# Fintral
+
+> Plataforma todo-en-uno de facturación electrónica (e-CF), OCR de facturas, cumplimiento DGII y gestión fiscal para empresas en República Dominicana.
+
+## Resumen
+
+Fintral automatiza tres áreas críticas de la gestión empresarial en República Dominicana: (1) recepción y digitalización de facturas de proveedores mediante OCR con inteligencia artificial, (2) emisión de comprobantes fiscales electrónicos (e-CF) válidos ante la DGII, y (3) generación automática de reportes de cumplimiento fiscal (Formato 606/607/608). La plataforma unifica estos procesos en un solo dashboard y es accesible desde el navegador sin instalación. Diseñada específicamente para la normativa tributaria dominicana.
+
+## Público objetivo
+
+- **Freelancers y profesionales independientes** que necesitan automatizar su contabilidad fiscal y reportes DGII
+- **Pequeñas y medianas empresas (PyMEs)** que emiten facturas electrónicas y necesitan cumplimiento DGII completo
+- **Firmas de contabilidad y despachos** que gestionan múltiples clientes de forma centralizada
+- **Departamentos financieros** que buscan automatizar cuentas por pagar, cuentas por cobrar y conciliación fiscal
+
+## Facturación Electrónica (e-CF)
+
+### Portal público de facturación
+- [Emisión de facturas DGII](https://www.fintral.app/billing): Portal web que permite emitir comprobantes fiscales electrónicos (e-CF) válidos ante la DGII sin necesidad de crear una cuenta. Ideal para negocios que facturan esporádicamente o quieren probar la plataforma.
+- [Emisión rápida](https://www.fintral.app/billing/quick): Interfaz simplificada para crear facturas en segundos. Requiere solo RNC del cliente, NCF, productos y montos.
+- [Gestión de clientes](https://www.fintral.app/billing/clients): Directorio de clientes con datos fiscales completos (RNC, dirección fiscal, régimen). Los clientes se reutilizan entre facturas.
+
+### Emisión avanzada (dashboard)
+- Emisión de comprobantes fiscales electrónicos (e-CF) conforme a la normativa DGII vigente
+- Envío automático de facturas a la DGII con validación en tiempo real
+- Notas de crédito electrónicas para anular o corregir comprobantes emitidos
+- Facturación recurrente para servicios periódicos con clientes habituales
+- Gestión de secuencias NCF con control de rangos autorizados por la DGII
+- [Catálogo de productos y servicios](https://www.fintral.app/billing/products): Gestión de productos y servicios con precios para facturación recurrente
+- [Configuración de empresa](https://www.fintral.app/billing/settings): Parámetros de facturación, datos fiscales del emisor y personalización de comprobantes
+- [Secuencias de NCF](https://www.fintral.app/billing/sequences): Seguimiento de secuencias de comprobantes fiscales con estados de autorización y consumo
+
+## Captura Inteligente (OCR + IA)
+
+### Cómo funciona
+El pipeline de reconocimiento procesa facturas de proveedores en tres etapas:
+1. **Preprocesamiento**: OpenCV aplica corrección de inclinación, CLAHE (ecualización de contraste), eliminación de ruido y umbral adaptativo para optimizar la imagen
+2. **Extracción por OCR**: Tesseract con idiomas español e inglés extrae texto estructurado. Si la confianza del OCR supera 0.7, se usa directamente el resultado (gratuito)
+3. **Respaldo por IA**: Cuando el OCR tiene baja confianza, se usa visión artificial (OpenAI → Gemini → Ollama) como fallback para extraer los datos
+
+### Datos que extrae automáticamente
+- RNC del emisor
+- NCF y tipo de comprobante
+- Fecha de emisión y fecha de vencimiento
+- Monto bruto, ITBIS, retenciones y total neto
+- Conceptos y descriptores de productos/servicios
+
+### Formatos soportados
+- Imágenes (JPG, PNG, WebP)
+- PDFs escaneados y nativos
+- Archivos Excel (.xlsx)
+- Capturas de WhatsApp (reenvío de foto de factura desde el chat)
+
+### Validación DGII
+Cada factura procesada se valida contra los servidores de la DGII para confirmar que el NCF está vigente y autorizado. Si el NCF no existe o está vencido, el sistema marca la factura como sospechosa.
+
+## Cumplimiento DGII
+
+### Formato 606 (Compras y Gastos)
+- Generación automática del reporte de compras y gastos a partir de las facturas procesadas
+- Incluye todas las transacciones con ITBIS desglosado
+- Exportación a Excel en formato oficial DGII
+- Desglose por período fiscal, entidad y tipo de gasto
+
+### Formato 607 (Retenciones)
+- Reporte automático de retenciones de ITBIS aplicadas
+- Cálculo de retenciones según la normativa vigente
+- Conciliación entre retenciones declaradas y pagadas
+
+### Formato 608 (Ventas y Servicios)
+- Reporte de ventas y servicios prestados con ITBIS cobrado
+- Generación automática desde facturas electrónicas emitidas o registradas
+- Exportación a Excel en formato oficial DGII
+
+### ITBIS
+- Cálculo automático de ITBIS por factura (tasa general: 18%)
+- Conciliación entre ITBIS cobrado (cuentas por cobrar) e ITBIS pagado (cuentas por pagar)
+- Reportes mensuales de ITBIS para declaración ante la DGII
+- Desglose por entidad y período fiscal
+
+## NCF (Números de Comprobantes Fiscales)
+
+- Gestión de secuencias de NCF autorizadas por la DGII por tipo de comprobante
+- Conciliación automática de NCF usados vs. NCF autorizados
+- Alertas cuando una secuencia está próxima a agotarse (menos de 20%)
+- Cierre automático de secuencias al final del período fiscal
+- Histórico completo de NCF emitidos y recibidos
+
+## Gestión Financiera
+
+### Cuentas por Cobrar (CxC)
+- Dashboard de cuentas por cobrar con saldos por cliente
+- Antigüedad de saldos (30, 60, 90+ días vencidos)
+- Estado de cuentas por cliente con desglose de facturas pendientes
+- Recordatorios automáticos de pago por email
+
+### Cuentas por Pagar (CxP)
+- Dashboard de cuentas por pagar con saldos por proveedor
+- Antigüedad de saldos con alertas de vencimiento próximo
+- Conciliación de ITBIS: ITBIS pagado en compras vs. ITBIS cobrado en ventas
+- Programación de pagos
+
+## Comunicación
+
+- **WhatsApp**: Envío automático de facturas a clientes por WhatsApp Business. También permite ingesta: los clientes envían fotos de facturas al número de WhatsApp y el sistema las procesa automáticamente
+- **Email**: Envío de facturas por correo electrónico con PDF adjunto. Recordatorios de vencimiento automáticos
+- **Portal del cliente**: Los clientes pueden ver sus facturas pendientes y pagadas en un portal público (sin necesidad de registro)
+
+## Planes y Precios (RD$, sin ITBIS)
+
+| Característica | Inicial | Profesional | Despacho |
+|---|---|---|---|
+| Precio mensual | RD$999 | RD$2,999 | RD$7,999 |
+| Usuarios | 3 | 10 | Ilimitados |
+| Entidades | 1 | 5 | 20 |
+| OCR/mes | 50 docs | 500 docs | 1,000 docs (pool) |
+| Consultas IA/mes | 150 | 1,000 | 10,000 |
+| Almacenamiento | 500 MB | 5 GB | 25 GB |
+| e-CF | Bloques desde RD$950 | Bloques desde RD$950 | Bloques desde RD$950 |
+| Reporte 606 | Automático | Automático | Automático |
+| Reportes 607/608 | — | — | Automáticos |
+| WhatsApp Ingestion | — | Sí | Sí |
+| Soporte | Email | Prioritario | Dedicado 24/7 + WhatsApp |
+| ERP Integration | — | — | QuickBooks, SAP, Odoo |
+
+### Extensiones y bloques adicionales
+- **Entidad extra**: RD$600/mes por entidad adicional (cada entidad gestiona su propio saldo de e-CF)
+- **Bloque e-CF**: RD$950 por 100 comprobantes electrónicos (RD$9.50 por documento; pago por uso RD$12/doc)
+- **Bloque IA**: RD$600 por 500 consultas adicionales al asistente de IA
+- **Almacenamiento extra**: RD$300/mes por 10 GB adicionales
+
+Todos los planes incluyen 7 días de prueba gratuita sin tarjeta de crédito. Se aceptan transferencias bancarias (RD), tarjetas de crédito/débito y pagos vía MIO.
+
+## Integraciones
+
+- **QuickBooks**: Exportación automática de facturas y reportes fiscales a QuickBooks Online
+- **Excel/Google Sheets**: Exportación de datos estructurados para análisis en hojas de cálculo
+- **WhatsApp Business**: Ingesta de facturas por chat y envío de comprobantes a clientes
+- **Slack**: Notificaciones de facturas recibidas, aprobaciones pendientes y alertas
+- **API REST**: Integración programática con sistemas contables (SAP, Odoo, Xero, Zoho Books)
+- **Webhooks**: Eventos en tiempo real para integraciones personalizadas
+
+## Key Facts
+
+- Fundado en 2025 por Yniel Vásquez
+- Oficina central: Santo Domingo, República Dominicana
+- Dirigido exclusivamente al mercado de República Dominicana (normativa DGII)
+- Tres planes de suscripción desde RD$999/mes hasta RD$7,999/mes
+- Prueba gratuita de 7 días sin necesidad de tarjeta de crédito
+- Procesamiento híbrido: OCR local (gratuito con confianza ≥0.7) + IA en la nube (fallback)
+- Compatible con QuickBooks, Excel, Google Sheets, WhatsApp Business, Slack, SAP, Odoo
+- Métodos de pago: transferencia bancaria, tarjetas crédito/débito y pasarela MIO
+- Prerregistro abierto con acceso anticipado para primeros usuarios
+
+## Contacto
+
+- Sitio web: https://www.fintral.app
+- WhatsApp comercial: https://wa.me/18293758414
+- Documentación legal: https://www.fintral.app/docs
+- API y documentación técnica: https://api.fintral.app/docs
+- Inicio de sesión: https://www.fintral.app/login
+- Crear cuenta: https://www.fintral.app/signup
+- Recuperar contraseña: https://www.fintral.app/forgot-password
