@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import {
+  ArrowRight,
   Calculator,
   CreditCard,
   Eraser,
@@ -13,6 +14,7 @@ import {
   Receipt,
   Search,
   Send,
+  ShoppingCart,
   User,
   Wallet,
   X,
@@ -29,6 +31,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
@@ -230,6 +239,7 @@ export default function QuickBillingPage() {
 
   // Confirmation dialog
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Listen for iframe print cleanup
   useEffect(() => {
@@ -492,10 +502,29 @@ export default function QuickBillingPage() {
             </div>
           )}
         </div>
+
+        {/* Mobile Bottom Bar */}
+        {hasCartItems && (
+          <div className="md:hidden shrink-0 border-t border-border/50 p-4 bg-background space-y-3">
+            <div className="flex justify-between items-baseline">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Total</span>
+              <span className="text-lg font-bold tabular-nums text-foreground">
+                {formatCurrency(totals.total)}
+              </span>
+            </div>
+            <Button
+              className="w-full h-11 text-sm font-semibold gap-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg shadow-sm transition-all duration-150 active:scale-[0.98]"
+              onClick={() => setSidebarOpen(true)}
+            >
+              Continuar a Facturación
+              <ArrowRight className="size-4" />
+            </Button>
+          </div>
+        )}
       </div>
 
-      {/* ── Right: Payment panel ── */}
-      <div className="w-[380px] shrink-0 flex flex-col">
+      {/* ── Right: Payment panel (Desktop Only) ── */}
+      <div className="hidden md:flex w-[380px] shrink-0 flex-col">
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           <div className="flex items-center justify-between">
             <Label className="text-xs font-medium">Datos de facturación</Label>
@@ -627,6 +656,158 @@ export default function QuickBillingPage() {
           )}
         </div>
       </div>
+
+      {/* ── Checkout Drawer Sheet (Mobile Only) ── */}
+      <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-md flex flex-col h-full p-0">
+          <SheetHeader className="p-5 border-b border-border/30 bg-muted/20">
+            <SheetTitle className="flex items-center gap-2 text-base font-semibold text-foreground">
+              <Receipt className="size-4.5 text-emerald-500" />
+              Datos de Facturación
+            </SheetTitle>
+            <SheetDescription className="text-xs">
+              Complete los datos del comprobante fiscal y del comprador.
+            </SheetDescription>
+          </SheetHeader>
+
+          {/* Form details scrollable area */}
+          <div className="flex-1 overflow-y-auto p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-medium">Datos de facturación</Label>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-destructive"
+                onClick={clearForm}
+              >
+                <Eraser className="size-3" />
+                Limpiar
+              </Button>
+            </div>
+
+            <Section label="Tipo de comprobante">
+              <NcfSelector value={ecfType} onChange={setEcfType} filterQuickMode />
+            </Section>
+
+            {isConsumidorFinal ? (
+              <div className="rounded-lg border p-3 bg-muted/20">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <User className="size-3.5" />
+                  Consumidor Final
+                  <span className="text-muted-foreground/60">
+                    ({ecfType === 2 ? "Físico 02" : "e-CF 32"})
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <Section label="Comprador">
+                <CustomerSearch value={buyer} onChange={setBuyer} />
+              </Section>
+            )}
+
+            <Section label="Condición de pago">
+              <Select
+                value={paymentType.toString()}
+                onValueChange={(v) => setPaymentType(parseInt(v))}
+              >
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">Contado</SelectItem>
+                  <SelectItem value="2">Crédito</SelectItem>
+                </SelectContent>
+              </Select>
+            </Section>
+
+            <Section label="Método de pago">
+              <div className="grid grid-cols-3 gap-1.5">
+                {[
+                  { value: 1, label: "Efectivo", icon: Wallet },
+                  { value: 2, label: "Transferencia", icon: Landmark },
+                  { value: 3, label: "Tarjeta", icon: CreditCard },
+                ].map(({ value, label, icon: Icon }) => (
+                  <Button
+                    key={value}
+                    variant={paymentMethod === value ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setPaymentMethod(value)}
+                    className="h-9 text-xs gap-1.5"
+                  >
+                    <Icon className="size-3.5" />
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </Section>
+
+            <Section label="Notas">
+              <Input
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Notas internas (opcional)"
+                className="h-9 text-sm"
+              />
+            </Section>
+          </div>
+
+          {/* Checkout Footer */}
+          <div className="p-5 border-t border-border/30 bg-muted/20 space-y-4 shrink-0">
+            <div className="space-y-1">
+              <TotalRow label="Subtotal" value={formatCurrency(totals.subtotal)} />
+              {totals.discountAmount > 0 && (
+                <TotalRow
+                  label="Descuentos"
+                  value={`-${formatCurrency(totals.discountAmount)}`}
+                  className="text-rose-500"
+                />
+              )}
+              <TotalRow label="ITBIS" value={formatCurrency(totals.taxAmount)} />
+              <Separator />
+              <div className="flex justify-between items-baseline pt-1">
+                <span className="text-sm font-semibold">Total</span>
+                <span className="text-xl font-bold tabular-nums text-primary">
+                  {formatCurrency(totals.total)}
+                </span>
+              </div>
+            </div>
+
+            <Button
+              className="w-full h-11 text-sm gap-2"
+              disabled={!canEmit || isPending}
+              onClick={() => {
+                handleEmit();
+                if (canEmit && !isPending) {
+                  setSidebarOpen(false);
+                }
+              }}
+            >
+              {isPending ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Emitiendo...
+                </>
+              ) : (
+                <>
+                  {isElectronic ? <Send className="size-4" /> : <Receipt className="size-4" />}
+                  {isConsumidorFinal
+                    ? "Cobrar y emitir"
+                    : isElectronic
+                      ? "Emitir comprobante electrónico"
+                      : "Emitir comprobante físico"}
+                </>
+              )}
+            </Button>
+
+            {isElectronic && totals.total >= 250_000 && (
+              <p className="text-xs text-amber-600 flex items-center gap-1">
+                <Calculator className="size-3" />
+                Monto ≥ RD$250,000 — procesamiento asíncrono por la DGII
+              </p>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <ConfirmEmissionDialog
         open={confirmOpen}

@@ -20,6 +20,7 @@ _ACTOR_ACTIONS = {
     "integration.pushed", "export.downloaded",
     "settings.updated", "webhook.created", "webhook.deleted",
     "user.login", "user.logout", "user.created",
+    "tenant.created", "tenant.suspended", "tenant.reactivated",
 }
 
 _VISIBLE_TO_CLIENT = {
@@ -33,7 +34,9 @@ _VISIBLE_TO_CLIENT = {
     "integration.pushed", "export.downloaded",
     "settings.updated", "webhook.created", "webhook.deleted",
     "user.login", "user.logout", "user.created",
+    "tenant.created", "tenant.suspended", "tenant.reactivated",
 }
+
 
 
 def record(

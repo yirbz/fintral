@@ -45,6 +45,7 @@ import {
 import { useSession } from "@/hooks/use-session";
 import { useOrg } from "@/hooks/use-org";
 import { useRNCValidation } from "@/hooks/use-rnc-validation";
+import { getMyPlan } from "@/lib/api/plans";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -390,7 +391,17 @@ function CreateOrgDialog({ onSuccess }: { onSuccess: () => void }) {
     },
   });
 
-  const { switchOrg } = useOrg();
+  const { switchOrg, userOrgs } = useOrg();
+
+  const { data: planData } = useQuery({
+    queryKey: ["plans", "my"],
+    queryFn: getMyPlan,
+    staleTime: 30_000,
+  });
+
+  const entityLimit = planData?.subscription?.limits?.max_entities ?? Infinity;
+  const currentEntityCount = userOrgs.length;
+  const atEntityLimit = currentEntityCount >= entityLimit;
 
   // ── Search by name via DGII Server Action ──
   const handleNameSearch = useCallback(async (query: string) => {
@@ -855,7 +866,19 @@ function CreateOrgDialog({ onSuccess }: { onSuccess: () => void }) {
           </Button>
           <Button
             size="sm"
-            onClick={() => createMutation.mutate()}
+            onClick={() => {
+              if (atEntityLimit) {
+                toast.error("Límite de organizaciones alcanzado", {
+                  description: `Tu plan permite hasta ${entityLimit} organización(es). Ve a la tienda para adquirir más espacios.`,
+                  action: {
+                    label: "Ir a la tienda",
+                    onClick: () => window.open("/dashboard/store", "_blank"),
+                  },
+                });
+                return;
+              }
+              createMutation.mutate();
+            }}
             disabled={!isFormValid || createMutation.isPending}
           >
             {createMutation.isPending ? (

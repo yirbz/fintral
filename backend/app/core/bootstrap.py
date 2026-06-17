@@ -1,5 +1,4 @@
 import asyncio
-from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -10,13 +9,9 @@ from app.core.reference_data import seed_reference_data
 from app.dependencies.tenancy import get_default_org, get_default_tenant
 from app.models import User, UserOrganization
 from app.services.auth_service import create_admin_user
-from app.services.supabase_storage import (
-    INVOICES_PREFIX,
-    delete_file as supabase_delete,
-    delete_invoice_folder,
-)
 from app.services.dgii_health import start_dgii_health_task
 from app.services.websocket import start_heartbeat_task
+from app.services.daily_metrics import start_daily_metrics_task
 
 logger = setup_logging()
 
@@ -134,14 +129,32 @@ def ensure_default_admin(db: Session) -> None:
 
     existing = db.query(User).filter(User.email == ADMIN_EMAIL).first()
     if existing:
-        logger.info("Admin user already exists in database: %s", ADMIN_EMAIL)
+        logger.info("Admin user already exists: %s. Updating password and details to match current config.", ADMIN_EMAIL)
+        password = ADMIN_PASSWORD
+        if len(password.encode("utf-8")) > 72:
+            password = password.encode("utf-8")[:72].decode("utf-8", errors="ignore")
+            logger.warning("Admin password truncated to 72 bytes (bcrypt limit)")
+        existing.hashed_password = get_password_hash(password)
+        existing.full_name = ADMIN_FULL_NAME
+        existing.is_superuser = True
+        
+        # Ensure they exist in Supabase Auth if configured
+        from app.config import SUPABASE_URL
+        if not existing.supabase_uid and (IS_PRODUCTION or SUPABASE_URL):
+            supabase_result = create_admin_user(ADMIN_EMAIL, ADMIN_PASSWORD)
+            if supabase_result:
+                existing.supabase_uid = supabase_result["id"]
+                logger.info("Linked Supabase UID during update: email=%s, supabase_id=%s", ADMIN_EMAIL, existing.supabase_uid)
+        
+        db.commit()
         return
 
     if not ADMIN_PASSWORD:
         raise RuntimeError("ADMIN_PASSWORD is not set. This is required to bootstrap the system.")
 
     supabase_uid = None
-    if IS_PRODUCTION:
+    from app.config import SUPABASE_URL
+    if IS_PRODUCTION or SUPABASE_URL:
         supabase_result = create_admin_user(ADMIN_EMAIL, ADMIN_PASSWORD)
         if supabase_result:
             supabase_uid = supabase_result["id"]
@@ -183,76 +196,6 @@ def ensure_default_admin(db: Session) -> None:
     logger.info("Local admin user created: email=%s, tenant=%s, org=%s, role=owner", ADMIN_EMAIL, tenant.id, org.id)
 
 
-def cleanup_expired_trash(db: Session) -> None:
-    from sqlalchemy import inspect
-    from app.models import Invoice
-    from app.database import engine
-
-    if engine is None:
-        logger.warning("cleanup_expired_trash — database not available, skipping")
-        return
-
-    inspector = inspect(engine)
-    columns = [c["name"] for c in inspector.get_columns("invoices")]
-    if "deleted_at" not in columns:
-        logger.warning(
-            "cleanup_expired_trash — deleted_at column missing from invoices table, skipping (run migrations first)"
-        )
-        return
-
-    cutoff = datetime.utcnow() - timedelta(days=30)
-    expired = (
-        db.query(Invoice)
-        .filter(
-            Invoice.is_deleted.is_(True),
-            Invoice.deleted_at < cutoff,
-            Invoice.status != "permanently_deleted",
-        )
-        .all()
-    )
-
-    if not expired:
-        logger.info("cleanup_expired_trash — no invoices past the 30-day retention period")
-        return
-
-    logger.info("cleanup_expired_trash — found %d expired invoice(s) to permanently delete", len(expired))
-    deleted_count = 0
-    storage_errors = 0
-    for invoice in expired:
-        try:
-            if invoice.file_path:
-                if INVOICES_PREFIX in invoice.file_path:
-                    ok = delete_invoice_folder(invoice.tenant_id, invoice.organization_id, invoice.id)
-                    if not ok:
-                        logger.warning(
-                            "cleanup_expired_trash — storage cleanup failed for invoice %s, setting status anyway",
-                            invoice.id,
-                        )
-                        storage_errors += 1
-                else:
-                    ok = supabase_delete(invoice.file_path)
-                    if not ok:
-                        logger.warning(
-                            "cleanup_expired_trash — file delete failed for invoice %s: %s",
-                            invoice.id,
-                            invoice.file_path,
-                        )
-                        storage_errors += 1
-                    if invoice.processed_path:
-                        supabase_delete(invoice.processed_path)
-        except Exception as exc:
-            logger.warning("cleanup_expired_trash — error cleaning storage for invoice %s: %s", invoice.id, exc)
-            storage_errors += 1
-        invoice.status = "permanently_deleted"
-        deleted_count += 1
-    db.commit()
-    logger.info(
-        "cleanup_expired_trash — %d invoice(s) marked as permanently_deleted (%d storage cleanup error(s))",
-        deleted_count,
-        storage_errors,
-    )
-
-
 async def run_startup(db: Session) -> None:
     logger.info("")
     logger.info("=" * 60)
@@ -261,7 +204,7 @@ async def run_startup(db: Session) -> None:
     logger.info("=" * 60)
 
     logger.info("")
-    logger.info("--- Phase 1/4: Database ---")
+    logger.info("--- Phase 1/3: Database ---")
     try:
         init_database()
     except Exception as exc:
@@ -269,22 +212,14 @@ async def run_startup(db: Session) -> None:
         raise
 
     logger.info("")
-    logger.info("--- Phase 2/4: Trash Cleanup ---")
-    try:
-        cleanup_expired_trash(db)
-    except Exception as exc:
-        logger.error("Trash cleanup failed: %s", exc)
-        db.rollback()
-
-    logger.info("")
-    logger.info("--- Phase 3/4: Reference Data ---")
+    logger.info("--- Phase 2/3: Reference Data ---")
     try:
         seed_reference_data(db)
     except Exception as exc:
         logger.error("Reference data seeding failed: %s", exc)
 
     logger.info("")
-    logger.info("--- Phase 4/4: Admin User ---")
+    logger.info("--- Phase 3/3: Admin User ---")
     try:
         ensure_default_admin(db)
     except Exception as exc:
@@ -297,6 +232,9 @@ async def run_startup(db: Session) -> None:
 
     asyncio.create_task(start_dgii_health_task())
     logger.info("DGII health check scheduler started (daily at 06:00 UTC)")
+
+    asyncio.create_task(start_daily_metrics_task())
+    logger.info("Daily metrics scheduler started (daily at 00:05 UTC)")
 
     logger.info("")
     logger.info("=" * 60)

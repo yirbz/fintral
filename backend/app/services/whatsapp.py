@@ -418,7 +418,7 @@ class WhatsAppService:
                 if base64_data:
                     # Validar base64
                     try:
-                        decoded = base64.b64decode(base64_data[:100] + "==") # Test decode header
+                        base64.b64decode(base64_data[:100] + "==") # Test decode header
                         print(f"✅ Base64 extraído exitosamente. Longitud: {len(base64_data)} caracteres.")
                         return base64_data
                     except Exception as e:

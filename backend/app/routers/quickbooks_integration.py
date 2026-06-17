@@ -6,7 +6,7 @@ from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from app.config import PUBLIC_APP_URL as FRONTEND_URL

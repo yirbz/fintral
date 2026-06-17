@@ -1,4 +1,4 @@
-import { CheckCircle2 } from "lucide-react"
+import { CheckCircle2, Shield, Users, FileText, HardDrive, Zap } from "lucide-react"
 
 export default function InicialPlanPage() {
   return (
@@ -13,7 +13,7 @@ export default function InicialPlanPage() {
       </div>
 
       <p className="text-[15px] leading-relaxed font-light text-[#273951]">
-        El plan <strong>Inicial</strong> está concebido para profesionales independientes, freelancers y pequeños negocios que inicialmente no requieren emitir comprobantes fiscales electrónicos (e-CF) en su organización base, pero desean automatizar su contabilidad, validar NCFs y generar reportes fiscales de compras automáticamente. Permite habilitar facturación electrónica de forma modular agregando organizaciones adicionales facturadoras.
+        El plan <strong>Inicial</strong> está diseñado para profesionales independientes, freelancers y microempresas que buscan automatizar su contabilidad con herramientas de IA.
       </p>
 
       {/* ── PRECIOS ── */}
@@ -25,7 +25,7 @@ export default function InicialPlanPage() {
               <tr className="bg-[#f6f9fc] border-b border-[#e3e8ee] text-[#0d253d]">
                 <th className="p-4 font-semibold">Período</th>
                 <th className="p-4 font-semibold text-right">Precio Total</th>
-                <th className="p-4 font-semibold text-right">Ahorro</th>
+                <th className="p-4 font-semibold text-right">Descuento</th>
                 <th className="p-4 font-semibold text-right text-[#0EA5E9]">Efectivo/mes</th>
               </tr>
             </thead>
@@ -37,16 +37,22 @@ export default function InicialPlanPage() {
                 <td className="p-4 text-right font-medium">RD$ 999.00</td>
               </tr>
               <tr className="border-b border-[#e3e8ee]/60 hover:bg-[#f6f9fc]/10">
-                <td className="p-4 font-medium">3 Meses (Trimestral)</td>
-                <td className="p-4 text-right">RD$ 2,697.00</td>
-                <td className="p-4 text-right text-emerald-500 font-medium">10%</td>
-                <td className="p-4 text-right font-medium text-[#0EA5E9]">RD$ 899.00</td>
+                <td className="p-4 font-medium">3 Meses</td>
+                <td className="p-4 text-right">RD$ 2,907.00</td>
+                <td className="p-4 text-right text-emerald-500 font-medium">3%</td>
+                <td className="p-4 text-right font-medium text-[#0EA5E9]">RD$ 969.00</td>
+              </tr>
+              <tr className="border-b border-[#e3e8ee]/60 hover:bg-[#f6f9fc]/10">
+                <td className="p-4 font-medium">6 Meses</td>
+                <td className="p-4 text-right">RD$ 5,694.00</td>
+                <td className="p-4 text-right text-emerald-500 font-medium">5%</td>
+                <td className="p-4 text-right font-medium text-[#0EA5E9]">RD$ 949.00</td>
               </tr>
               <tr className="hover:bg-[#f6f9fc]/10">
                 <td className="p-4 font-medium">12 Meses (Anual)</td>
-                <td className="p-4 text-right">RD$ 9,590.00</td>
-                <td className="p-4 text-right text-emerald-500 font-medium">20%</td>
-                <td className="p-4 text-right font-medium text-[#0EA5E9]">RD$ 799.16</td>
+                <td className="p-4 text-right">RD$ 10,789.00</td>
+                <td className="p-4 text-right text-emerald-500 font-medium">10%</td>
+                <td className="p-4 text-right font-medium text-[#0EA5E9]">RD$ 899.08</td>
               </tr>
             </tbody>
           </table>
@@ -59,20 +65,20 @@ export default function InicialPlanPage() {
       {/* ── CARACTERISTICAS ── */}
       <section className="space-y-4">
         <h2 className="text-[18px] font-semibold tracking-tight text-[#0d253d]">Características Incluidas</h2>
-        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-0 list-none">
+        <ul className="space-y-3 pl-0 list-none">
           {[
-            "Contabilidad y Reportes Financieros",
-            "50 documentos OCR al mes",
-            "Usuarios ilimitados para la organización",
-            "Validación NCF contra servidores de la DGII",
-            "Reporte 606 automático y estructurado",
-            "Exportación directa a plantilla DGII",
-            "Soporte técnico por correo electrónico (máx. 24h)",
-            "Extensible con Organizaciones Adicionales"
+            { icon: FileText, text: "Contabilidad, reportes y validación NCF DGII" },
+            { icon: HardDrive, text: "50 documentos OCR al mes — extracción con IA" },
+            { icon: Zap, text: "150 consultas de IA al mes" },
+            { icon: HardDrive, text: "500 MB de almacenamiento incluido" },
+            { icon: Users, text: "Hasta 3 usuarios incluidos (adicionales a RD$ 300/mes c/u)" },
+            { icon: Shield, text: "Reporte 606 automático desde compras registradas" },
+            { icon: FileText, text: "1 entidad incluida (entidades adicionales a RD$ 600/mes c/u)" },
+            { icon: FileText, text: "Bloques de e-CF disponibles por compra separada en el Store" },
           ].map((feat, i) => (
             <li key={i} className="flex items-center gap-2 text-[13px] text-[#273951]">
-              <CheckCircle2 className="size-4 text-[#0EA5E9] shrink-0" />
-              <span>{feat}</span>
+              <feat.icon className="size-4 text-[#0EA5E9] shrink-0" />
+              <span>{feat.text}</span>
             </li>
           ))}
         </ul>
@@ -81,33 +87,47 @@ export default function InicialPlanPage() {
       {/* ── CONDICIONES PARTICULARES ── */}
       <section className="space-y-4 text-[15px] font-light leading-relaxed text-[#273951]">
         <h2 className="text-[18px] font-semibold tracking-tight text-[#0d253d]">Términos Particulares del Plan</h2>
-        
+
         <div className="space-y-4">
           <div>
-            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">1. Emisión de Facturación Electrónica (e-CF)</h3>
+            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">1. Límites de Consumo</h3>
             <p>
-              La <strong>organización principal (base)</strong> incluida en el Plan Inicial no permite la emisión de comprobantes fiscales electrónicos (e-CF). Sin embargo, el cliente puede facturar electrónicamente bajo este mismo plan adquiriendo de forma modular una o más <strong>Organizaciones Facturadoras e-CF adicionales (+RD$ 1,500/mes)</strong>, sin verse obligado a migrar al Plan Profesional.
+               El plan incluye procesamiento OCR de hasta <strong>50 documentos al mes</strong>, <strong>150 consultas de IA al mes</strong> y almacenamiento de <strong>500 MB</strong>. Los límites se reajustan mensualmente y los recursos no consumidos no son acumulables al siguiente ciclo. Si necesitas más capacidad, puedes contratar bloques adicionales desde el Store: IA (500 consultas por RD$ 600) y almacenamiento (10 GB por RD$ 300).
             </p>
           </div>
 
           <div>
-            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">2. Procesamiento de Documentos (OCR)</h3>
+            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">2. Documentos Electrónicos (e-CF)</h3>
             <p>
-              Incluye la extracción inteligente de datos para hasta <strong>50 documentos de compra/gastos al mes</strong>. El procesamiento excedente no está disponible en este plan base; requiere actualizar a un plan superior para disponer de una cuota de OCR mayor.
+              Este plan <strong>no incluye</strong> emisión de facturas electrónicas (e-CF). Los documentos e-CF pueden adquirirse por separado mediante bloques de 100 documentos (RD$ 950/bloque) desde el Store de la plataforma.
             </p>
           </div>
 
           <div>
-            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">3. Usuarios Ilimitados</h3>
+            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">3. Capacidad de Entidades</h3>
             <p>
-              No hay límite en el número de miembros del equipo o asesores externos que puede invitar. Sin embargo, todos los usuarios autorizados comparten la cuota única de 50 documentos OCR mensuales de la organización.
+               El plan Inicial incluye <strong>1 entidad gratis</strong>. Las entidades adicionales tienen un costo de <strong>RD$ 600/mes c/u</strong>. Cada entidad gestiona sus propios bloques de e-CF de forma independiente — el contable paga el plan + entidades extra, la entidad paga sus documentos.
             </p>
           </div>
 
           <div>
-            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">4. Generación Automática del Reporte 606</h3>
+            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">4. Capacidad de Usuarios</h3>
             <p>
-              Las facturas digitalizadas y cargadas mediante OCR se procesan y clasifican automáticamente en la plataforma para pre-llenar y generar el formato 606 sin digitación manual. Es mandatorio que el usuario valide la exactitud de los gastos clasificados antes de su remisión final a la DGII.
+              El plan Inicial incluye <strong>3 usuarios</strong>. Los usuarios adicionales tienen un costo de <strong>RD$ 300/mes c/u</strong> y se contratan desde el Store de la plataforma, con los mismos descuentos por compromiso (3/6/12 meses).
+            </p>
+          </div>
+
+          <div>
+            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">5. Extensiones Modulares</h3>
+            <p>
+              Además de los bloques de e-CF, están disponibles bloques complementarios de AI (500 consultas por RD$ 600) y almacenamiento (10 GB por RD$ 300) desde el Store de la plataforma.
+            </p>
+          </div>
+
+          <div>
+            <h3 className="text-[15px] font-semibold text-[#0d253d] mb-1">6. Exclusiones de Responsabilidad Fiscal</h3>
+            <p>
+              Fintral opera estrictamente como herramienta de software intermediaria para la transmisión y estructuración de datos. Es responsabilidad exclusiva del cliente fiscalizar y auditar la exactitud contable e impositiva de sus operaciones ante la DGII.
             </p>
           </div>
         </div>

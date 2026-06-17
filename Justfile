@@ -95,25 +95,6 @@ down:
     docker compose down
     @echo "{{RED}}Services stopped.{{RESET}}"
 
-# ─────────────────────────────────────────────
-# Infrastructure only (legacy, for local dev without Docker)
-# ─────────────────────────────────────────────
-
-infran:
-    docker compose -f compose-database.yml up -d
-    @echo "{{GREEN}}Infrastructure started:{{RESET}}"
-    @echo "{{BLUE}} Proxy: {{RESET}}http://localhost:$(docker compose -f compose-database.yml port proxy 80 | sed 's/.*://')"
-    @echo "{{BLUE}} DB:    {{RESET}}localhost:$(docker compose -f compose-database.yml port db 5432 | sed 's/.*://')"
-    @echo "{{BLUE}} Redis: {{RESET}}localhost:$(docker compose -f compose-database.yml port redis 6379 | sed 's/.*://')"
-
-infdown:
-    docker compose -f compose-database.yml down
-    @echo "{{RED}}Infrastructure stopped.{{RESET}}"
-
-# ─────────────────────────────────────────────
-# Suprimir errores en tareas que no existen
-# ─────────────────────────────────────────────
-
 integration-test:
     @echo "⚠️ Asegúrate de que el servidor esté corriendo antes de ejecutar estas pruebas."
     venv/bin/python tests/verify_ws_full.py

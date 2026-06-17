@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 
 import { getOrganization, type OrgMember } from "@/lib/api/settings";
+import { getMyPlan } from "@/lib/api/plans";
 import {
   removeMember,
   updateMemberRole,
@@ -160,9 +161,11 @@ function RoleBadge({ role }: { role: string }) {
 
 function InviteDialog({
   orgId,
+  memberCount,
   onSuccess,
 }: {
   orgId: string;
+  memberCount: number;
   onSuccess: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -170,8 +173,22 @@ function InviteDialog({
   const [role, setRole] = useState("member");
   const [inviteResult, setInviteResult] = useState<{ token: string; email: string } | null>(null);
 
+  const { data: planData } = useQuery({
+    queryKey: ["plans", "my"],
+    queryFn: getMyPlan,
+    staleTime: 30_000,
+  });
+
+  const userLimit = planData?.subscription?.limits?.max_users ?? Infinity;
+  const atUserLimit = memberCount >= userLimit;
+
   const inviteMutation = useMutation({
-    mutationFn: () => createInvitation(orgId, { email, role }),
+    mutationFn: () => {
+      if (atUserLimit) {
+        throw new Error("limit_reached");
+      }
+      return createInvitation(orgId, { email, role });
+    },
     onSuccess: (result: any) => {
       toast.success(`Invitación creada para ${email}`);
       setInviteResult({ token: result.token, email });
@@ -179,7 +196,17 @@ function InviteDialog({
       onSuccess();
     },
     onError: (err: Error) => {
-      toast.error("Error al invitar", { description: err.message });
+      if (err.message === "limit_reached") {
+        toast.error("Límite de usuarios alcanzado", {
+          description: `Tu plan permite hasta ${userLimit} usuario(s). Ve a la tienda para adquirir más espacios.`,
+          action: {
+            label: "Ir a la tienda",
+            onClick: () => window.open("/dashboard/store", "_blank"),
+          },
+        });
+      } else {
+        toast.error("Error al invitar", { description: err.message });
+      }
     },
   });
 
@@ -733,6 +760,7 @@ export function TeamPage() {
         {currentOrgId && (
           <InviteDialog
             orgId={currentOrgId}
+            memberCount={memberCount}
             onSuccess={() => {
               queryClient.invalidateQueries({
                 queryKey: ["organization-settings"],

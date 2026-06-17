@@ -9,6 +9,8 @@ export interface UserOrg {
   tax_id: string | null;
   role: string;
   is_current: boolean;
+  is_deleted?: boolean;
+  deleted_at?: string | null;
 }
 
 export interface OrgMemberDetail {

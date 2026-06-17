@@ -300,8 +300,8 @@ export async function restoreInvoice(invoiceId: string) {
   });
 }
 
-export async function permanentDeleteInvoice(invoiceId: string) {
-  return apiFetch<{ message: string }>(`/invoices/${invoiceId}/permanent`, {
+export async function archiveInvoice(invoiceId: string) {
+  return apiFetch<{ message: string }>(`/invoices/${invoiceId}/archive`, {
     method: "DELETE"
   });
 }
@@ -314,8 +314,8 @@ export async function bulkRestore(invoiceIds: string[]) {
   });
 }
 
-export async function bulkPermanentDelete(invoiceIds: string[]) {
-  return apiFetch<{ message: string; count: number }>("/api/invoices/bulk-permanent-delete", {
+export async function bulkArchive(invoiceIds: string[]) {
+  return apiFetch<{ message: string; count: number }>("/api/invoices/bulk-archive", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ invoice_ids: invoiceIds })

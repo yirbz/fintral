@@ -1,10 +1,15 @@
 import json
 import logging
-from datetime import timedelta
-from typing import Optional
+import os
+import tempfile
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any
 from uuid import UUID
 
+from app.services.plan_service import PlanService
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
@@ -17,12 +22,12 @@ from app.models import (
     AuditLog,
     Invoice,
     Organization,
+    PaymentProof,
     ReferenceData,
     Tenant,
     User,
     UserOrganization,
 )
-from app.services.audit_logger import query_admin as query_audit_logs
 from app.utils.dates import utc_now
 
 logger = logging.getLogger(__name__)
@@ -301,6 +306,7 @@ async def get_tenant_detail(
                 "is_active": org.is_active,
                 "is_ecf_authorized": org.is_ecf_authorized,
                 "certification_status": org.certification_status,
+                "is_deleted": org.is_deleted,
                 "deleted_at": org.deleted_at.isoformat() if org.deleted_at else None,
                 "created_at": org.created_at.isoformat() if org.created_at else None,
                 "users": [
@@ -360,6 +366,331 @@ async def update_tenant(
         "plan": tenant.plan,
         "is_active": tenant.is_active,
     }
+
+
+class TenantSuspendRequest(BaseModel):
+    reason: str
+    notify_user: bool = True
+    grace_days: int = 0
+
+
+class TenantUnsuspendRequest(BaseModel):
+    notify_user: bool = True
+
+
+class TenantOnboardRequest(BaseModel):
+    org_name: str
+    tax_id: str
+    admin_email: str
+    admin_name: str
+    plan: str
+    country: str = "DO"
+    password: Optional[str] = None
+
+
+@router.post("/tenants/{tenant_id}/suspend")
+async def suspend_tenant(
+    tenant_id: str,
+    body: TenantSuspendRequest,
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    from app.services.email_service import send_tenant_suspension_email
+    from app.services import audit_logger
+
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant no encontrado")
+
+    if not tenant.is_active:
+        raise HTTPException(status_code=400, detail="El tenant ya está suspendido")
+
+    tenant.is_active = False
+
+    # Store suspension reasons in settings_json
+    settings = {}
+    if tenant.settings_json:
+        try:
+            settings = json.loads(tenant.settings_json)
+        except Exception:
+            pass
+    settings["suspension"] = {
+        "suspended_at": utc_now().isoformat(),
+        "reason": body.reason,
+        "grace_days": body.grace_days,
+    }
+    tenant.settings_json = json.dumps(settings)
+
+    db.commit()
+
+    # Find a representative organization for the tenant to satisfy DB nullable constraint on AuditLog
+    org = db.query(Organization).filter(Organization.tenant_id == tenant.id).first()
+    org_id = org.id if org else tenant.id
+    org_name = org.name if org else tenant.name
+
+    # Log audit event
+    audit_logger.record(
+        db=db,
+        tenant_id=tenant.id,
+        organization_id=org_id,
+        organization_name=org_name,
+        actor_id=str(ctx.user.id),
+        actor_name=ctx.user.full_name,
+        actor_email=ctx.user.email,
+        action="tenant.suspended",
+        resource_type="tenant",
+        resource_id=str(tenant.id),
+        summary="Tenant suspendido por administrador",
+        details=f"Razón: {body.reason}, Días de gracia: {body.grace_days}",
+        metadata={
+            "reason": body.reason,
+            "grace_days": body.grace_days,
+            "notify_user": body.notify_user,
+        },
+    )
+
+    # Optionally notify active users
+    if body.notify_user:
+        active_users = (
+            db.query(User)
+            .filter(User.tenant_id == tenant.id, User.is_active.is_(True), User.deleted_at.is_(None))
+            .all()
+        )
+        for u in active_users:
+            send_tenant_suspension_email(u.email, tenant.name, body.reason, body.grace_days)
+
+    return {
+        "id": str(tenant.id),
+        "is_active": tenant.is_active,
+        "message": "Tenant suspendido exitosamente",
+    }
+
+
+@router.post("/tenants/{tenant_id}/unsuspend")
+async def unsuspend_tenant(
+    tenant_id: str,
+    body: TenantUnsuspendRequest,
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    from app.services.email_service import send_tenant_unsuspension_email
+    from app.services import audit_logger
+
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant no encontrado")
+
+    if tenant.is_active:
+        raise HTTPException(status_code=400, detail="El tenant no está suspendido")
+
+    tenant.is_active = True
+
+    # Clear suspension from settings_json
+    settings = {}
+    if tenant.settings_json:
+        try:
+            settings = json.loads(tenant.settings_json)
+        except Exception:
+            pass
+    settings.pop("suspension", None)
+    tenant.settings_json = json.dumps(settings)
+
+    db.commit()
+
+    # Find a representative organization for the tenant to satisfy DB nullable constraint on AuditLog
+    org = db.query(Organization).filter(Organization.tenant_id == tenant.id).first()
+    org_id = org.id if org else tenant.id
+    org_name = org.name if org else tenant.name
+
+    # Log audit event
+    audit_logger.record(
+        db=db,
+        tenant_id=tenant.id,
+        organization_id=org_id,
+        organization_name=org_name,
+        actor_id=str(ctx.user.id),
+        actor_name=ctx.user.full_name,
+        actor_email=ctx.user.email,
+        action="tenant.reactivated",
+        resource_type="tenant",
+        resource_id=str(tenant.id),
+        summary="Tenant reactivado por administrador",
+        details="El tenant fue reactivado exitosamente",
+        metadata={
+            "notify_user": body.notify_user,
+        },
+    )
+
+    # Optionally notify active users
+    if body.notify_user:
+        active_users = (
+            db.query(User)
+            .filter(User.tenant_id == tenant.id, User.is_active.is_(True), User.deleted_at.is_(None))
+            .all()
+        )
+        for u in active_users:
+            send_tenant_unsuspension_email(u.email, tenant.name)
+
+    return {
+        "id": str(tenant.id),
+        "is_active": tenant.is_active,
+        "message": "Tenant reactivado exitosamente",
+    }
+
+
+@router.post("/tenants")
+async def onboard_tenant(
+    body: TenantOnboardRequest,
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    import secrets
+    from app.core.auth import get_password_hash
+    from app.dependencies.tenancy import slugify
+    from app.services.auth_service import get_supabase_admin
+    from app.services import audit_logger
+    from app.models.subscription_plan import SubscriptionPlan
+
+    # Check if plan exists
+    plan_name = body.plan.lower()
+    plan_obj = (
+        db.query(SubscriptionPlan)
+        .filter(SubscriptionPlan.name == plan_name, SubscriptionPlan.is_active.is_(True))
+        .first()
+    )
+    if not plan_obj:
+        raise HTTPException(
+            status_code=400, detail=f"Plan '{body.plan}' no encontrado o inactivo"
+        )
+
+    # Check if admin email in use
+    existing_user = db.query(User).filter(User.email == body.admin_email).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=400, detail="El email del administrador ya está en uso"
+        )
+
+    # Generate unique slug
+    base_slug = slugify(body.org_name)
+    slug = base_slug
+    suffix = 1
+    while db.query(Tenant).filter(Tenant.slug == slug).first():
+        slug = f"{base_slug}-{suffix}"
+        suffix += 1
+
+    password = body.password or f"Fintral-{secrets.token_urlsafe(8)}"
+    hashed_password = get_password_hash(password)
+
+    # Handle Supabase Auth if present
+    supabase = get_supabase_admin()
+    supabase_uid = None
+    if supabase:
+        try:
+            response = supabase.auth.admin.create_user({
+                "email": body.admin_email,
+                "password": password,
+                "email_confirm": True,
+                "user_metadata": {"full_name": body.admin_name},
+            })
+            if response and response.user:
+                supabase_uid = response.user.id
+                logger.info(
+                    "Manual onboard: Supabase user created: %s (%s)",
+                    body.admin_email,
+                    supabase_uid,
+                )
+            else:
+                logger.warning("Supabase Auth returned no user for %s", body.admin_email)
+        except Exception as e:
+            logger.warning(
+                "Supabase Auth user creation failed for %s: %s. Continuing with local dev flow.",
+                body.admin_email,
+                e,
+            )
+
+    # Create Tenant
+    tenant = Tenant(
+        name=body.org_name,
+        slug=slug,
+        plan=plan_name,
+        is_active=True,
+    )
+    db.add(tenant)
+    db.flush()
+
+    # Create Organization
+    org = Organization(
+        tenant_id=tenant.id,
+        name=body.org_name,
+        tax_id=body.tax_id or None,
+        country=body.country or "DO",
+        is_active=True,
+    )
+    db.add(org)
+    db.flush()
+
+    # Create User
+    user = User(
+        email=body.admin_email,
+        full_name=body.admin_name,
+        is_active=True,
+        is_superuser=False,
+        supabase_uid=supabase_uid,
+        tenant_id=tenant.id,
+        hashed_password=hashed_password,
+    )
+    db.add(user)
+    db.flush()
+
+    # UserOrganization role="owner"
+    user_org = UserOrganization(
+        user_id=user.id,
+        organization_id=org.id,
+        role="owner",
+    )
+    db.add(user_org)
+    db.flush()
+
+    # Provision Subscription
+    plan_service = PlanService(db)
+    plan_service.change_plan(org.id, plan_name)
+
+    # Log audit event
+    audit_logger.record(
+        db=db,
+        tenant_id=tenant.id,
+        organization_id=org.id,
+        organization_name=org.name,
+        actor_id=str(ctx.user.id),
+        actor_name=ctx.user.full_name,
+        actor_email=ctx.user.email,
+        action="tenant.created",
+        resource_type="tenant",
+        resource_id=str(tenant.id),
+        summary="Tenant creado manualmente por administrador",
+        details=f"Organización: {org.name}, Email: {user.email}, Plan: {body.plan}",
+        metadata={
+            "tenant_name": tenant.name,
+            "org_name": org.name,
+            "tax_id": org.tax_id,
+            "admin_email": user.email,
+            "plan": body.plan,
+        },
+    )
+
+    db.commit()
+
+    return {
+        "tenant_id": str(tenant.id),
+        "tenant_name": tenant.name,
+        "slug": tenant.slug,
+        "org_id": str(org.id),
+        "admin_email": user.email,
+        "admin_name": user.full_name,
+        "plan": tenant.plan,
+        "temp_password": password if not body.password else None,
+    }
+
 
 
 @router.delete("/tenants/{tenant_id}")
@@ -506,6 +837,10 @@ async def update_organization(
             org.tax_id = body["tax_id"]
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+    if "is_ecf_authorized" in body:
+        org.is_ecf_authorized = body["is_ecf_authorized"]
+    if "certification_status" in body:
+        org.certification_status = body["certification_status"]
 
     db.commit()
     db.refresh(org)
@@ -514,8 +849,12 @@ async def update_organization(
         "name": org.name,
         "tax_id": org.tax_id,
         "is_active": org.is_active,
+        "is_ecf_authorized": org.is_ecf_authorized,
+        "certification_status": org.certification_status,
         "tenant_id": str(org.tenant_id),
+        "is_deleted": org.is_deleted,
     }
+
 
 
 @router.delete("/organizations/{org_id}")
@@ -527,11 +866,11 @@ async def delete_organization(
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
         raise HTTPException(status_code=404, detail="Organización no encontrada")
-    if org.deleted_at:
+    if org.is_deleted or org.deleted_at:
         raise HTTPException(status_code=400, detail="La organización ya está eliminada")
 
+    org.is_deleted = True
     org.deleted_at = utc_now()
-    db.query(UserOrganization).filter(UserOrganization.organization_id == org.id).delete(synchronize_session=False)
     db.commit()
     return {"message": "Organización marcada como eliminada (datos preservados por retención fiscal)"}
 
@@ -545,9 +884,10 @@ async def restore_organization(
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
         raise HTTPException(status_code=404, detail="Organización no encontrada")
-    if not org.deleted_at:
+    if not org.is_deleted and not org.deleted_at:
         raise HTTPException(status_code=400, detail="La organización no está eliminada")
 
+    org.is_deleted = False
     org.deleted_at = None
     db.commit()
     return {"message": "Organización restaurada"}
@@ -725,29 +1065,55 @@ async def list_admin_audit_logs(
     actor_id: Optional[str] = Query(None),
     resource_type: Optional[str] = Query(None),
     visibility: Optional[str] = Query(None, description="client, internal, or empty for all"),
+    start_date: Optional[str] = Query(None, description="ISO start date"),
+    end_date: Optional[str] = Query(None, description="ISO end date"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     ctx: TenantContext = Depends(require_admin),
 ):
-    tid = UUID(tenant_id) if tenant_id else None
-    oid = UUID(organization_id) if organization_id else None
+    q = ctx.db.query(AuditLog)
+    if tenant_id:
+        try:
+            q = q.filter(AuditLog.tenant_id == UUID(tenant_id))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid tenant_id UUID")
+    if organization_id:
+        try:
+            q = q.filter(AuditLog.organization_id == UUID(organization_id))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid organization_id UUID")
+    if visibility == "client":
+        q = q.filter((AuditLog.visibility == "client") | (AuditLog.visibility.is_(None)))
+    elif visibility:
+        q = q.filter(AuditLog.visibility == visibility)
+    if action:
+        q = q.filter(AuditLog.action == action)
+    if actor_id:
+        q = q.filter(AuditLog.actor_id == actor_id)
+    if resource_type:
+        q = q.filter(AuditLog.resource_type == resource_type)
 
-    rows, total = query_audit_logs(
-        ctx.db,
-        tenant_id=tid,
-        organization_id=oid,
-        action=action,
-        actor_id=actor_id,
-        resource_type=resource_type,
-        visibility=visibility,
-        limit=limit,
-        offset=offset,
-    )
+    if start_date:
+        try:
+            # Handle possible 'Z' suffix or standard ISO formats
+            dt_str = start_date.replace("Z", "+00:00")
+            q = q.filter(AuditLog.created_at >= datetime.fromisoformat(dt_str))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date format, must be ISO-8601")
+    if end_date:
+        try:
+            dt_str = end_date.replace("Z", "+00:00")
+            q = q.filter(AuditLog.created_at <= datetime.fromisoformat(dt_str))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid end_date format, must be ISO-8601")
+
+    total = q.count()
+    rows = q.order_by(AuditLog.created_at.desc()).offset(offset).limit(limit).all()
     return {
         "total": total,
         "offset": offset,
         "limit": limit,
-        "events": [r.to_admin_dict() for r in rows],
+        "events": [r.to_dict() for r in rows],
     }
 
 
@@ -755,3 +1121,878 @@ async def list_admin_audit_logs(
 async def run_dgii_health_check(ctx: TenantContext = Depends(require_admin)):
     report = await check_dgii_health()
     return report.to_dict()
+
+
+@router.get("/analytics/costs")
+async def admin_costs_analytics(
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    from app.core.container import cost_control
+
+    return cost_control.get_cost_statistics(db)
+
+
+@router.get("/analytics/usage")
+async def admin_usage_analytics(
+    cycle: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    from app.models import UsageRecord
+
+    if cycle is None:
+        cycle = int(utc_now().strftime("%Y%m"))
+
+    usage_stats = (
+        db.query(
+            func.sum(UsageRecord.ecf_count).label("ecf_count"),
+            func.sum(UsageRecord.ai_query_count).label("ai_query_count"),
+            func.sum(UsageRecord.ocr_doc_count).label("ocr_doc_count"),
+            func.sum(UsageRecord.storage_bytes).label("storage_bytes"),
+            func.sum(UsageRecord.api_call_count).label("api_call_count"),
+        )
+        .filter(UsageRecord.cycle == cycle)
+        .first()
+    )
+
+    top_ai = (
+        db.query(UsageRecord.organization_id, Organization.name, UsageRecord.ai_query_count)
+        .join(Organization, UsageRecord.organization_id == Organization.id)
+        .filter(UsageRecord.cycle == cycle)
+        .order_by(UsageRecord.ai_query_count.desc())
+        .limit(5)
+        .all()
+    )
+
+    top_ecf = (
+        db.query(UsageRecord.organization_id, Organization.name, UsageRecord.ecf_count)
+        .join(Organization, UsageRecord.organization_id == Organization.id)
+        .filter(UsageRecord.cycle == cycle)
+        .order_by(UsageRecord.ecf_count.desc())
+        .limit(5)
+        .all()
+    )
+
+    local_vs_electronic = (
+        db.query(Invoice.is_electronic, func.count(Invoice.id))
+        .filter(Invoice.is_deleted.is_(False))
+        .group_by(Invoice.is_electronic)
+        .all()
+    )
+
+    local_vs_electronic_dict = {"electronic": 0, "physical": 0}
+    for is_elec, count in local_vs_electronic:
+        if is_elec:
+            local_vs_electronic_dict["electronic"] = count
+        else:
+            local_vs_electronic_dict["physical"] = count
+
+    source_dist = (
+        db.query(Invoice.source_type, func.count(Invoice.id))
+        .filter(Invoice.is_deleted.is_(False))
+        .group_by(Invoice.source_type)
+        .all()
+    )
+    source_dist_dict = {str(k or "unknown"): v for k, v in source_dist}
+
+    ai_invoices = db.query(Invoice).filter(Invoice.confidence_score.isnot(None), Invoice.is_deleted.is_(False))
+    total_ai_invoices = ai_invoices.count()
+    low_confidence_invoices = ai_invoices.filter(Invoice.confidence_score < 0.7).count()
+    avg_confidence = (
+        db.query(func.avg(Invoice.confidence_score))
+        .filter(Invoice.confidence_score.isnot(None), Invoice.is_deleted.is_(False))
+        .scalar()
+        or 1.0
+    )
+
+    return {
+        "cycle": cycle,
+        "totals": {
+            "ecf_count": int(usage_stats.ecf_count or 0) if usage_stats else 0,
+            "ai_query_count": int(usage_stats.ai_query_count or 0) if usage_stats else 0,
+            "ocr_doc_count": int(usage_stats.ocr_doc_count or 0) if usage_stats else 0,
+            "storage_mb": round((usage_stats.storage_bytes or 0) / (1024 * 1024), 2) if usage_stats else 0,
+            "api_call_count": int(usage_stats.api_call_count or 0) if usage_stats else 0,
+        },
+        "top_organizations": {
+            "ai": [{"org_id": str(org_id), "name": name, "value": val} for org_id, name, val in top_ai],
+            "ecf": [{"org_id": str(org_id), "name": name, "value": val} for org_id, name, val in top_ecf],
+        },
+        "ratio_local_vs_electronic": local_vs_electronic_dict,
+        "source_distribution": source_dist_dict,
+        "ai_extraction_quality": {
+            "total_ai_processed": total_ai_invoices,
+            "low_confidence_count": low_confidence_invoices,
+            "error_rate_pct": round((low_confidence_invoices / total_ai_invoices * 100), 2)
+            if total_ai_invoices > 0
+            else 0,
+            "average_confidence": round(float(avg_confidence), 4),
+        },
+    }
+
+
+@router.get("/analytics/storage")
+async def admin_storage_analytics(
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    from app.models import UsageRecord
+
+    current_cycle = int(utc_now().strftime("%Y%m"))
+
+    storage_by_org = (
+        db.query(UsageRecord.organization_id, Organization.name, UsageRecord.storage_bytes)
+        .join(Organization, UsageRecord.organization_id == Organization.id)
+        .filter(UsageRecord.cycle == current_cycle)
+        .order_by(UsageRecord.storage_bytes.desc())
+        .all()
+    )
+
+    total_bytes = sum(item[2] for item in storage_by_org if item[2] is not None)
+
+    file_types = (
+        db.query(Invoice.file_type, func.count(Invoice.id))
+        .filter(Invoice.is_deleted.is_(False))
+        .group_by(Invoice.file_type)
+        .all()
+    )
+
+    file_sources = (
+        db.query(Invoice.source_type, func.count(Invoice.id))
+        .filter(Invoice.is_deleted.is_(False))
+        .group_by(Invoice.source_type)
+        .all()
+    )
+
+    return {
+        "total_storage_bytes": total_bytes,
+        "total_storage_mb": round(total_bytes / (1024 * 1024), 2),
+        "total_storage_gb": round(total_bytes / (1024 * 1024 * 1024), 4),
+        "organizations": [
+            {
+                "org_id": str(org_id),
+                "name": name,
+                "storage_bytes": bytes_val or 0,
+                "storage_mb": round((bytes_val or 0) / (1024 * 1024), 2),
+            }
+            for org_id, name, bytes_val in storage_by_org
+            if (bytes_val or 0) > 0
+        ],
+        "file_types": {str(k or "unknown"): v for k, v in file_types},
+        "file_sources": {str(k or "unknown"): v for k, v in file_sources},
+    }
+
+
+@router.get("/analytics/alanube")
+async def admin_alanube_analytics(
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    from sqlalchemy import Integer, cast
+    from app.models.alanube_telemetry import AlanubeTelemetry
+
+    totals = db.query(
+        func.count(AlanubeTelemetry.id).label("total"),
+        func.sum(cast(AlanubeTelemetry.success, Integer)).label("success"),
+        func.avg(AlanubeTelemetry.latency_ms).label("avg_latency"),
+    ).first()
+
+    total_calls = totals.total or 0
+    success_calls = totals.success or 0
+    failed_calls = total_calls - success_calls
+    avg_latency = float(totals.avg_latency or 0)
+
+    by_action = (
+        db.query(AlanubeTelemetry.action, func.count(AlanubeTelemetry.id)).group_by(AlanubeTelemetry.action).all()
+    )
+    by_action_dict = {str(k): v for k, v in by_action}
+
+    by_ecf = (
+        db.query(AlanubeTelemetry.ecf_type, func.count(AlanubeTelemetry.id))
+        .filter(AlanubeTelemetry.ecf_type.isnot(None))
+        .group_by(AlanubeTelemetry.ecf_type)
+        .all()
+    )
+    by_ecf_dict = {str(k): v for k, v in by_ecf}
+
+    recent_failures = (
+        db.query(
+            AlanubeTelemetry.id,
+            AlanubeTelemetry.action,
+            AlanubeTelemetry.ecf_type,
+            AlanubeTelemetry.error_message,
+            AlanubeTelemetry.latency_ms,
+            AlanubeTelemetry.created_at,
+            Organization.name.label("org_name"),
+        )
+        .join(Organization, AlanubeTelemetry.organization_id == Organization.id)
+        .filter(AlanubeTelemetry.success.is_(False))
+        .order_by(AlanubeTelemetry.created_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    return {
+        "summary": {
+            "total_calls": total_calls,
+            "success_calls": success_calls,
+            "failed_calls": failed_calls,
+            "success_rate_pct": round((success_calls / total_calls * 100), 2) if total_calls > 0 else 100.0,
+            "average_latency_ms": round(avg_latency, 2),
+        },
+        "by_action": by_action_dict,
+        "by_ecf_type": by_ecf_dict,
+        "recent_failures": [
+            {
+                "id": str(item.id),
+                "action": item.action,
+                "ecf_type": item.ecf_type,
+                "error_message": item.error_message,
+                "latency_ms": item.latency_ms,
+                "created_at": item.created_at.isoformat() if item.created_at else None,
+                "organization_name": item.org_name,
+            }
+            for item in recent_failures
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Finance & Subscriptions Analytics
+# ---------------------------------------------------------------------------
+
+
+@router.get("/finance/mrr")
+async def admin_finance_mrr(
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    from app.models.organization_subscription import OrganizationSubscription
+
+    # Sums price_monthly_cents of active subscriptions taking custom overrides into account, deselecting trialing
+    subs = db.query(OrganizationSubscription).filter(OrganizationSubscription.status == "active").all()
+
+    total_mrr_cents = 0
+    base_mrr_cents = 0
+    addon_mrr_cents = 0
+
+    for sub in subs:
+        plan = sub.plan
+        if not plan:
+            continue
+
+        base_price = sub.custom_price_cents if sub.custom_price_cents is not None else plan.price_monthly_cents
+        addon_price = (
+            sub.addon_ecf_blocks * plan.addon_ecf_block_price_cents
+            + sub.addon_ai_blocks * plan.addon_ai_block_price_cents
+            + sub.addon_storage_blocks * plan.addon_storage_block_price_cents
+            + sub.addon_entity_slots * plan.entity_slot_price_cents
+            + sub.addon_user_slots * plan.user_slot_price_cents
+        )
+
+        base_mrr_cents += base_price
+        addon_mrr_cents += addon_price
+        total_mrr_cents += base_price + addon_price
+
+    return {
+        "mrr": round(total_mrr_cents / 100, 2),
+        "mrr_cents": total_mrr_cents,
+        "base_mrr": round(base_mrr_cents / 100, 2),
+        "addon_mrr": round(addon_mrr_cents / 100, 2),
+        "active_subscriptions_count": len(subs),
+    }
+
+
+@router.get("/finance/payments")
+async def admin_finance_payments(
+    status: Optional[str] = Query(None),
+    organization_id: Optional[UUID] = Query(None),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    from app.models.mio_payment import MioPayment
+
+    q = db.query(MioPayment)
+    if status:
+        q = q.filter(MioPayment.status == status)
+    if organization_id:
+        q = q.filter(MioPayment.organization_id == organization_id)
+
+    total = q.count()
+    payments = q.order_by(MioPayment.created_at.desc()).offset(offset).limit(limit).all()
+
+    result = []
+    for p in payments:
+        p_dict = p.to_dict()
+        p_dict["organization_name"] = p.organization.name if p.organization else None
+        if p.invoice:
+            p_dict["invoice_number"] = p.invoice.invoice_number
+            p_dict["invoice_date"] = p.invoice.invoice_date.isoformat() if p.invoice.invoice_date else None
+            p_dict["invoice_total"] = float(p.invoice.total_amount) if p.invoice.total_amount else 0.0
+        else:
+            p_dict["invoice_number"] = None
+            p_dict["invoice_date"] = None
+            p_dict["invoice_total"] = 0.0
+        result.append(p_dict)
+
+    return {
+        "payments": result,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.get("/finance/churn")
+async def admin_finance_churn(
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    from app.models.organization_subscription import OrganizationSubscription
+    from app.models.invoice import Invoice
+
+    now = utc_now()
+    fourteen_days_ago = now - timedelta(days=14)
+    ninety_days_ago = now - timedelta(days=90)
+
+    lost_subs = (
+        db.query(OrganizationSubscription)
+        .filter(
+            (OrganizationSubscription.status.in_(["canceled", "expired"]))
+            & (
+                (OrganizationSubscription.updated_at >= ninety_days_ago)
+                | (OrganizationSubscription.canceled_at >= ninety_days_ago)
+            )
+        )
+        .all()
+    )
+
+    lost_subscriptions_list = []
+    for sub in lost_subs:
+        lost_subscriptions_list.append(
+            {
+                "subscription_id": str(sub.id),
+                "organization_id": str(sub.organization_id),
+                "organization_name": sub.organization.name if sub.organization else "Unknown",
+                "plan_name": sub.plan.display_name if sub.plan else "Unknown",
+                "status": sub.status,
+                "canceled_at": sub.canceled_at.isoformat() if sub.canceled_at else None,
+                "lost_at": (sub.canceled_at or sub.updated_at).isoformat(),
+            }
+        )
+
+    active_subs = db.query(OrganizationSubscription).filter(OrganizationSubscription.status == "active").all()
+
+    churn_risks = []
+    for sub in active_subs:
+        org = sub.organization
+        if not org:
+            continue
+
+        invoice_count = (
+            db.query(func.count(Invoice.id))
+            .filter(
+                Invoice.organization_id == org.id,
+                Invoice.created_at >= fourteen_days_ago,
+                Invoice.is_deleted.is_(False),
+            )
+            .scalar()
+            or 0
+        )
+
+        if invoice_count == 0:
+            total_invoices = (
+                db.query(func.count(Invoice.id))
+                .filter(Invoice.organization_id == org.id, Invoice.is_deleted.is_(False))
+                .scalar()
+                or 0
+            )
+
+            churn_risks.append(
+                {
+                    "organization_id": str(org.id),
+                    "organization_name": org.name,
+                    "plan_name": sub.plan.display_name if sub.plan else "Unknown",
+                    "billing_cycle_end": sub.billing_cycle_end.isoformat() if sub.billing_cycle_end else None,
+                    "total_invoices": total_invoices,
+                    "last_activity": org.updated_at.isoformat() if org.updated_at else None,
+                }
+            )
+
+    return {
+        "lost_subscriptions_last_90_days": lost_subscriptions_list,
+        "lost_count": len(lost_subscriptions_list),
+        "churn_risks": churn_risks,
+        "churn_risk_count": len(churn_risks),
+    }
+
+
+@router.get("/finance/subscription-distribution")
+async def admin_subscription_distribution(
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    from app.models.organization_subscription import OrganizationSubscription
+    from app.models.subscription_plan import SubscriptionPlan
+
+    # Distribution by plan
+    plan_dist = (
+        db.query(SubscriptionPlan.display_name, func.count(OrganizationSubscription.id))
+        .join(SubscriptionPlan, OrganizationSubscription.plan_id == SubscriptionPlan.id)
+        .group_by(SubscriptionPlan.display_name)
+        .all()
+    )
+
+    # Distribution by status
+    status_dist = (
+        db.query(OrganizationSubscription.status, func.count(OrganizationSubscription.id))
+        .group_by(OrganizationSubscription.status)
+        .all()
+    )
+
+    return {"by_plan": {str(k): v for k, v in plan_dist}, "by_status": {str(k): v for k, v in status_dist}}
+
+
+@router.get("/subscriptions")
+async def list_admin_subscriptions(
+    status: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    from app.models.organization_subscription import OrganizationSubscription
+
+    q = db.query(OrganizationSubscription)
+    if status:
+        q = q.filter(OrganizationSubscription.status == status)
+
+    total = q.count()
+    subs = q.order_by(OrganizationSubscription.created_at.desc()).offset(offset).limit(limit).all()
+
+    result = []
+    for sub in subs:
+        sub_dict = sub.to_dict()
+        sub_dict["organization_name"] = sub.organization.name if sub.organization else None
+        result.append(sub_dict)
+
+    return {
+        "subscriptions": result,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+class SubscriptionUpdate(BaseModel):
+    plan_id: Optional[UUID] = None
+    status: Optional[str] = None
+    custom_price_cents: Optional[int] = None
+    custom_limits_json: Optional[Dict[str, Any]] = None
+    billing_cycle_end: Optional[datetime] = None
+
+
+@router.patch("/subscriptions/{sub_id}")
+async def update_admin_subscription(
+    sub_id: UUID,
+    body: SubscriptionUpdate,
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    from app.models.organization_subscription import OrganizationSubscription
+    from app.services import audit_logger
+
+    sub = db.query(OrganizationSubscription).filter(OrganizationSubscription.id == sub_id).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+
+    old_values = {}
+    new_values = {}
+
+    if body.plan_id is not None:
+        old_values["plan_id"] = str(sub.plan_id)
+        sub.plan_id = body.plan_id
+        new_values["plan_id"] = str(body.plan_id)
+
+    if body.status is not None:
+        old_values["status"] = sub.status
+        sub.status = body.status
+        new_values["status"] = body.status
+
+    if body.custom_price_cents is not None:
+        old_values["custom_price_cents"] = sub.custom_price_cents
+        sub.custom_price_cents = body.custom_price_cents
+        new_values["custom_price_cents"] = body.custom_price_cents
+
+    if body.custom_limits_json is not None:
+        old_values["custom_limits_json"] = sub.custom_limits_json
+        sub.custom_limits_json = json.dumps(body.custom_limits_json)
+        new_values["custom_limits_json"] = sub.custom_limits_json
+
+    if body.billing_cycle_end is not None:
+        old_values["billing_cycle_end"] = sub.billing_cycle_end.isoformat() if sub.billing_cycle_end else None
+        dt = body.billing_cycle_end
+        if dt.tzinfo is None:
+            import pytz
+
+            dt = pytz.UTC.localize(dt)
+        sub.billing_cycle_end = dt
+        new_values["billing_cycle_end"] = dt.isoformat()
+
+    sub.updated_at = utc_now()
+    db.commit()
+    db.refresh(sub)
+
+    audit_logger.record(
+        db=db,
+        tenant_id=ctx.tenant_id,
+        organization_id=sub.organization_id,
+        organization_name=sub.organization.name if sub.organization else None,
+        actor_id=str(ctx.user.id),
+        actor_name=ctx.user.full_name,
+        actor_email=ctx.user.email,
+        action="settings.updated",
+        resource_type="subscription",
+        resource_id=str(sub.id),
+        summary="Suscripción modificada por administrador",
+        details=f"Valores modificados: {json.dumps(new_values)}",
+        metadata={"old_values": old_values, "new_values": new_values},
+    )
+
+    return sub.to_dict()
+
+
+class SubscriptionCreditRequest(BaseModel):
+    days: int
+    reason: str
+
+
+@router.post("/subscriptions/{sub_id}/credit")
+async def credit_admin_subscription(
+    sub_id: UUID,
+    body: SubscriptionCreditRequest,
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    from app.models.organization_subscription import OrganizationSubscription
+    from app.services import audit_logger
+
+    sub = db.query(OrganizationSubscription).filter(OrganizationSubscription.id == sub_id).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+
+    old_cycle_end = sub.billing_cycle_end
+    new_cycle_end = old_cycle_end + timedelta(days=body.days)
+    sub.billing_cycle_end = new_cycle_end
+    sub.updated_at = utc_now()
+    db.commit()
+    db.refresh(sub)
+
+    audit_logger.record(
+        db=db,
+        tenant_id=ctx.tenant_id,
+        organization_id=sub.organization_id,
+        organization_name=sub.organization.name if sub.organization else None,
+        actor_id=str(ctx.user.id),
+        actor_name=ctx.user.full_name,
+        actor_email=ctx.user.email,
+        action="settings.updated",
+        resource_type="subscription",
+        resource_id=str(sub.id),
+        summary="Crédito de días de gracia aplicado a la suscripción",
+        details=f"Se agregaron {body.days} días de gracia. Nueva fecha fin: {new_cycle_end.isoformat()}. Razón: {body.reason}",
+        metadata={
+            "grace_days": body.days,
+            "reason": body.reason,
+            "old_billing_cycle_end": old_cycle_end.isoformat(),
+            "new_billing_cycle_end": new_cycle_end.isoformat(),
+        },
+    )
+
+    return sub.to_dict()
+
+
+@router.get("/subscription-plans")
+async def list_admin_subscription_plans(
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    from app.models.subscription_plan import SubscriptionPlan
+
+    plans = db.query(SubscriptionPlan).order_by(SubscriptionPlan.sort_order).all()
+    return [plan.to_dict() for plan in plans]
+
+
+# ---------------------------------------------------------------------------
+# Payment Proofs (admin review)
+# ---------------------------------------------------------------------------
+
+
+class AdminCartItemResponse(BaseModel):
+    type: str
+    plan_name: str | None = None
+    addon_type: str | None = None
+    quantity: int = 1
+    months: int | None = None
+    price_cents: int = 0
+    label: str | None = None
+
+
+class AdminPaymentProofItem(BaseModel):
+    id: str
+    tenant_id: str
+    organization_id: str
+    organization_name: str | None
+    user_id: str | None
+    user_name: str | None
+    user_email: str | None
+    plan_name: str
+    amount: float
+    currency: str
+    addons: str | None
+    items: list[AdminCartItemResponse] | None = None
+    status: str
+    file_url: str
+    notes: str | None
+    admin_notes: str | None
+    created_at: str | None
+    updated_at: str | None
+
+
+@router.get("/payment-proofs")
+async def list_admin_payment_proofs(
+    status_filter: str | None = Query(None),
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    q = db.query(PaymentProof).outerjoin(
+        User, PaymentProof.user_id == User.id,
+    ).outerjoin(
+        Organization, PaymentProof.organization_id == Organization.id,
+    )
+
+    if status_filter:
+        q = q.filter(PaymentProof.status == status_filter)
+
+    q = q.order_by(PaymentProof.created_at.desc())
+    rows = q.all()
+
+    results = []
+    for p in rows:
+        d = p.to_dict()
+        uploader = p.user if p.user else None
+        items_list = None
+        if d.get("items"):
+            try:
+                items_list = [AdminCartItemResponse(**i) for i in d["items"]]
+            except Exception:
+                items_list = None
+        admin_file_url = f"/api/admin/payment-proofs/{p.id}/file"
+        results.append(AdminPaymentProofItem(
+            id=d["id"],
+            tenant_id=d["tenant_id"],
+            organization_id=d["organization_id"],
+            organization_name=p.organization.name if p.organization else None,
+            user_id=d["user_id"],
+            user_name=uploader.full_name if uploader else None,
+            user_email=uploader.email if uploader else None,
+            plan_name=d["plan_name"],
+            amount=d["amount"],
+            currency=d["currency"],
+            addons=d["addons"],
+            items=items_list,
+            status=d["status"],
+            file_url=admin_file_url,
+            notes=d["notes"],
+            admin_notes=d["admin_notes"],
+            created_at=d["created_at"],
+            updated_at=d["updated_at"],
+        ))
+    return results
+
+
+class AdminVerifyPaymentRequest(BaseModel):
+    action: str  # "verified" or "rejected"
+    admin_notes: str | None = None
+
+
+@router.get("/payment-proofs/{proof_id}/file")
+async def admin_get_payment_proof_file(
+    proof_id: str,
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    """Serve a payment proof file for admin — no org scoping."""
+    from app.services.supabase_storage import is_structured_path, download_file
+
+    proof = db.query(PaymentProof).filter(PaymentProof.id == proof_id).first()
+    if not proof:
+        raise HTTPException(status_code=404, detail="Comprobante no encontrado")
+
+    if proof.file_path and is_structured_path(proof.file_path):
+        file_data = download_file(proof.file_path)
+        if not file_data:
+            raise HTTPException(status_code=404, detail="No se pudo descargar el archivo del storage")
+    else:
+        local_dir = os.path.join(tempfile.gettempdir(), "fintral", "payment-proofs")
+        local_path = os.path.join(local_dir, proof.file_path)
+        try:
+            with open(local_path, "rb") as f:
+                file_data = f.read()
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="Archivo no encontrado")
+
+    ext = os.path.splitext(proof.file_path)[1].lower() if proof.file_path else ".png"
+    content_types = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".pdf": "application/pdf",
+        ".webp": "image/webp",
+    }
+    content_type = content_types.get(ext, "application/octet-stream")
+
+    from fastapi.responses import StreamingResponse
+    import io
+
+    return StreamingResponse(
+        io.BytesIO(file_data),
+        media_type=content_type,
+        headers={"Content-Disposition": f"inline; filename=comprobante{ext}"},
+    )
+
+
+@router.patch("/payment-proofs/{proof_id}")
+async def admin_verify_payment(
+    proof_id: str,
+    body: AdminVerifyPaymentRequest,
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    if body.action not in ("verified", "rejected"):
+        raise HTTPException(status_code=400, detail="Acción inválida. Usa 'verified' o 'rejected'")
+
+    proof = db.query(PaymentProof).filter(PaymentProof.id == proof_id).first()
+    if not proof:
+        raise HTTPException(status_code=404, detail="Comprobante no encontrado")
+
+    proof.status = body.action
+    proof.admin_notes = body.admin_notes
+    proof.verified_by = ctx.user.id
+    proof.verified_at = utc_now()
+    db.flush()
+
+    # ── Auto-provision cart items when verified ──────────────────────
+    provision_errors = []
+    if body.action == "verified" and proof.items_json:
+        try:
+            items = json.loads(proof.items_json)
+        except json.JSONDecodeError:
+            items = []
+
+        svc = PlanService(db)
+
+        for item in items:
+            try:
+                if item.get("type") == "plan_change":
+                    plan_name = item.get("plan_name")
+                    months = item.get("months", 1)
+                    if plan_name:
+                        svc.change_plan(proof.organization_id, plan_name)
+                        sub_obj, _ = svc.get_plan_for_org(proof.organization_id)
+                        if sub_obj and sub_obj.billing_cycle_end:
+                            sub_obj.billing_cycle_end = sub_obj.billing_cycle_end + timedelta(days=30 * months)
+
+                elif item.get("type") == "addon":
+                    addon_type = item.get("addon_type")
+                    qty = item.get("quantity", 1)
+                    if addon_type:
+                        svc.purchase_addon(proof.organization_id, addon_type, qty)
+
+                elif item.get("type") == "ecf_blocks":
+                    org_id = item.get("organization_id") or proof.organization_id
+                    qty = item.get("quantity", 1)
+                    block_size = 100
+                    org = db.query(Organization).filter(Organization.id == org_id).first()
+                    if org:
+                        org.e_cf_balance = (org.e_cf_balance or 0) + (block_size * qty)
+                        logger.info("📄 Credited %d e-CF to org %s (balance: %d)", block_size * qty, org_id, org.e_cf_balance)
+
+                elif item.get("type") == "entity_slot":
+                    months = item.get("months", 1)
+                    qty = item.get("quantity", 1)
+                    svc.purchase_addon(proof.organization_id, "entity_slot", qty)
+                    sub_obj, _ = svc.get_plan_for_org(proof.organization_id)
+                    if sub_obj and sub_obj.billing_cycle_end:
+                        sub_obj.billing_cycle_end = sub_obj.billing_cycle_end + timedelta(days=30 * months)
+
+                elif item.get("type") == "user_slot":
+                    months = item.get("months", 1)
+                    qty = item.get("quantity", 1)
+                    svc.purchase_addon(proof.organization_id, "user_slot", qty)
+                    sub_obj, _ = svc.get_plan_for_org(proof.organization_id)
+                    if sub_obj and sub_obj.billing_cycle_end:
+                        sub_obj.billing_cycle_end = sub_obj.billing_cycle_end + timedelta(days=30 * months)
+
+                elif item.get("type") == "renewal":
+                    months = item.get("months", 1)
+                    sub_obj, _ = svc.get_plan_for_org(proof.organization_id)
+                    if sub_obj and sub_obj.billing_cycle_end:
+                        sub_obj.billing_cycle_end = sub_obj.billing_cycle_end + timedelta(days=30 * months)
+
+                elif item.get("type") == "overage":
+                    addon_type = item.get("addon_type")
+                    qty = item.get("quantity", 0)
+                    if addon_type and qty > 0:
+                        svc.purchase_addon(proof.organization_id, addon_type, qty)
+
+            except Exception as e:
+                provision_errors.append(f"{item.get('type')}: {e}")
+                logger.exception("Auto-provision error for item %s", item)
+
+    # ── Send invoice email to customer ──────────────────────────────
+    if body.action == "verified" and proof.user and proof.user.email:
+        try:
+            invoice_items = []
+            total = 0.0
+            if proof.items_json:
+                cart_items = json.loads(proof.items_json)
+                for ci in cart_items:
+                    unit_price = ci.get("price_cents", 0) / 100.0
+                    qty = ci.get("quantity", 1)
+                    months = ci.get("months", 1)
+                    line_total = unit_price * qty * months
+                    total += line_total
+                    invoice_items.append({
+                        "label": ci.get("label", ci.get("type", "Item")),
+                        "quantity": qty * months,
+                        "total": line_total,
+                    })
+            if not invoice_items:
+                invoice_items.append({
+                    "label": proof.plan_name or "Compra",
+                    "quantity": 1,
+                    "total": float(proof.amount),
+                })
+                total = float(proof.amount)
+            from app.services.email_service import send_purchase_invoice_email
+            send_purchase_invoice_email(
+                customer_email=proof.user.email,
+                customer_name=proof.user.full_name or proof.user.email,
+                items=invoice_items,
+                total=total,
+                currency=proof.currency or "DOP",
+            )
+        except Exception as e:
+            logger.exception("Failed to send purchase invoice email for proof %s", proof.id)
+            provision_errors.append(f"email: {e}")
+
+    db.commit()
+    db.refresh(proof)
+
+    result = proof.to_dict()
+    result["provision_errors"] = provision_errors if provision_errors else None
+    return result

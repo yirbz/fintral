@@ -81,6 +81,11 @@ async def require_tenant(
     if user.tenant and user.tenant.deleted_at:
         raise HTTPException(status_code=401, detail="No disponible")
 
+    # Check if tenant is suspended
+    if user.tenant and not user.tenant.is_active and not user.is_superuser:
+        raise HTTPException(status_code=403, detail="Cuenta suspendida")
+
+
     import json
 
     # Determine which org the user wants to work with
@@ -152,6 +157,19 @@ async def require_tenant(
     if not org:
         raise HTTPException(status_code=403, detail="Organización no encontrada o inactiva")
 
+    if org.is_deleted:
+        is_write = request.method in ("POST", "PUT", "PATCH", "DELETE")
+        is_allowed_write = (
+            request.url.path.endswith("/organizations/switch") or
+            "/export" in request.url.path or
+            "/preview" in request.url.path
+        )
+        if is_write and not is_allowed_write:
+            raise HTTPException(
+                status_code=403,
+                detail="Esta organización está marcada para eliminación. Solo se permite descargar e inspeccionar información fiscal.",
+            )
+
     raw = user_org.permissions
     permissions = json.loads(raw) if raw else None
 
@@ -196,6 +214,11 @@ async def optional_tenant(
     # Check if tenant is deleted (account frozen)
     if user.tenant and user.tenant.deleted_at:
         return None
+
+    # Check if tenant is suspended
+    if user.tenant and not user.tenant.is_active and not user.is_superuser:
+        return None
+
 
     import json
 

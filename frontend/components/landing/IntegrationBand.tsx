@@ -17,8 +17,8 @@ export function IntegrationBand() {
             </h2>
             <p className="text-[16px] text-[#273951] font-light leading-relaxed mb-8">
               Una vez procesadas, puedes descargar todo en Excel, compartirlo
-              con tu contador o enviarlo directamente a tu sistema contable.
-              Los datos limpios y organizados, siempre a un clic.
+              con tu contador o enviarlo directamente a tu sistema contable. Los
+              datos limpios y organizados, siempre a un click.
             </p>
             <div className="flex gap-4">
               <Link

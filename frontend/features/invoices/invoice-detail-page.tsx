@@ -1,13 +1,13 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Ban, Code2, Download, Expand, FileCode2, FileText, Flame, Lock, RotateCcw, Save, Sparkles, Trash2, X, XCircle, CheckCircle2 } from "lucide-react";
+import { Archive, ArrowLeft, Ban, Code2, Download, Expand, FileCode2, FileText, Lock, RotateCcw, Save, Sparkles, X, XCircle, CheckCircle2 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 
-import { bulkPermanentDelete as permanentDeleteApi, cancelInvoice, deleteInvoice, getInvoice, getOptimizedImage, processInvoice, restoreInvoice, uncancelInvoice, updateInvoice } from "@/lib/api/invoices";
+import { archiveInvoice, cancelInvoice, getInvoice, getOptimizedImage, processInvoice, restoreInvoice, uncancelInvoice, updateInvoice } from "@/lib/api/invoices";
 import { getBankAccounts } from "@/lib/api/payments";
 import { formatDate, getItbisDetail } from "@/lib/utils/date";
 import type { ChildModificatory, Invoice } from "@/lib/types";
@@ -203,7 +203,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   const [showFullImage, setShowFullImage] = useState(false);
   const [showXmlCode, setShowXmlCode] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
   const [cancelType, setCancelType] = useState("01");
   const [imageLoaded, setImageLoaded] = useState(false);
   const {data: image_data, isLoading: image_isLoading} = useQuery({
@@ -268,8 +268,8 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
     onSuccess: () => query_refetch()
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: () => deleteInvoice(invoiceId),
+  const archiveMutation = useMutation({
+    mutationFn: () => archiveInvoice(invoiceId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["invoices"] });
       router.push("/dashboard/invoices");
@@ -283,16 +283,6 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
       void query_refetch();
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Error al restaurar"),
-  });
-
-  const permanentDeleteMutation = useMutation({
-    mutationFn: () => permanentDeleteApi([invoiceId]),
-    onSuccess: async (data) => {
-      toast.success(`${data.count} factura eliminada permanentemente`);
-      await queryClient.invalidateQueries({ queryKey: ["invoices"] });
-      router.push("/dashboard/invoices/trash");
-    },
-    onError: (err) => toast.error(err instanceof Error ? err.message : "Error al eliminar"),
   });
 
   const cancelMutation = useMutation({
@@ -432,15 +422,12 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
           <div className="flex flex-wrap items-center gap-2">
             {isTrashed ? (
               <>
-                <Badge variant="destructive">En papelera</Badge>
+                <Badge variant="destructive">En archivo</Badge>
                 <Button size="sm" variant="outline" onClick={() => restoreMutation.mutate()} disabled={restoreMutation.isPending}>
                   <RotateCcw className="size-3.5" data-icon="inline-start" />
                   Restaurar
                 </Button>
-                <Button size="sm" variant="destructive" onClick={() => permanentDeleteMutation.mutate()} disabled={permanentDeleteMutation.isPending}>
-                  <Flame className="size-3.5" data-icon="inline-start" />
-                  Eliminar permanentemente
-                </Button>
+
               </>
             ) : (
               <>
@@ -486,9 +473,9 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                     Anular
                   </Button>
                 ) : null}
-                <Button size="sm" variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
-                  <Trash2 className="size-3.5" data-icon="inline-start" />
-                  Eliminar
+                <Button size="sm" variant="destructive" onClick={() => setArchiveDialogOpen(true)}>
+                  <Archive className="size-3.5" data-icon="inline-start" />
+                  Archivar
                 </Button>
               </>
             )}
@@ -500,7 +487,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
         <Card className="border-destructive/30 bg-destructive/5">
           <CardContent className="py-3">
             <p className="text-xs text-destructive">
-              Esta factura está en la papelera. No se puede modificar hasta que sea restaurada.
+              Esta factura está archivada. No se puede modificar hasta que sea restaurada.
               {invoice.deleted_at ? ` Eliminada el ${new Date(invoice.deleted_at).toLocaleDateString("es-DO", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}.` : null}
             </p>
           </CardContent>
@@ -1594,24 +1581,24 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
         </div>
       )}
 
-      {/* ── Delete confirmation ──────────────────────────────────────── */}
-      {deleteDialogOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation" onClick={() => setDeleteDialogOpen(false)}>
+      {/* ── Archive confirmation ────────────────────────────────────── */}
+      {archiveDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation" onClick={() => setArchiveDialogOpen(false)}>
           <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-2xl" role="presentation" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-semibold mb-2">Mover a la papelera</h3>
+            <h3 className="text-sm font-semibold mb-2">Archivar factura</h3>
             <p className="text-xs text-muted-foreground mb-4">
-              La factura se moverá a la papelera. Podrás restaurarla o eliminarla permanentemente desde allí.
+              La factura se archivará. Podrás restaurarla desde el archivo.
             </p>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setDeleteDialogOpen(false)}>
+              <Button variant="outline" size="sm" onClick={() => setArchiveDialogOpen(false)}>
                 Cancelar
               </Button>
               <Button size="sm" variant="destructive" onClick={() => {
-                deleteMutation.mutate();
-                setDeleteDialogOpen(false);
+                archiveMutation.mutate();
+                setArchiveDialogOpen(false);
               }}>
-                <Trash2 className="size-3.5 mr-1" />
-                Mover a papelera
+                <Archive className="size-3.5 mr-1" />
+                Archivar
               </Button>
             </div>
           </div>

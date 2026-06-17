@@ -55,15 +55,21 @@ export function OrganizationSwitcher() {
           size="sm"
           className={cn(
             "h-7 gap-1.5 rounded-lg px-2 text-xs font-medium",
-            "text-muted-foreground hover:text-foreground",
-            "hover:bg-muted/60 active:scale-[0.97]",
-            "transition-all duration-150"
+            currentOrg?.is_deleted
+              ? "text-destructive hover:text-destructive hover:bg-destructive/5"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
+            "active:scale-[0.97] transition-all duration-150"
           )}
         >
-          <Building2 className="size-3.5 shrink-0 text-primary/70" />
+          <Building2 className={cn("size-3.5 shrink-0", currentOrg?.is_deleted ? "text-destructive/70" : "text-primary/70")} />
           <span className="max-w-[120px] truncate">
             {currentOrg?.name ?? "Seleccionar organización"}
           </span>
+          {currentOrg?.is_deleted && (
+            <span className="inline-flex items-center rounded-full bg-destructive/10 px-1 py-0.5 text-[8px] font-semibold text-destructive leading-none border border-destructive/10 animate-pulse">
+              Eliminada
+            </span>
+          )}
           <ChevronsUpDown className="size-3 shrink-0 text-muted-foreground/50" />
         </Button>
       </DropdownMenuTrigger>
@@ -92,17 +98,26 @@ export function OrganizationSwitcher() {
                   isCurrent && "bg-primary/5"
                 )}
               >
-                <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40">
-                  <Building2 className="size-3.5 text-muted-foreground" />
+                <div className={cn(
+                  "flex size-7 shrink-0 items-center justify-center rounded-md border bg-muted/40",
+                  org.is_deleted ? "border-destructive/20 text-destructive" : "border-border/60 text-muted-foreground"
+                )}>
+                  <Building2 className="size-3.5" />
                 </div>
                 <div className="flex flex-1 flex-col min-w-0">
                   <span
                     className={cn(
-                      "text-xs font-medium truncate",
-                      isCurrent && "text-foreground"
+                      "text-xs font-medium truncate flex items-center gap-1.5",
+                      isCurrent && "text-foreground",
+                      org.is_deleted && "text-muted-foreground/75"
                     )}
                   >
                     {org.name}
+                    {org.is_deleted && (
+                      <span className="inline-flex items-center rounded-full bg-destructive/10 px-1.5 py-0.5 text-[9px] font-semibold text-destructive leading-none border border-destructive/10">
+                        Eliminada
+                      </span>
+                    )}
                   </span>
                   <span className="text-[10px] text-muted-foreground/60">
                     {ROLE_LABELS[org.role] ?? org.role}

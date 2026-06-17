@@ -9,18 +9,16 @@ Coordinates between:
 
 All endpoints that consume plan-limited resources go through this service.
 """
-import json
 import logging
 from datetime import date, datetime, timedelta
 from typing import Optional
-from uuid import UUID
 
 from sqlalchemy.orm import Session
 
 from app.models import (
+    Organization,
     SubscriptionPlan,
     OrganizationSubscription,
-    Organization,
     UsageRecord,
     UsageAlert,
 )
@@ -73,11 +71,11 @@ class PlanService:
         # Auto-create trial subscription with Esencial plan
         default_plan = (
             self.db.query(SubscriptionPlan)
-            .filter(SubscriptionPlan.name == "esencial")
+            .filter(SubscriptionPlan.name == "inicial")
             .first()
         )
         if not default_plan:
-            logger.error("No 'esencial' plan found in DB — run seed_plans first")
+            logger.error("No 'inicial' plan found in DB — run seed_plans first")
             return None, None
 
         trial_end = datetime.utcnow() + timedelta(days=TRIAL_DAYS)
@@ -132,40 +130,26 @@ class PlanService:
     # ── Limit checks (throw PlanLimitExceeded on hard block) ─────────
 
     def check_ecf_limit(self, org_id, amount: int = 1):
-        """Check if org can emit N e-CF documents this cycle."""
-        sub, plan = self.get_plan_for_org(org_id)
-        if not plan:
-            raise PlanLimitExceeded("no_active_plan", {})
+        """Check if org can emit N e-CF documents — deducts from e_cf_balance."""
+        org = self.db.query(Organization).filter(Organization.id == org_id).first()
+        if not org:
+            raise PlanLimitExceeded("org_not_found", {})
 
-        limits = sub.effective_limits()
-        max_ecf = limits.get("max_ecf_monthly", 0)
-        if max_ecf <= 0:
-            raise PlanLimitExceeded("ecf_not_available", {"limit": 0})
+        if org.e_cf_balance < amount:
+            raise PlanLimitExceeded(
+                "insufficient_ecf_balance",
+                {"balance": org.e_cf_balance, "requested": amount},
+            )
 
-        record = self._get_usage(org_id)
-        current = record.ecf_count if record else 0
+        # Deduct from balance
+        org.e_cf_balance -= amount
+        self.db.flush()
 
-        if current + amount > max_ecf:
-            # Soft limit: if enabled and org has auto-renew, purchase a block
-            if plan.soft_limit_enabled and sub.auto_renew_addons and plan.addon_ecf_block_size > 0:
-                sub.addon_ecf_blocks += 1
-                new_limit = limits["max_ecf_monthly"] + plan.addon_ecf_block_size
-                limits["max_ecf_monthly"] = new_limit
-                self.db.commit()
-                logger.info(
-                    "🔄 Auto-purchased e-CF addon block for org %s. New limit: %s",
-                    org_id, new_limit,
-                )
-                return self._limit_ok(new_limit, current, amount)
-
-            # Overage: detect and allow (soft limit)
-            record.overage_detected = True
-            record.overage_units = current + amount - max_ecf
-            self.db.commit()
-
-            return self._limit_ok(max_ecf, current, amount, overage=True)
-
-        return self._limit_ok(max_ecf, current, amount)
+        return {
+            "allowed": True,
+            "remaining": org.e_cf_balance,
+            "deducted": amount,
+        }
 
     def check_ai_query_limit(self, org_id, amount: int = 1):
         """Check if org can make N AI queries."""
@@ -333,14 +317,184 @@ class PlanService:
             sub.addon_ai_blocks = (sub.addon_ai_blocks or 0) + quantity
         elif addon_type == "storage":
             sub.addon_storage_blocks = (sub.addon_storage_blocks or 0) + quantity
+        elif addon_type == "entity_slot":
+            sub.addon_entity_slots = (sub.addon_entity_slots or 0) + quantity
+        elif addon_type == "user_slot":
+            sub.addon_user_slots = (sub.addon_user_slots or 0) + quantity
         elif addon_type == "entity":
-            sub.addon_extra_entities = (sub.addon_extra_entities or 0) + quantity
+            pass  # DEPRECATED — ignored
+        elif addon_type == "billing_entity":
+            pass  # DEPRECATED — ignored
         else:
             raise ValueError(f"Unknown addon type: {addon_type}")
 
         self.db.commit()
         self.db.refresh(sub)
         return sub
+
+    # ── Direct addon purchase (post-pay, charged to monthly statement) ─
+
+    def purchase_addon_direct(self, org_id, addon_type: str, quantity: int = 1, label: str = "") -> dict:
+        """Purchase addon blocks directly (post-pay, added to monthly statement).
+
+        Activates the addon immediately and creates a MonthlyCharge.
+        The org pays at end of cycle via the statement.
+        """
+        from app.models import MonthlyCharge
+
+        if self.has_unpaid_previous_cycle(org_id):
+            raise ValueError("Tienes pagos pendientes del per\u00edodo anterior. Paga tu estado de cuenta primero.")
+
+        sub, plan = self.get_plan_for_org(org_id)
+        if not sub or not plan:
+            raise ValueError("No active subscription")
+
+        price_map = {
+            "ai": ("addon_ai_block_price_cents", f"{quantity} bloque{'s' if quantity > 1 else ''} IA"),
+            "storage": ("addon_storage_block_price_cents", f"{quantity} bloque{'s' if quantity > 1 else ''} de almacenamiento"),
+            "entity_slot": ("entity_slot_price_cents", f"{quantity} espacio{'s' if quantity > 1 else ''} de entidad adicional"),
+            "user_slot": ("user_slot_price_cents", f"{quantity} espacio{'s' if quantity > 1 else ''} de usuario adicional"),
+        }
+
+        if addon_type not in price_map:
+            raise ValueError(f"Addon type '{addon_type}' cannot be purchased directly")
+
+        price_field, default_label = price_map[addon_type]
+        unit_price_cents = getattr(plan, price_field, 0)
+        if not unit_price_cents:
+            raise ValueError(f"Addon type '{addon_type}' has no price configured")
+        total_price_cents = unit_price_cents * quantity
+
+        self.purchase_addon(org_id, addon_type, quantity)
+
+        cycle = _current_cycle()
+        charge = MonthlyCharge(
+            organization_id=org_id,
+            cycle=cycle,
+            charge_type=addon_type,
+            quantity=quantity,
+            unit_price_cents=unit_price_cents,
+            total_price_cents=total_price_cents,
+            label=label or default_label,
+            paid=False,
+        )
+        self.db.add(charge)
+        self.db.commit()
+
+        return {"charge_id": str(charge.id), "total_price_cents": total_price_cents}
+
+    def has_unpaid_previous_cycle(self, org_id) -> bool:
+        """Check if the previous billing cycle has unpaid charges."""
+        from app.models import MonthlyCharge
+
+        cycle = _current_cycle()
+        year = cycle // 100
+        month = cycle % 100
+        if month == 1:
+            prev_cycle = (year - 1) * 100 + 12
+        else:
+            prev_cycle = year * 100 + (month - 1)
+
+        unpaid = (
+            self.db.query(MonthlyCharge)
+            .filter(
+                MonthlyCharge.organization_id == org_id,
+                MonthlyCharge.cycle == prev_cycle,
+                MonthlyCharge.paid == False,
+            )
+            .count()
+        )
+        return unpaid > 0
+
+    def get_statement(self, org_id, cycle: int = None) -> dict:
+        """Get the monthly statement for a given cycle."""
+        from app.models import MonthlyCharge, PaymentProof
+
+        if cycle is None:
+            cycle = _current_cycle()
+
+        sub, plan = self.get_plan_for_org(org_id)
+        if not plan:
+            return {"error": "No active plan"}
+
+        charges = (
+            self.db.query(MonthlyCharge)
+            .filter(
+                MonthlyCharge.organization_id == org_id,
+                MonthlyCharge.cycle == cycle,
+            )
+            .all()
+        )
+
+        recurring_charges = []
+        if sub:
+            if sub.addon_entity_slots and plan.entity_slot_price_cents:
+                recurring_charges.append({
+                    "type": "entity_slot_recurring",
+                    "label": f"{sub.addon_entity_slots} espacio{'s' if sub.addon_entity_slots > 1 else ''} de entidad",
+                    "unit_price_cents": plan.entity_slot_price_cents,
+                    "quantity": sub.addon_entity_slots,
+                    "total_price_cents": plan.entity_slot_price_cents * sub.addon_entity_slots,
+                })
+            if sub.addon_user_slots and plan.user_slot_price_cents:
+                recurring_charges.append({
+                    "type": "user_slot_recurring",
+                    "label": f"{sub.addon_user_slots} espacio{'s' if sub.addon_user_slots > 1 else ''} de usuario",
+                    "unit_price_cents": plan.user_slot_price_cents,
+                    "quantity": sub.addon_user_slots,
+                    "total_price_cents": plan.user_slot_price_cents * sub.addon_user_slots,
+                })
+
+        charge_list = [
+            {
+                "id": str(c.id),
+                "charge_type": c.charge_type,
+                "label": c.label,
+                "quantity": c.quantity,
+                "unit_price_cents": c.unit_price_cents,
+                "total_price_cents": c.total_price_cents,
+                "paid": c.paid,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+                "is_recurring": False,
+            }
+            for c in charges
+        ] + [
+            {**r, "id": None, "paid": False, "created_at": None, "is_recurring": True}
+            for r in recurring_charges
+        ]
+
+        total_cents = sum(c["total_price_cents"] for c in charge_list)
+
+        return {
+            "cycle": cycle,
+            "plan_name": plan.display_name,
+            "plan_price_cents": plan.price_monthly_cents if sub and sub.status == "active" else 0,
+            "charges": charge_list,
+            "total_cents": total_cents,
+        }
+
+    def pay_statement(self, org_id, cycle: int, payment_proof_id: str) -> dict:
+        """Mark all charges for a cycle as paid."""
+        from app.models import MonthlyCharge
+
+        charges = (
+            self.db.query(MonthlyCharge)
+            .filter(
+                MonthlyCharge.organization_id == org_id,
+                MonthlyCharge.cycle == cycle,
+                MonthlyCharge.paid == False,
+            )
+            .all()
+        )
+
+        now = datetime.utcnow()
+        for c in charges:
+            c.paid = True
+            c.paid_at = now
+            c.payment_proof_id = payment_proof_id
+
+        self.db.commit()
+        return {"message": f"Estado de cuenta del ciclo {cycle} pagado", "count": len(charges)}
 
     # ── Internal helpers ────────────────────────────────────────────
 

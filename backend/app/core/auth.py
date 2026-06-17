@@ -15,7 +15,7 @@ from jose import JWTError, jwt
 from jose.jwk import construct as construct_jwk
 from passlib.context import CryptContext
 
-from app.config import APP_JWT_SECRET_KEY, SUPABASE_URL
+from app.config import APP_JWT_SECRET_KEY, SUPABASE_JWT_ISSUER, SUPABASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -95,12 +95,13 @@ def verify_supabase_token(token: str) -> dict | None:
 
     try:
         public_key = construct_jwk(signing_key)
+        issuer = SUPABASE_JWT_ISSUER or f"{SUPABASE_URL}/auth/v1"
         payload = jwt.decode(
             token,
             public_key,
             algorithms=[signing_key.get("alg", "RS256")],
             audience="authenticated",
-            issuer=f"{SUPABASE_URL}/auth/v1",
+            issuer=issuer,
         )
         return payload
     except JWTError as e:

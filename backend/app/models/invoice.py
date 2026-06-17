@@ -62,6 +62,9 @@ class Invoice(Base):
     country_confidence = Column(Float)
     goods_services_type = Column(String)  # DGII 606
 
+    # File metadata
+    file_size = Column(Integer, nullable=True)  # bytes of the original uploaded file
+
     # Pipeline metadata
     source_type = Column(String(20))  # xml, pdf_text, pdf_image, image_ocr, image_ai, xlsx, manual
     quality_report = Column(Text, nullable=True)  # JSON with quality analysis

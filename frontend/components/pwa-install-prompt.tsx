@@ -1,273 +1,457 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { Share, X, Download, Star } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Drawer,
-  DrawerClose,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
+import { PWAInstallElement } from "@khmyznikov/pwa-install";
+import { useEffect, useRef, useState, useCallback } from "react";
+
+function isAndroid() {
+  return typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
+}
+
+function isIOS() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  return (
+    /iPhone|iPad|iPod/.test(ua) ||
+    (/Mac/.test(ua) && navigator.maxTouchPoints > 2)
+  );
+}
+
+const DISMISS_KEY = "fintral_pwa_banner_dismissed";
+const BANNER_HEIGHT = 64;
+
+function Stars({ rating }: { rating: number }) {
+  return (
+    <div className="flex items-center gap-[1px]">
+      {[1, 2, 3, 4, 5].map((i) => (
+        <svg
+          key={i}
+          width="10"
+          height="10"
+          viewBox="0 0 12 12"
+          fill={i <= Math.floor(rating) ? "#f59e0b" : "none"}
+          stroke="#f59e0b"
+          strokeWidth="1"
+        >
+          <path d="M6 1l1.545 3.13L11 4.635 8.5 7.07l.59 3.44L6 8.885 2.91 10.51l.59-3.44L1 4.635l3.455-.505z" />
+        </svg>
+      ))}
+    </div>
+  );
+}
+
+function AndroidManualSteps({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-[99998] bg-black/40 animate-fade-in"
+        onClick={onClose}
+      />
+      <div
+        className="fixed bottom-0 left-0 right-0 z-[99999] animate-sheet-up"
+        style={{
+          fontFamily: "Roboto, 'Segoe UI', system-ui, sans-serif",
+          background: "#fff",
+          color: "#212121",
+          borderTopLeftRadius: "28px",
+          borderTopRightRadius: "28px",
+          boxShadow: "0 -2px 20px rgba(0, 0, 0, 0.15)",
+          maxWidth: "414px",
+          width: "100%",
+          margin: "0 auto",
+        }}
+      >
+        <div className="flex justify-center pt-3 pb-1">
+          <div
+            className="w-10 h-1 rounded-full"
+            style={{ background: "rgba(0, 0, 0, 0.15)" }}
+          />
+        </div>
+
+        <div className="px-6 pb-8">
+          <p
+            className="text-[22px] font-medium mb-1"
+            style={{ fontFamily: "'Google Sans', Roboto, sans-serif", color: "#1f1f1f" }}
+          >
+            Instalar app
+          </p>
+          <p className="text-[14px] mb-6" style={{ color: "#5f6368" }}>
+            Añade Fintral a tu pantalla de inicio para acceso rápido
+          </p>
+
+          <div className="space-y-5 mb-8">
+            <ManualStep
+              icon={
+                <svg height="24" viewBox="0 -960 960 960" width="24" fill="#5f6368">
+                  <path d="M480-160q-33 0-56.5-23.5T400-240q0-33 23.5-56.5T480-320q33 0 56.5 23.5T560-240q0 33-23.5 56.5T480-160Zm0-240q-33 0-56.5-23.5T400-480q0-33 23.5-56.5T480-560q33 0 56.5 23.5T560-480q0 33-23.5 56.5T480-400Zm0-240q-33 0-56.5-23.5T400-720q0-33 23.5-56.5T480-800q33 0 56.5 23.5T560-720q0 33-23.5 56.5T480-640Z" />
+                </svg>
+              }
+              text='Toca el menú de Chrome (⋮) en la esquina superior derecha'
+            />
+            <ManualStep
+              icon={
+                <svg height="24" viewBox="0 -960 960 960" width="24" fill="#5f6368">
+                  <path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z" />
+                </svg>
+              }
+              text='Selecciona "Añadir a pantalla de inicio"'
+            />
+            <ManualStep
+              icon={
+                <svg height="24" viewBox="0 -960 960 960" width="24" fill="#5f6368">
+                  <path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z" />
+                </svg>
+              }
+              text='Confirma tocando "Añadir"'
+            />
+          </div>
+
+          <button
+            onClick={onClose}
+            className="w-full py-3.5 rounded-full text-[14px] font-medium transition-colors active:opacity-80"
+            style={{
+              background: "#1a73e8",
+              color: "#fff",
+              fontFamily: "'Google Sans', Roboto, sans-serif",
+            }}
+          >
+            Entendido
+          </button>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes fade-in {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        .animate-fade-in {
+          animation: fade-in 0.2s ease-out forwards;
+        }
+        @keyframes sheet-up {
+          from { transform: translateY(100%); }
+          to { transform: translateY(0); }
+        }
+        .animate-sheet-up {
+          animation: sheet-up 0.35s cubic-bezier(0.2, 0, 0, 1) forwards;
+        }
+      `}</style>
+    </>
+  );
+}
+
+function ManualStep({ icon, text }: { icon: React.ReactNode; text: string }) {
+  return (
+    <div className="flex items-center gap-4">
+      <div
+        className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+        style={{ background: "#f1f3f4" }}
+      >
+        {icon}
+      </div>
+      <p
+        className="text-[14px] leading-snug"
+        style={{ color: "#3c4043", fontFamily: "Roboto, sans-serif" }}
+      >
+        {text}
+      </p>
+    </div>
+  );
+}
 
 export function PwaInstallPrompt() {
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [isVisible, setIsVisible] = useState<boolean>(false);
-  const [isIos, setIsIos] = useState<boolean>(false);
-  const [showIosGuide, setShowIosGuide] = useState<boolean>(false);
+  const pwaRef = useRef<any>(null);
+  const deferredPromptRef = useRef<any>(null);
+  const [showBanner, setShowBanner] = useState(false);
+  const [showAndroidBar, setShowAndroidBar] = useState(false);
+  const [installed, setInstalled] = useState(false);
+  const [showManualSteps, setShowManualSteps] = useState(false);
+
+  const handleDismiss = useCallback(() => {
+    setShowBanner(false);
+    setShowAndroidBar(false);
+    setShowManualSteps(false);
+    document.body.style.paddingTop = "";
+    try {
+      sessionStorage.setItem(DISMISS_KEY, "1");
+    } catch {}
+  }, []);
+
+  const handleIOSInstall = useCallback(() => {
+    const el = pwaRef.current;
+    if (!el) return;
+
+    try {
+      el.isAppleMobilePlatform = true;
+      el.isApple26Plus = true;
+      el.isLiquidGlassSupported = true;
+      el.showDialog(true);
+    } catch (e) {
+      console.error("[PWA] showDialog failed:", e);
+    }
+  }, []);
+
+  const handleAndroidInstall = useCallback(async () => {
+    const el = pwaRef.current;
+
+    if (el && deferredPromptRef.current) {
+      try {
+        el.externalPromptEvent = deferredPromptRef.current;
+        await new Promise((r) => setTimeout(r, 350));
+        el.showDialog(true);
+      } catch (e) {
+        console.error("[PWA] showDialog failed:", e);
+      }
+      return;
+    }
+
+    if (deferredPromptRef.current) {
+      try {
+        deferredPromptRef.current.prompt();
+        const { outcome } = await deferredPromptRef.current.userChoice;
+        if (outcome === "accepted") {
+          setInstalled(true);
+          handleDismiss();
+        }
+      } catch (e) {
+        console.error("[PWA] native prompt failed:", e);
+      }
+      deferredPromptRef.current = null;
+      return;
+    }
+
+    setShowAndroidBar(false);
+    setShowManualSteps(true);
+  }, [handleDismiss]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (installed) return;
 
-    // Check if dismissed recently (within 7 days)
-    const dismissedAt = localStorage.getItem("fintral_pwa_dismissed_at");
-    if (dismissedAt) {
-      const parsed = new Date(dismissedAt);
-      const diff = Date.now() - parsed.getTime();
-      const days = diff / (1000 * 60 * 60 * 24);
-      if (days < 7) {
-        return;
+    try {
+      if (sessionStorage.getItem(DISMISS_KEY)) return;
+    } catch {}
+
+    if (isIOS()) {
+      if (!customElements.get("pwa-install")) {
+        customElements.define("pwa-install", PWAInstallElement);
       }
+
+      const el = document.createElement("pwa-install") as any;
+      el.setAttribute("manifest-url", "/manifest.json");
+      el.setAttribute("manual-apple", "");
+      el.setAttribute("styles", JSON.stringify({ "--tint-color": "#0ea5e9" }));
+      document.body.appendChild(el);
+      pwaRef.current = el;
+
+      const timer = setTimeout(() => {
+        setShowBanner(true);
+        document.body.style.paddingTop = `${BANNER_HEIGHT}px`;
+      }, 2000);
+
+      return () => {
+        clearTimeout(timer);
+        el.remove();
+        pwaRef.current = null;
+        document.body.style.paddingTop = "";
+      };
     }
 
-    // Check if already running in standalone mode (already installed)
-    const isStandalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      (window.navigator as any).standalone === true;
-    if (isStandalone) return;
+    if (isAndroid()) {
+      const handler = (e: Event) => {
+        e.preventDefault();
+        deferredPromptRef.current = e;
 
-    const userAgent = window.navigator.userAgent.toLowerCase();
-    const isIosDevice = /iphone|ipad|ipod/.test(userAgent);
-    setIsIos(isIosDevice);
+        const el = pwaRef.current;
+        if (el) {
+          el.externalPromptEvent = e;
+        }
+      };
 
-    // iOS Safari PWA installation prompt
-    if (isIosDevice) {
-      // iOS Chrome/Firefox do not support PWA installation, only Safari does
-      const isSafari = /safari/.test(userAgent) && !/crios|fxios|optios|fennec|yabrowser/.test(userAgent);
-      if (isSafari) {
-        setIsVisible(true);
+      window.addEventListener("beforeinstallprompt", handler);
+
+      if (!customElements.get("pwa-install")) {
+        customElements.define("pwa-install", PWAInstallElement);
       }
+
+      const el = document.createElement("pwa-install") as any;
+      el.setAttribute("manifest-url", "/manifest.json");
+      el.setAttribute("manual-chrome", "");
+      document.body.appendChild(el);
+      pwaRef.current = el;
+
+      const timer = setTimeout(() => {
+        setShowAndroidBar(true);
+      }, 2000);
+
+      return () => {
+        clearTimeout(timer);
+        window.removeEventListener("beforeinstallprompt", handler);
+        el.remove();
+        pwaRef.current = null;
+      };
     }
+  }, [installed]);
 
-    // Listen for beforeinstallprompt (Android / Desktop Chrome)
-    const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-      // Only show banner on mobile screens or if we match mobile UA
-      const ua = window.navigator.userAgent.toLowerCase();
-      const isMobileDevice = /iphone|ipad|ipod|android|webos|blackberry|iemobile|opera mini/.test(ua);
-      const isMobileWidth = window.innerWidth < 1024;
-      if (isMobileDevice || isMobileWidth) {
-        setIsVisible(true);
-      }
-    };
-
-    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-
-    return () => {
-      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-    };
-  }, []);
-
-  const handleAction = async () => {
-    if (isIos) {
-      // Trigger the iOS installation guidance drawer
-      setShowIosGuide(true);
-    } else if (deferredPrompt) {
-      // Trigger Android / Desktop installation prompt
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      console.log(`PWA install prompt outcome: ${outcome}`);
-      setDeferredPrompt(null);
-      setIsVisible(false);
-    }
-  };
-
-  const handleDismiss = () => {
-    localStorage.setItem("fintral_pwa_dismissed_at", new Date().toISOString());
-    setIsVisible(false);
-  };
-
-  if (!isVisible) return null;
-
-  // Render iOS Smart Banner (Top Banner)
-  if (isIos) {
-    return (
-      <>
-        {/* iOS Smart App Banner Style */}
+  return (
+    <>
+      {isIOS() && showBanner && !installed && (
         <div
-          className="fixed top-0 left-0 right-0 z-[100] flex w-full items-center justify-between border-b border-black/10 dark:border-white/10 bg-[#f8f8f8]/95 dark:bg-[#1d1d1f]/95 backdrop-blur-md px-3 shadow-xs transition-all duration-300 animate-in fade-in slide-in-from-top-4"
+          className="fixed top-0 left-0 right-0 z-[99999] animate-slide-down"
           style={{
-            paddingTop: "var(--safe-area-top, 0px)",
-            height: "calc(3.75rem + var(--safe-area-top, 0px))",
+            height: BANNER_HEIGHT,
+            background: "rgba(255, 255, 255, 0.72)",
+            backdropFilter: "blur(20px) saturate(180%)",
+            WebkitBackdropFilter: "blur(20px) saturate(180%)",
+            borderBottom: "0.5px solid rgba(0, 0, 0, 0.1)",
           }}
         >
-          <div className="flex items-center gap-2.5">
-            {/* Close button */}
+          <div className="flex items-center gap-3 px-4 py-2 mx-auto max-w-lg h-full">
+            <img
+              src="/icons/icon-192.png"
+              alt="Fintral"
+              width={40}
+              height={40}
+              className="rounded-[10px] shrink-0"
+              style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.12)" }}
+            />
+
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline gap-2">
+                <span
+                  className="text-[15px] font-semibold truncate"
+                  style={{
+                    fontFamily: "-apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif",
+                    color: "#000",
+                  }}
+                >
+                  Fintral
+                </span>
+                <Stars rating={5} />
+              </div>
+              <p
+                className="text-[11px] leading-tight truncate mt-0.5"
+                style={{
+                  fontFamily: "-apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif",
+                  color: "#6b7280",
+                }}
+              >
+                Facturación Electrónica RD
+              </p>
+            </div>
+
             <button
-              onClick={handleDismiss}
-              className="flex h-5 w-5 items-center justify-center rounded-full bg-black/10 dark:bg-white/10 text-[#8e8e93] transition-colors active:scale-90"
-              aria-label="Cerrar banner"
+              onClick={handleIOSInstall}
+              className="shrink-0 px-4 py-1.5 rounded-full text-[14px] font-semibold transition-colors active:opacity-80"
+              style={{
+                fontFamily: "-apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif",
+                background: "#0ea5e9",
+                color: "#fff",
+              }}
             >
-              <X className="h-3 w-3 stroke-[2.5]" />
+              OBTENER
             </button>
 
-            {/* App Icon with iOS rounded squircle mask */}
-            <div className="h-10 w-10 shrink-0 rounded-[9px] bg-white border border-black/5 dark:border-white/5 shadow-xs overflow-hidden flex items-center justify-center">
+            <button
+              onClick={handleDismiss}
+              className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full"
+              style={{ color: "#9ca3af" }}
+              aria-label="Cerrar"
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                <path d="M2 2l8 8M10 2l-8 8" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isAndroid() && (
+        <>
+          <div
+            className="fixed bottom-0 left-0 right-0 z-[99999] animate-android-bar"
+            style={{
+              fontFamily: "Roboto, 'Segoe UI', system-ui, sans-serif",
+              background: "#fff",
+              boxShadow: "0 -1px 6px rgba(0, 0, 0, 0.1)",
+              display: showAndroidBar && !installed ? "block" : "none",
+            }}
+          >
+            <div className="flex items-center gap-3 px-4 py-3 max-w-lg mx-auto">
               <img
                 src="/icons/icon-192.png"
                 alt="Fintral"
-                className="h-8 w-8 object-contain"
+                width={36}
+                height={36}
+                className="rounded-[8px] shrink-0"
               />
-            </div>
 
-            {/* App Info */}
-            <div className="flex flex-col">
-              <span className="text-[13px] font-semibold text-neutral-900 dark:text-white leading-tight">
-                Fintral
-              </span>
-              <span className="text-[10px] text-neutral-500 dark:text-neutral-400 leading-tight">
-                Fintral, SRL
-              </span>
-              <div className="flex items-center gap-1 mt-0.5">
-                <div className="flex text-amber-500">
-                  <Star className="h-2 w-2 fill-current" />
-                  <Star className="h-2 w-2 fill-current" />
-                  <Star className="h-2 w-2 fill-current" />
-                  <Star className="h-2 w-2 fill-current" />
-                  <Star className="h-2 w-2 fill-current" />
-                </div>
-                <span className="text-[9px] text-neutral-400 dark:text-neutral-500 font-medium">
-                  GRATIS
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* iOS-style OBTENER (GET) button */}
-          <button
-            onClick={handleAction}
-            className="h-7 rounded-full bg-[#007aff]/10 dark:bg-[#0a84ff]/20 text-[#007aff] dark:text-[#0a84ff] hover:bg-[#007aff]/20 dark:hover:bg-[#0a84ff]/30 px-5 text-[11px] font-bold tracking-tight shadow-2xs transition-transform active:scale-95 duration-100"
-          >
-            OBTENER
-          </button>
-        </div>
-
-        {/* iOS Installation Guide Drawer */}
-        <Drawer open={showIosGuide} onOpenChange={setShowIosGuide}>
-          <DrawerContent className="pb-6">
-            <DrawerHeader className="text-center">
-              <DrawerTitle className="text-base font-bold text-foreground">Instalar Fintral en iOS</DrawerTitle>
-              <DrawerDescription className="text-xs text-muted-foreground">
-                Sigue estos sencillos pasos para añadir Fintral a tu pantalla de inicio en Safari.
-              </DrawerDescription>
-            </DrawerHeader>
-
-            <div className="flex flex-col gap-3 px-6 py-2 text-xs">
-              {/* Step 1 */}
-              <div className="flex items-start gap-3 bg-muted/40 p-3 rounded-xl border border-border/40">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-[10px]">
-                  1
-                </span>
-                <p className="leading-relaxed text-muted-foreground">
-                  Toca el botón <strong className="text-foreground">Compartir</strong>{" "}
-                  <Share className="inline-block mx-1 h-4 w-4 text-[#007aff]" /> en la barra inferior de Safari.
+              <div className="flex-1 min-w-0">
+                <p
+                  className="text-[14px] font-medium truncate"
+                  style={{ color: "#1f1f1f" }}
+                >
+                  Instalar Fintral
+                </p>
+                <p className="text-[12px] truncate" style={{ color: "#5f6368" }}>
+                  App de facturación electrónica
                 </p>
               </div>
 
-              {/* Step 2 */}
-              <div className="flex items-start gap-3 bg-muted/40 p-3 rounded-xl border border-border/40">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-[10px]">
-                  2
-                </span>
-                <p className="leading-relaxed text-muted-foreground">
-                  Desplázate hacia abajo y selecciona{" "}
-                  <strong className="text-foreground">&quot;Agregar a pantalla de inicio&quot;</strong>{" "}
-                  <Download className="inline-block mx-1 h-4 w-4 text-foreground" />.
-                </p>
-              </div>
+              <button
+                onClick={handleAndroidInstall}
+                className="shrink-0 px-5 py-2 rounded-full text-[13px] font-medium transition-colors active:opacity-80"
+                style={{ background: "#1a73e8", color: "#fff" }}
+              >
+                Instalar
+              </button>
 
-              {/* Step 3 */}
-              <div className="flex items-start gap-3 bg-muted/40 p-3 rounded-xl border border-border/40">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-[10px]">
-                  3
-                </span>
-                <p className="leading-relaxed text-muted-foreground font-medium">
-                  Confirma tocando <strong className="text-foreground">&quot;Agregar&quot;</strong> en la esquina superior derecha. ¡Listo!
-                </p>
-              </div>
+              <button
+                onClick={handleDismiss}
+                className="shrink-0 w-8 h-8 flex items-center justify-center rounded-full"
+                style={{ color: "#5f6368" }}
+                aria-label="Cerrar"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
             </div>
-
-            <DrawerFooter className="pt-2 px-6">
-              <DrawerClose asChild>
-                <Button variant="outline" className="w-full text-xs h-9 rounded-lg active:scale-98 transition-transform">
-                  Entendido
-                </Button>
-              </DrawerClose>
-            </DrawerFooter>
-          </DrawerContent>
-        </Drawer>
-      </>
-    );
-  }
-
-  // Render Android / Desktop PWA Install Prompt (Floating card above bottom navigation)
-  return (
-    <div
-      className="fixed z-[100] left-4 right-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] md:bottom-6 md:left-auto md:right-6 md:w-96 bg-card border border-border/80 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.12)] p-4 flex flex-col gap-3 animate-in slide-in-from-bottom-8 duration-300 ease-out"
-    >
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
-          {/* App Icon */}
-          <div className="h-11 w-11 shrink-0 rounded-xl bg-white border border-border flex items-center justify-center p-1.5 shadow-2xs">
-            <img
-              src="/icons/icon-192.png"
-              alt="Fintral Logo"
-              className="h-8 w-8 object-contain"
-            />
           </div>
-          {/* App Info */}
-          <div className="flex flex-col">
-            <span className="text-[14px] font-semibold text-foreground leading-tight">
-              Instalar Fintral
-            </span>
-            <span className="text-[11px] text-muted-foreground leading-normal font-medium">
-              Fintral, SRL • Finanzas
-            </span>
-          </div>
-        </div>
-        
-        {/* Dismiss Icon */}
-        <button
-          onClick={handleDismiss}
-          className="text-muted-foreground hover:text-foreground transition-colors p-1.5 rounded-full hover:bg-muted/50 active:scale-90"
-          aria-label="Cerrar prompt"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
 
-      <p className="text-[12px] text-muted-foreground leading-relaxed">
-        Agrega Fintral a tu pantalla de inicio para facturar sin conexión y acceder más rápido a tus comprobantes fiscales.
-      </p>
+          <style>{`
+            @keyframes android-bar-up {
+              from { transform: translateY(100%); }
+              to { transform: translateY(0); }
+            }
+            .animate-android-bar {
+              animation: android-bar-up 0.3s cubic-bezier(0.2, 0, 0, 1) forwards;
+            }
+          `}</style>
+        </>
+      )}
 
-      <div className="flex items-center justify-end gap-2 mt-1">
-        <button
-          onClick={handleDismiss}
-          className="h-8 px-3 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/30 rounded-lg transition-colors active:scale-95"
-        >
-          Ahora no
-        </button>
-        <button
-          onClick={handleAction}
-          className="h-8 px-4 text-xs font-semibold bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg shadow-xs transition-transform active:scale-95 duration-100"
-        >
-          Instalar
-        </button>
-      </div>
-    </div>
+      <AndroidManualSteps
+        open={showManualSteps}
+        onClose={() => setShowManualSteps(false)}
+      />
+
+      <style>{`
+        @keyframes slide-down {
+          from { transform: translateY(-100%); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+        .animate-slide-down {
+          animation: slide-down 0.35s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+      `}</style>
+    </>
   );
 }

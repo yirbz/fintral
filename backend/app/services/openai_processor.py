@@ -190,6 +190,9 @@ class OpenAIInvoiceProcessor:
             Devuelve la respuesta en formato JSON válido:
 
             FECHA ACTUAL: {datetime.now().strftime('%Y-%m-%d')} — La fecha de la factura NO puede ser posterior a esta fecha.
+            IMPORTANTE SOBRE FORMATOS DE FECHA EN RD:
+            En la República Dominicana, el formato estándar en documentos es DD/MM/YYYY o DD/MM/YY (día primero, mes después).
+            Si encuentras fechas como "07/04/26", interprétalas como día 07, mes 04 (abril), año 2026 (07 de abril de 2026), NO como 04 de julio. Solo invierte a MM/DD/YYYY si el día es imposible (ej. "04/15/2026").
 
             {{
                 "vendor_name": "nombre del proveedor/empresa (null si no se encuentra)",
@@ -745,7 +748,7 @@ class OpenAIInvoiceProcessor:
             return None
         try:
             date_str = str(value).strip()
-            for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%Y/%m/%d"]:
+            for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y", "%m/%d/%Y", "%m/%d/%y", "%d-%m-%Y", "%d-%m-%y", "%Y/%m/%d"]:
                 try:
                     parsed_date = datetime.strptime(date_str, fmt)
                     if parsed_date.date() > utc_today():
@@ -826,6 +829,9 @@ class OpenAIInvoiceProcessor:
             Devuelve la respuesta en formato JSON válido:
 
             FECHA ACTUAL (UTC): {utc_now().strftime('%Y-%m-%d')} — La fecha de la factura NO puede ser posterior a esta fecha.
+            IMPORTANTE SOBRE FORMATOS DE FECHA EN RD:
+            En la República Dominicana, el formato estándar en documentos es DD/MM/YYYY o DD/MM/YY (día primero, mes después).
+            Si encuentras fechas como "07/04/26", interprétalas como día 07, mes 04 (abril), año 2026 (07 de abril de 2026), NO como 04 de julio. Solo invierte a MM/DD/YYYY si el día es imposible (ej. "04/15/2026").
 
             TEXTO DE LA FACTURA:
             {text}

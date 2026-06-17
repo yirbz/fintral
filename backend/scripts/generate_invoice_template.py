@@ -348,7 +348,7 @@ def build_facturas(wb):
         ws.row_dimensions[row].height = 22
         for idx, (_, _, _, is_req, num_fmt) in enumerate(columns, 1):
             bg = FILL_WHITE
-            cell = set_cell(ws, row, idx, None, FONT_BODY, bg, ALIGN_LEFT, THIN_BORDER, num_fmt)
+            set_cell(ws, row, idx, None, FONT_BODY, bg, ALIGN_LEFT, THIN_BORDER, num_fmt)
 
     # ── Required-column highlighting: soft sky-blue on required cols ──
     req_cols = [1, 2, 3, 4, 6]  # A, B, C, D, F

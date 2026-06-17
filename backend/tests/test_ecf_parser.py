@@ -2,11 +2,19 @@ import json
 import os
 import tempfile
 import pytest
-from copy import deepcopy
-from lxml import etree
 
-from app.services.pipeline.classifier import classifier, FileClassifier
-from app.services.pipeline.ecf_parser import ecf_parser, ECFParser, ECF_TYPES
+from app.services.pipeline.classifier import classifier
+from app.services.pipeline.ecf_parser import ecf_parser, ECF_TYPES
+
+@pytest.fixture(autouse=True)
+def mock_signature_validation():
+    from unittest.mock import patch
+    import sys
+    module = sys.modules["app.services.pipeline.ecf_parser"]
+    with patch.object(module, "validate_ecf_signature") as mock_val:
+        mock_val.return_value = {"valid": True}
+        yield
+
 
 ECF_31_XML = """<?xml version="1.0" encoding="utf-8"?>
 <ECF xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.dgii.gov.do/ecf/v1">
