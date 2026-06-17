@@ -4,6 +4,7 @@ WORKDIR /app
 
 RUN corepack enable && pnpm --version
 COPY package.json pnpm-lock.yaml ./
+COPY patches/ ./patches/
 RUN pnpm install --frozen-lockfile
 
 EXPOSE 3000
