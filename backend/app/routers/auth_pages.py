@@ -360,12 +360,8 @@ async def logout(
 
 
 @router.get("/")
-async def read_root(
-    ctx: Optional[TenantContext] = Depends(optional_tenant),
-):
-    if not ctx:
-        return RedirectResponse(url="/login", status_code=302)
-    return RedirectResponse(url="/dashboard", status_code=302)
+async def read_root():
+    return {"status": "ok", "service": "fintral-api"}
 
 
 @router.get("/api/me")
