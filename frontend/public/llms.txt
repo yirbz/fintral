@@ -1,0 +1,45 @@
+# Fintral
+
+> Plataforma todo-en-uno de facturación electrónica (e-CF), OCR de facturas, cumplimiento DGII y gestión fiscal para empresas en República Dominicana.
+
+## Docs
+
+- [Inicio](https://www.fintral.app/): Página principal con descripción general de la plataforma, características clave, integraciones y precios.
+- [Planes y Precios](https://www.fintral.app/plans): Comparativa de los tres planes (Inicial, Profesional, Despacho Contable) con precios en RD$, especificaciones técnicas y preguntas frecuentes.
+- [Documentación Legal](https://www.fintral.app/docs): Portal de documentación con términos generales, condiciones de uso y detalles operativos de cada plan bajo normativa DGII.
+
+## Producto
+
+- [Facturación Electrónica (e-CF)](https://www.fintral.app/billing): Portal público de facturación DGII que permite emitir comprobantes fiscales electrónicos sin necesidad de registro.
+- [Emisión Rápida de Facturas](https://www.fintral.app/billing/quick): Herramienta de facturación exprés para crear y enviar comprobantes electrónicos DGII en segundos.
+- [Gestión de Clientes](https://www.fintral.app/billing/clients): Administración del directorio de clientes con datos fiscales (RNC) para facturación electrónica.
+- [Productos y Servicios](https://www.fintral.app/billing/products): Catálogo de productos y servicios con precios configurados para emisión de facturas DGII.
+- [Secuencias de NCF](https://www.fintral.app/billing/sequences): Gestión y seguimiento de todas las secuencias de comprobantes fiscales autorizadas por la DGII.
+- [Configuración de Facturación](https://www.fintral.app/billing/settings): Personalización de parámetros de facturación, datos fiscales y preferencias de emisión.
+- [Plan Inicial](https://www.fintral.app/docs/plans/inicial): Plan para freelancers con contabilidad por IA, 50 OCR/mes, 3 usuarios, 1 entidad, validación NCF DGII y reporte 606 automático desde RD$999/mes.
+- [Plan Profesional](https://www.fintral.app/docs/plans/profesional): Plan para PyMEs con emisión e-CF DGII, 500 OCR/mes, 10 usuarios, 5 entidades, reportes 606/607/608 e ingesta por WhatsApp desde RD$2,999/mes.
+- [Plan Despacho Contable](https://www.fintral.app/docs/plans/despacho): Plan para firmas de contabilidad con dashboard multi-entidad, 1,000 OCR/mes, usuarios ilimitados, 20 entidades y soporte prioritario desde RD$7,999/mes.
+- [Extensiones y Bloques](https://www.fintral.app/docs/plans/organizaciones-extra): Detalle de extensiones modulares: entidades adicionales, bloques de e-CF, bloques de consultas IA y almacenamiento extra.
+
+## Recursos
+
+- [Términos y Condiciones](https://www.fintral.app/docs/terms-conditions): Bases legales de uso de la plataforma, cuentas de usuario y límites de responsabilidad fiscal.
+- [Política de Privacidad](https://www.fintral.app/docs/privacy): Política de tratamiento de datos personales y fiscales conforme a la legislación de República Dominicana.
+- [API y Documentación Técnica](https://api.fintral.app/docs): Documentación interactiva de la API REST para integraciones con sistemas contables y ERPs.
+- [Términos de Planes](https://www.fintral.app/plans/terms): Condiciones específicas de contratación, facturación y cancelación de planes.
+
+## Key Facts
+
+- Fundado en 2026 por Yirber Yunier Mañon -  Desarrollador independiente
+- Oficina central: Santo Domingo, República Dominicana
+- Tres planes: Inicial (RD$999/mes), Profesional (RD$2,999/mes), Despacho Contable (RD$7,999/mes)
+- Prueba gratuita de 7 días sin tarjeta de crédito
+- Industria: Infraestructura fiscal y cumplimiento tributario (SaaS)
+- Stack técnico: Next.js + React + Python/FastAPI + PostgreSQL, desplegado en Vercel y Railway
+
+## Contacto
+
+- Sitio web: https://www.fintral.app
+- WhatsApp: https://wa.me/18293758414
+- Documentación: https://www.fintral.app/docs
+- API: https://api.fintral.app/docs
