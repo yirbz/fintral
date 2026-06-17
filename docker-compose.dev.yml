@@ -13,7 +13,7 @@ services:
     image: redis:7
     container_name: fintral-redis-dev
     ports:
-      - "${LOCAL_REDIS_PORT:-6381}:6379"
+      - "${LOCAL_REDIS_PORT:-${REDIS_PORT:-6381}}:6379"
     volumes:
       - redis_dev_data:/data
     networks:
@@ -35,15 +35,19 @@ services:
       - ENVIRONMENT=${LOCAL_ENVIRONMENT:-${ENVIRONMENT:-DEVELOPMENT}}
       - BACKEND_PORT=8000
       - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_JWT_ISSUER=${SUPABASE_JWT_ISSUER:-http://127.0.0.1:54321/auth/v1}
       - SUPABASE_STORAGE_BUCKET=${SUPABASE_STORAGE_BUCKET:-invoices}
       - DATABASE_URL=${LOCAL_DATABASE_URL:-${DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:5440/invoices}}
       - REDIS_URL=${LOCAL_REDIS_URL:-${REDIS_URL}}
       # ── Secrets (inherited from Doppler via shell — no default) ──
       - APP_JWT_SECRET_KEY
-      - SECRET_KEY
       - SUPABASE_SERVICE_ROLE_KEY
-      - AI_MODEL_API_KEY
-      - OPENAI_API_KEY
+      - AI_PIPELINE_KEY
+      - AI_PIPELINE_MODEL
+      - AI_PIPELINE_FALLBACK_MODEL
+      - AI_SIDECAR_KEY
+      - AI_SIDECAR_MODEL
+      - AI_SIDECAR_FALLBACK_MODEL
       - RESEND_API_KEY
       - EMAIL_FROM
       - PUBLIC_APP_URL
@@ -58,8 +62,9 @@ services:
       - XERO_REDIRECT_URI
       - ALANUBE_API_URL
       - ALANUBE_JWT
-      - AI_ASSISTANT_KEY
-      - AI_ASSISTANT_MODEL
+      # ── Telegram bot (admin notifications) ──
+      - TELEGRAM_BOT_TOKEN
+      - TELEGRAM_CHAT_ID
     depends_on:
       redis:
         condition: service_healthy
@@ -69,7 +74,7 @@ services:
       - uploads_data:/app/uploads
       - static_data:/app/static
     ports:
-      - "${LOCAL_BACKEND_PORT:-8000}:${LOCAL_BACKEND_PORT:-8000}"
+      - "${LOCAL_BACKEND_PORT:-${BACKEND_PORT:-8000}}:${LOCAL_BACKEND_PORT:-${BACKEND_PORT:-8000}}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:

@@ -70,7 +70,7 @@ export async function apiFetch<T>(
 
     if (response.status === 401 && !isOnPublicPage()) {
       try {
-        window.location.href = "/login";
+        window.dispatchEvent(new CustomEvent("auth:unauthorized", { detail: { path: input, message: errorMessage } }));
       } catch { /* noop */ }
       throw new ApiError(errorMessage, response.status, errorPayload);
     }

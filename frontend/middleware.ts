@@ -14,12 +14,19 @@ export function middleware(request: NextRequest) {
       return NextResponse.next();
     }
 
-    // Skip API, static assets, internal next paths, and static files
+    // Skip API, static assets, internal next paths, static files, auth pages, and docs
     if (
       url.pathname.startsWith("/_next") ||
       url.pathname.startsWith("/api") ||
       url.pathname.startsWith("/static") ||
-      url.pathname.includes(".")
+      url.pathname.includes(".") ||
+      url.pathname.startsWith("/login") ||
+      url.pathname.startsWith("/signup") ||
+      url.pathname.startsWith("/forgot-password") ||
+      url.pathname.startsWith("/verify") ||
+      url.pathname.startsWith("/accept-invite") ||
+      url.pathname.startsWith("/auth") ||
+      url.pathname.startsWith("/docs")
     ) {
       return NextResponse.next();
     }

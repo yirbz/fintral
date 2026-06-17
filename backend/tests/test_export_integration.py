@@ -141,13 +141,21 @@ class Test607Template:
 
         with zipfile.ZipFile(io.BytesIO(buf)) as z:
             sheet_xml = z.read('xl/worksheets/sheet1.xml')
-        root = etree.fromstring(sheet_xml)
-        merges = root.find(f'.//{{{_NS}}}mergeCells')
-        assert merges is not None
-        count = int(merges.get('count', '0'))
-        assert count > 0
-        cells = merges.findall(f'{{{_NS}}}mergeCell')
-        assert len(cells) == count
+        
+        # Use iterparse to prevent sandbox OOM limit on 45MB XML
+        context = etree.iterparse(io.BytesIO(sheet_xml), events=('end',))
+        merges_count = 0
+        cells_count = 0
+        for event, elem in context:
+            tag = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
+            if tag == 'mergeCells':
+                merges_count = int(elem.get('count', '0'))
+            elif tag == 'mergeCell':
+                cells_count += 1
+            elem.clear()
+
+        assert merges_count > 0
+        assert cells_count == merges_count
 
 
 # ── 606 — Compras ─────────────────────────────────────────────────

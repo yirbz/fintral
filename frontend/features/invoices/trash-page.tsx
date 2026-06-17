@@ -1,12 +1,11 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArchiveRestore, ChevronLeft, ChevronRight, FileText, Flame, RotateCcw, Search, Trash2 } from "lucide-react";
+import { ArchiveRestore, ChevronLeft, ChevronRight, FileText, RotateCcw, Search, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { bulkPermanentDelete, bulkRestore, listTrashedInvoices, permanentDeleteInvoice, restoreInvoice } from "@/lib/api/invoices";
-import { Badge } from "@/components/ui/badge";
+import { bulkRestore, listTrashedInvoices, restoreInvoice } from "@/lib/api/invoices";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -30,13 +29,6 @@ import type { Invoice } from "@/lib/types";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-
-function daysRemaining(deletedAt: string): number {
-  const deleted = new Date(deletedAt).getTime();
-  const expires = deleted + 30 * 24 * 60 * 60 * 1000;
-  const remaining = expires - Date.now();
-  return Math.max(0, Math.ceil(remaining / (1000 * 60 * 60 * 24)));
-}
 
 export function TrashPage() {
   const router = useRouter();
@@ -91,16 +83,6 @@ export function TrashPage() {
     onError: (err) => toast.error(err instanceof Error ? err.message : "Error al restaurar"),
   });
 
-  const deleteSingleMutation = useMutation({
-    mutationFn: (id: string) => permanentDeleteInvoice(id),
-    onSuccess: () => {
-      toast.success("Factura eliminada permanentemente");
-      setSelectedIds([]);
-      void refresh();
-    },
-    onError: (err) => toast.error(err instanceof Error ? err.message : "Error al eliminar"),
-  });
-
   const bulkRestoreMutation = useMutation({
     mutationFn: () => bulkRestore(selectedIds),
     onSuccess: async (data) => {
@@ -109,16 +91,6 @@ export function TrashPage() {
       await refresh();
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Error al restaurar"),
-  });
-
-  const bulkDeleteMutation = useMutation({
-    mutationFn: () => bulkPermanentDelete(selectedIds),
-    onSuccess: async (data) => {
-      toast.success(`${data.count} facturas eliminadas permanentemente`);
-      setSelectedIds([]);
-      await refresh();
-    },
-    onError: (err) => toast.error(err instanceof Error ? err.message : "Error al eliminar"),
   });
 
   function toggleAll() {
@@ -145,9 +117,9 @@ export function TrashPage() {
         <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <div>
-              <CardTitle className="text-lg">Papelera</CardTitle>
+              <CardTitle className="text-lg">Archivo</CardTitle>
               <p className="text-xs text-muted-foreground">
-                Las facturas se eliminarán permanentemente después de 30 días.
+                Facturas archivadas. Puedes restaurarlas cuando quieras.
               </p>
             </div>
           </div>
@@ -224,10 +196,7 @@ export function TrashPage() {
               <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
               Restaurar
             </Button>
-            <Button size="sm" variant="destructive" onClick={() => bulkDeleteMutation.mutate()}>
-              <Flame className="mr-1.5 h-3.5 w-3.5" />
-              Eliminar permanentemente
-            </Button>
+
           </CardContent>
         </div>
       ) : null}
@@ -256,9 +225,7 @@ export function TrashPage() {
                   <TableHead className="px-3 py-3 text-center text-[11px] uppercase tracking-wider font-medium text-muted-foreground">
                     Eliminada hace
                   </TableHead>
-                  <TableHead className="px-3 py-3 text-center text-[11px] uppercase tracking-wider font-medium text-muted-foreground">
-                    Eliminación permanente
-                  </TableHead>
+
                   <TableHead className="px-3 py-3 text-right text-[11px] uppercase tracking-wider font-medium text-muted-foreground">
                     Acciones
                   </TableHead>
@@ -277,16 +244,16 @@ export function TrashPage() {
                   ))
                 ) : invoices.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center">
+                    <TableCell colSpan={6} className="text-center">
                       <div className="flex flex-col items-center justify-center py-16">
                         <div className="mb-4 rounded-full bg-muted p-4">
                           <Trash2 className="size-8 text-muted-foreground/40" />
                         </div>
                         <p className="mb-1 text-sm text-muted-foreground">
-                          {search ? "No se encontraron resultados" : "La papelera está vacía"}
+                          {search ? "No se encontraron resultados" : "El archivo está vacío"}
                         </p>
                         <p className="text-xs text-muted-foreground/60">
-                          {search ? "Intenta con otros términos" : "Las facturas eliminadas aparecerán aquí por 30 días."}
+                          {search ? "Intenta con otros términos" : "Las facturas archivadas aparecerán aquí."}
                         </p>
                       </div>
                     </TableCell>
@@ -299,7 +266,6 @@ export function TrashPage() {
                       selected={selectedIds.includes(invoice.id)}
                       onToggle={() => toggleOne(invoice.id)}
                       onRestore={() => restoreSingleMutation.mutate(invoice.id)}
-                      onPermanentDelete={() => deleteSingleMutation.mutate(invoice.id)}
                       onViewDetail={() => openDetail(invoice.id)}
                     />
                   ))
@@ -318,14 +284,12 @@ function TrashRow({
   selected,
   onToggle,
   onRestore,
-  onPermanentDelete,
   onViewDetail,
 }: {
   invoice: Invoice;
   selected: boolean;
   onToggle: () => void;
   onRestore: () => void;
-  onPermanentDelete: () => void;
   onViewDetail: () => void;
 }) {
   const amount = new Intl.NumberFormat("es-DO", {
@@ -333,8 +297,6 @@ function TrashRow({
     currency: invoice.currency || "USD",
     maximumFractionDigits: 2,
   }).format(invoice.total_amount ?? 0);
-
-  const days = invoice.deleted_at ? daysRemaining(invoice.deleted_at) : 30;
 
   const deletedAt = invoice.deleted_at
     ? new Date(invoice.deleted_at).toLocaleDateString("es-DO", {
@@ -364,11 +326,6 @@ function TrashRow({
       <TableCell className="px-3 py-3 text-center text-muted-foreground">
         {deletedAt}
       </TableCell>
-      <TableCell className="px-3 py-3 text-center">
-        <Badge variant={days <= 7 ? "destructive" : days <= 14 ? "secondary" : "outline"}>
-          {days > 0 ? `${days} días` : "Hoy"}
-        </Badge>
-      </TableCell>
       <TableCell className="px-3 py-3 text-right">
         <div className="flex items-center justify-end gap-1">
           <Button variant="ghost" size="icon-sm" onClick={onViewDetail} title="Ver detalles">
@@ -376,9 +333,6 @@ function TrashRow({
           </Button>
           <Button variant="ghost" size="icon-sm" onClick={onRestore} title="Restaurar">
             <RotateCcw className="size-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon-sm" onClick={onPermanentDelete} title="Eliminar permanentemente">
-            <Flame className="size-3.5 text-destructive" />
           </Button>
         </div>
       </TableCell>

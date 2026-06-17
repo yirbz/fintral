@@ -45,8 +45,12 @@ export default function PrintInvoicePage() {
   const [org, setOrg] = useState<any>(null);
   const [verStatus, setVerStatus] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isBillingSubdomain, setIsBillingSubdomain] = useState(false);
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      setIsBillingSubdomain(window.location.hostname.startsWith("factura."));
+    }
     const fetchInvoiceData = async () => {
       try {
         setLoading(true);
@@ -94,7 +98,7 @@ export default function PrintInvoicePage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen p-4">
         <p className="text-sm font-semibold text-rose-500">Factura no encontrada</p>
-        <Link href="/billing" className="mt-4">
+        <Link href={isBillingSubdomain ? "/" : "/billing"} className="mt-4">
           <Button size="xs" variant="outline">Volver</Button>
         </Link>
       </div>
@@ -182,7 +186,7 @@ export default function PrintInvoicePage() {
 
       {/* Print Controls */}
       <div className="w-[80mm] mb-4 flex justify-between items-center print:hidden px-1">
-        <Link href="/billing" passHref>
+        <Link href={isBillingSubdomain ? "/" : "/billing"} passHref>
           <Button variant="outline" size="xs" className="h-7 text-[11px] gap-1 px-2 rounded">
             <ArrowLeft className="size-3" /> Atrás
           </Button>

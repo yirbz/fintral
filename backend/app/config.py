@@ -60,6 +60,12 @@ IS_POSTGRES: bool = DATABASE_URL.startswith("postgresql://")
 # PRODUCTION:  https://<project>.supabase.co
 SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
 
+# Expected JWT issuer claim (defaults to SUPABASE_URL/auth/v1).
+# Override when the internal Docker URL differs from what gotrue uses
+# as the issuer in JWTs (e.g. gotrue uses 127.0.0.1:54321 internally).
+# Example: http://127.0.0.1:54321/auth/v1
+SUPABASE_JWT_ISSUER: str = os.getenv("SUPABASE_JWT_ISSUER", "")
+
 # service_role key for admin operations (user creation, storage admin).
 # NEVER expose this to the client. Use SUPABASE_ANON_KEY for public ops.
 SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
@@ -112,6 +118,14 @@ AI_ASSISTANT_MODEL: str = AI_SIDECAR_MODEL
 # Transactional emails: verification, password reset, notifications.
 RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
 EMAIL_FROM: str = os.getenv("EMAIL_FROM", "Fintral <onboarding@resend.dev>")
+BILLING_EMAIL_FROM: str = os.getenv("BILLING_EMAIL_FROM", "Fintral Facturación <billing@noreply.fintral.app>")
+
+# ===========================================================================
+# Bank transfer details (shown in checkout modal and invoice emails)
+# ===========================================================================
+BANK_NAME: str = os.getenv("BANK_NAME", "Banco Popular Dominicano")
+BANK_ACCOUNT_HOLDER: str = os.getenv("BANK_ACCOUNT_HOLDER", "Fintral SRL")
+BANK_ACCOUNT_NUMBER: str = os.getenv("BANK_ACCOUNT_NUMBER", "123-456789-01")
 
 # Public-facing URL of the frontend (used in OAuth redirect URIs and email links).
 # NOT the internal docker-compose service URL.
@@ -158,3 +172,11 @@ XERO_REDIRECT_URI: str = os.getenv(
 # Alanube (DGII electronic invoicing — Dominican Republic)
 ALANUBE_API_URL: str = os.getenv("ALANUBE_API_URL", "https://sandbox-api.alanube.co/dom/v1")
 ALANUBE_JWT: str = os.getenv("ALANUBE_JWT", "")
+
+# ===========================================================================
+# Telegram Bot (admin notifications)
+# ===========================================================================
+# Bot token from @BotFather. The bot will send payment proof alerts here.
+TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+# Chat ID of the admin (or group) where alerts are sent.
+TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")

@@ -16,7 +16,6 @@ from app.core.permissions import has_permission, ROLE_DEFAULT_PERMISSIONS, PERMI
 from app.database import SessionLocal
 from app.dependencies.tenant import TenantContext
 from app.models import Invitation, Organization, User, UserOrganization
-from app.routers.organizations import router
 
 
 # ---------------------------------------------------------------------------

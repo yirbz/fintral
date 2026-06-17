@@ -15,6 +15,7 @@ from app.config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_STORAGE
 logger = logging.getLogger(__name__)
 
 INVOICES_PREFIX = "invoices"
+PAYMENT_PROOFS_PREFIX = "payment_receipts"
 
 _storage_bucket = None
 _storage_client = None
@@ -117,6 +118,16 @@ def build_storage_path(
     return f"{INVOICES_PREFIX}/{tenant_id}/{org_id}/{invoice_id}/{variant}.{extension}"
 
 
+def build_payment_proof_path(
+    tenant_id: UUID,
+    org_id: UUID,
+    proof_id: UUID,
+    extension: str,
+) -> str:
+    extension = extension.lstrip(".").lower()
+    return f"{PAYMENT_PROOFS_PREFIX}/{tenant_id}/{org_id}/{proof_id}/proof.{extension}"
+
+
 def parse_storage_path(storage_path: str) -> Optional[dict]:
     parts = storage_path.lstrip("/").split("/")
     if len(parts) >= 5 and parts[0] == INVOICES_PREFIX:
@@ -132,7 +143,8 @@ def parse_storage_path(storage_path: str) -> Optional[dict]:
 
 
 def is_structured_path(path: str) -> bool:
-    return path.startswith(f"{INVOICES_PREFIX}/") and path.count("/") >= 4
+    known_prefixes = (INVOICES_PREFIX, PAYMENT_PROOFS_PREFIX)
+    return any(path.startswith(f"{p}/") for p in known_prefixes) and path.count("/") >= 4
 
 
 def resolve_invoice_path(invoice, variant: str = "original") -> Optional[str]:

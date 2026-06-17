@@ -14,6 +14,7 @@ import {
   Search,
   Bell,
   Settings,
+  ShoppingBag,
   Upload,
   Command,
   Plus
@@ -47,6 +48,7 @@ const NAV_ITEMS = [
   { href: "/dashboard/reports", label: "Analítica", icon: ChartPie },
   { href: "/dashboard/history", label: "Historial", icon: Clock },
   { href: "/dashboard/notifications", label: "Notificaciones", icon: Bell },
+  { href: "/dashboard/store", label: "Tienda", icon: ShoppingBag },
   { href: "/dashboard/help", label: "Ayuda", icon: LifeBuoy },
   { href: "/dashboard/settings", label: "Ajustes", icon: Settings }
 ];
@@ -80,7 +82,9 @@ function SidebarInner({ children }: { children: React.ReactNode }) {
   }
 
   if (session.error || !session.data) {
-    if (typeof window !== "undefined") window.location.href = "/login";
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("auth:unauthorized", { detail: { source: "sidebar" } }));
+    }
     return null;
   }
 

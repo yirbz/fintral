@@ -34,12 +34,10 @@ from app.services.alanube import AlanubeService
 from app.services.pipeline.categorizer import DGII_CATEGORY_LABELS, get_dgii_code
 from app.services.pipeline.image_preprocessor import image_preprocessor
 from app.services.supabase_storage import (
-    INVOICES_PREFIX,
-    delete_file as supabase_delete,
-    delete_invoice_folder,
     resolve_invoice_path,
     upload_invoice_file,
 )
+from app.services.usage_tracker import UsageTracker
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -49,7 +47,7 @@ processing_service = InvoiceProcessingService(
     openai_processor=openai_processor,
     webhook_sender=webhook_sender,
 )
-from app.core.redis import invalidate_stats_cache
+from app.core.redis import invalidate_stats_cache  # noqa: E402
 
 
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff"}
@@ -396,6 +394,7 @@ async def upload_files(
                 file_type=file_type,
                 category=category or None,
                 transaction_type=transaction_type or None,
+                file_size=len(file_data),
                 processed=False,
             )
             invoice_repo.create(ctx.db, invoice)
@@ -465,6 +464,12 @@ async def upload_files(
                     invoice.processed_path = processed_path
                 else:
                     invoice.file_path = original_path
+
+            # Track storage usage
+            try:
+                UsageTracker(ctx.db).increment_storage(ctx.org_id, len(file_data))
+            except Exception:
+                logger.exception("Failed to track storage usage")
 
             ctx.db.commit()
 
@@ -1186,9 +1191,9 @@ async def delete_invoice(
         summary=f"Factura '{invoice.invoice_number}' eliminada",
     )
 
-    logger.info("Invoice moved to trash: id=%s, filename=%s, user=%s", invoice_id, invoice.filename, ctx.user.id)
+    logger.info("Invoice archived: id=%s, filename=%s, user=%s", invoice_id, invoice.filename, ctx.user.id)
     invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
-    return {"message": "Factura movida a la papelera"}
+    return {"message": "Factura movida al archivo"}
 
 
 @router.post("/api/invoices/bulk-delete")
@@ -1221,11 +1226,11 @@ async def bulk_delete_invoices(
         actor_email=ctx.user.email,
         action="invoice.deleted",
         resource_type="invoice",
-        summary=f"{count} factura(s) movidas a la papelera",
+        summary=f"{count} factura(s) movidas al archivo",
     )
 
     invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
-    return {"message": "Facturas movidas a la papelera", "count": count}
+    return {"message": "Facturas movidas al archivo", "count": count}
 
 
 @router.post("/api/invoices/bulk-process")
@@ -1262,9 +1267,7 @@ async def restore_invoice(
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
     if not invoice.is_deleted:
-        raise HTTPException(status_code=400, detail="La factura no está en la papelera")
-    if invoice.status == "permanently_deleted":
-        raise HTTPException(status_code=400, detail="La factura fue eliminada permanentemente y no puede restaurarse")
+        raise HTTPException(status_code=400, detail="La factura no está archivada")
 
     invoice.is_deleted = False
     invoice.deleted_at = None
@@ -1283,74 +1286,27 @@ async def restore_invoice(
         action="invoice.restored",
         resource_type="invoice",
         resource_id=str(invoice_id),
-        summary=f"Factura '{invoice.invoice_number}' restaurada de la papelera",
+        summary=f"Factura '{invoice.invoice_number}' restaurada del archivo",
     )
 
     invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
     return {"message": "Factura restaurada exitosamente", "invoice": invoice.to_dict()}
 
 
-@router.delete("/invoices/{invoice_id}/permanent")
-async def permanent_delete_invoice(
+@router.delete("/invoices/{invoice_id}/archive")
+async def archive_invoice(
     invoice_id: str,
     ctx: TenantContext = Depends(require_tenant),
 ):
     invoice = invoice_repo.get_including_trashed(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
     if not invoice:
-        record(
-            db=ctx.db,
-            tenant_id=ctx.tenant_id,
-            organization_id=ctx.org_id,
-            organization_name=ctx.organization.name,
-            actor_id=str(ctx.user.id),
-            actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
-            actor_email=ctx.user.email,
-            action="invoice.permanent_deleted",
-            resource_type="invoice",
-            resource_id=str(invoice_id),
-            summary="Intento de eliminación permanente — factura no encontrada en BD",
-            details="El registro ya había sido eliminado o el ID es inválido",
-        )
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
-    logger.info(
-        "Permanent delete requested: id=%s, filename=%s, file_path=%s, processed_path=%s",
-        invoice_id,
-        invoice.filename,
-        invoice.file_path,
-        invoice.processed_path,
-    )
-
-    # Preserve storage for emitted e-CFs per DGII regulations (Ley 32-23, Código Tributario).
-    # The signed XML must be retained for minimum 10 years even if the DB record is removed.
-    has_emitted_ecf = invoice.is_electronic and bool(invoice.original_xml_data)
-
-    snapshot = _invoice_snapshot(invoice)
-
-    # Clean up storage files (best-effort) — DB record is never deleted per DGII 10-year retention.
-    if not has_emitted_ecf:
-        try:
-            if invoice.file_path and INVOICES_PREFIX in invoice.file_path:
-                logger.info(
-                    "Deleting storage folder for invoice %s (tenant=%s, org=%s)", invoice.id, ctx.tenant_id, ctx.org_id
-                )
-                if not delete_invoice_folder(ctx.tenant_id, ctx.org_id, invoice.id):
-                    logger.warning("Storage folder deletion FAILED for invoice %s", invoice.id)
-            elif invoice.file_path:
-                logger.info("Deleting individual storage file: %s", invoice.file_path)
-                if not supabase_delete(invoice.file_path):
-                    logger.warning("File deletion FAILED: %s", invoice.file_path)
-                if invoice.processed_path and not supabase_delete(invoice.processed_path):
-                    logger.warning("Processed file deletion FAILED: %s", invoice.processed_path)
-        except Exception:
-            logger.exception("Storage cleanup error for invoice %s (non-fatal)", invoice.id)
-
-    invoice.status = "permanently_deleted"
+    invoice.is_deleted = True
+    invoice.deleted_at = datetime.utcnow()
+    invoice.deleted_by = ctx.user.id
     ctx.db.commit()
 
-    summary = f"Factura '{invoice.invoice_number}' marcada como eliminada permanentemente (registro preservado)"
-    if has_emitted_ecf:
-        summary += " — XML preservado para cumplimiento DGII"
     record(
         db=ctx.db,
         tenant_id=ctx.tenant_id,
@@ -1359,16 +1315,14 @@ async def permanent_delete_invoice(
         actor_id=str(ctx.user.id),
         actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
-        action="invoice.permanent_deleted",
+        action="invoice.archived",
         resource_type="invoice",
         resource_id=str(invoice_id),
-        summary=summary,
-        details=f"Proveedor: {invoice.vendor_name}, Total: {invoice.total_amount} {invoice.currency or ''}",
-        snapshot_before=snapshot,
+        summary=f"Factura '{invoice.invoice_number}' archivada",
     )
+
     invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
-    logger.info("Invoice marked as permanently deleted (record kept): id=%s, filename=%s", invoice_id, invoice.filename)
-    return {"message": "Factura marcada como eliminada. El registro se conserva en BD para cumplimiento DGII."}
+    return {"message": "Factura archivada"}
 
 
 @router.post("/invoices/{invoice_id}/cancel")
@@ -1630,7 +1584,11 @@ async def void_invoice(
     ctx.db.flush()
 
     # Emit to Alanube
-    alanube_service = AlanubeService()
+    alanube_service = AlanubeService(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.organization_id,
+    )
     try:
         res = await alanube_service.emit_document(
             ecf_type=34,
@@ -1862,7 +1820,11 @@ async def correct_invoice(
         ctx.db.add(corrected_invoice)
         ctx.db.flush()
 
-        alanube_service = AlanubeService()
+        alanube_service = AlanubeService(
+            db=ctx.db,
+            tenant_id=ctx.tenant_id,
+            organization_id=ctx.organization_id,
+        )
         try:
             res = await alanube_service.emit_document(
                 ecf_type=ecf_type,
@@ -2054,7 +2016,11 @@ async def correct_invoice(
         ctx.db.add(mod_invoice)
         ctx.db.flush()
 
-        alanube_service = AlanubeService()
+        alanube_service = AlanubeService(
+            db=ctx.db,
+            tenant_id=ctx.tenant_id,
+            organization_id=ctx.organization_id,
+        )
         try:
             res = await alanube_service.emit_document(
                 ecf_type=mod_ecf_type,
@@ -2189,14 +2155,14 @@ async def bulk_restore_invoices(
         actor_email=ctx.user.email,
         action="invoice.bulk_restored",
         resource_type="invoice",
-        summary=f"{count} factura(s) restauradas de la papelera",
+        summary=f"{count} factura(s) restauradas del archivo",
     )
 
     return {"message": "Facturas restauradas exitosamente", "count": count}
 
 
-@router.post("/api/invoices/bulk-permanent-delete")
-async def bulk_permanent_delete_invoices(
+@router.post("/api/invoices/bulk-archive")
+async def bulk_archive_invoices(
     action: BulkActionRequest,
     ctx: TenantContext = Depends(require_tenant),
 ):
@@ -2209,45 +2175,20 @@ async def bulk_permanent_delete_invoices(
             Invoice.id.in_(action.invoice_ids),
             Invoice.tenant_id == ctx.tenant_id,
             Invoice.organization_id == ctx.org_id,
-            Invoice.is_deleted.is_(True),
         )
         .all()
     )
 
-    snapshots = {str(inv.id): _invoice_snapshot(inv) for inv in invoices}
-
-    preserved_ecf_count = 0
+    now = datetime.utcnow()
+    count = 0
     for invoice in invoices:
-        has_emitted_ecf = invoice.is_electronic and bool(invoice.original_xml_data)
-        if has_emitted_ecf:
-            preserved_ecf_count += 1
-            continue
-        # Best-effort storage cleanup — never delete DB records
-        try:
-            if invoice.file_path and INVOICES_PREFIX in invoice.file_path:
-                logger.info(
-                    "Deleting storage folder for invoice %s (tenant=%s, org=%s)", invoice.id, ctx.tenant_id, ctx.org_id
-                )
-                if not delete_invoice_folder(ctx.tenant_id, ctx.org_id, invoice.id):
-                    logger.warning("Storage folder deletion FAILED for invoice %s", invoice.id)
-            elif invoice.file_path:
-                if not supabase_delete(invoice.file_path):
-                    logger.warning("File deletion FAILED: %s", invoice.file_path)
-                if invoice.processed_path and not supabase_delete(invoice.processed_path):
-                    logger.warning("Processed file deletion FAILED: %s", invoice.processed_path)
-        except Exception:
-            logger.exception("Storage cleanup error for invoice %s (non-fatal)", invoice.id)
+        invoice.is_deleted = True
+        invoice.deleted_at = now
+        invoice.deleted_by = ctx.user.id
+        count += 1
 
-    for invoice in invoices:
-        invoice.status = "permanently_deleted"
     ctx.db.commit()
 
-    pending = len(action.invoice_ids) - len(invoices) if len(action.invoice_ids) > 0 else 0
-    summary = f"{len(invoices)} factura(s) marcada(s) como eliminadas permanentemente (registros preservados)"
-    if preserved_ecf_count:
-        summary += f" — XML de {preserved_ecf_count} e-CF(s) preservado para cumplimiento DGII"
-    if pending:
-        summary += f", {pending} no encontrada(s) en BD"
     record(
         db=ctx.db,
         tenant_id=ctx.tenant_id,
@@ -2256,21 +2197,13 @@ async def bulk_permanent_delete_invoices(
         actor_id=str(ctx.user.id),
         actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
-        action="invoice.bulk_permanent_deleted",
+        action="invoice.bulk_archived",
         resource_type="invoice",
-        summary=summary,
-        snapshot_before=[snapshots[i] for i in snapshots],
+        summary=f"{count} factura(s) archivada(s)",
     )
 
     invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
-
-    preserved_msg = (
-        f" — XML de {preserved_ecf_count} e-CF(s) preservado para cumplimiento DGII" if preserved_ecf_count else ""
-    )
-    return {
-        "message": f"{len(invoices)} factura(s) marcada(s) como eliminada(s). Los registros se conservan en BD para cumplimiento DGII.{preserved_msg}",
-        "count": len(invoices),
-    }
+    return {"message": "Facturas archivadas", "count": count}
 
 
 @router.delete("/invoices/{invoice_id}/hard-delete")
@@ -2286,24 +2219,11 @@ async def hard_delete_draft_invoice(
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
     if invoice.status != "draft":
-        raise HTTPException(status_code=400, detail="Solo se pueden eliminar definitivamente facturas en estado borrador")
-    if invoice.original_xml_data:
-        raise HTTPException(status_code=400, detail="No se pueden eliminar facturas con datos XML firmados")
+        raise HTTPException(status_code=400, detail="Solo se pueden archivar facturas en estado borrador")
 
-    snapshot = _invoice_snapshot(invoice)
-
-    # Clean up storage files (best-effort)
-    try:
-        if invoice.file_path and INVOICES_PREFIX in invoice.file_path:
-            delete_invoice_folder(ctx.tenant_id, ctx.org_id, invoice.id)
-        elif invoice.file_path:
-            supabase_delete(invoice.file_path)
-            if invoice.processed_path:
-                supabase_delete(invoice.processed_path)
-    except Exception:
-        logger.exception("Storage cleanup error for invoice %s (non-fatal)", invoice.id)
-
-    ctx.db.delete(invoice)
+    invoice.is_deleted = True
+    invoice.deleted_at = datetime.utcnow()
+    invoice.deleted_by = ctx.user.id
     ctx.db.commit()
 
     record(
@@ -2314,17 +2234,14 @@ async def hard_delete_draft_invoice(
         actor_id=str(ctx.user.id),
         actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
-        action="invoice.hard_deleted",
+        action="invoice.archived",
         resource_type="invoice",
         resource_id=str(invoice_id),
-        summary=f"Factura borrador '{invoice.invoice_number}' eliminada definitivamente de la BD",
-        details=f"Proveedor: {invoice.vendor_name}, Total: {invoice.total_amount} {invoice.currency or ''}",
-        snapshot_before=snapshot,
+        summary=f"Factura borrador '{invoice.invoice_number}' archivada",
     )
 
     invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
-    logger.info("Draft invoice hard-deleted: id=%s, filename=%s, user=%s", invoice_id, invoice.filename, ctx.user.id)
-    return {"message": "Factura borrador eliminada definitivamente"}
+    return {"message": "Factura borrador archivada"}
 
 
 @router.post("/api/invoices/bulk-hard-delete")
@@ -2343,27 +2260,20 @@ async def bulk_hard_delete_drafts(
         Invoice.original_xml_data.is_(None),
     ).all()
 
-    snapshots = {str(inv.id): _invoice_snapshot(inv) for inv in invoices}
-
+    now = datetime.utcnow()
+    count = 0
     for invoice in invoices:
-        try:
-            if invoice.file_path and INVOICES_PREFIX in invoice.file_path:
-                delete_invoice_folder(ctx.tenant_id, ctx.org_id, invoice.id)
-            elif invoice.file_path:
-                supabase_delete(invoice.file_path)
-                if invoice.processed_path:
-                    supabase_delete(invoice.processed_path)
-        except Exception:
-            logger.exception("Storage cleanup error for invoice %s (non-fatal)", invoice.id)
-
-        ctx.db.delete(invoice)
+        invoice.is_deleted = True
+        invoice.deleted_at = now
+        invoice.deleted_by = ctx.user.id
+        count += 1
 
     ctx.db.commit()
 
     skipped = len(action.invoice_ids) - len(invoices)
-    summary = f"{len(invoices)} factura(s) borrador eliminada(s) definitivamente"
+    summary = f"{count} factura(s) borrador archivada(s)"
     if skipped:
-        summary += f", {skipped} omitida(s) (no borrador o electronica)"
+        summary += f", {skipped} omitida(s) (no borrador)"
 
     record(
         db=ctx.db,
@@ -2373,13 +2283,13 @@ async def bulk_hard_delete_drafts(
         actor_id=str(ctx.user.id),
         actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
-        action="invoice.bulk_hard_deleted",
+        action="invoice.bulk_archived",
         resource_type="invoice",
         summary=summary,
     )
 
     invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
-    return {"message": summary, "count": len(invoices)}
+    return {"message": summary, "count": count}
 
 
 @router.post("/api/invoices/export")

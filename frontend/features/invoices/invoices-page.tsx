@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  Archive,
   ArrowUpDown,
   Ban,
   Calendar,
@@ -203,8 +204,8 @@ export function InvoicesPage() {
     mutationFn: async () => {
       const promise = bulkDelete(selectedIds);
       toast.promise(promise, {
-        loading: `Moviendo ${selectedIds.length} facturas a la papelera...`,
-        success: (data) => data.message || `${selectedIds.length} facturas movidas a la papelera`,
+        loading: `Archivando ${selectedIds.length} facturas...`,
+        success: (data) => data.message || `${selectedIds.length} facturas archivadas`,
         error: (err) => err instanceof Error ? err.message : "Error al eliminar",
       });
       return promise;
@@ -341,8 +342,8 @@ export function InvoicesPage() {
               Añadir factura
             </Button>
             <Button variant="outline" onClick={() => router.push("/dashboard/invoices/trash")}>
-              <Trash2 className="size-4" data-icon="inline-start" />
-              Ver Papelera
+              <Archive className="size-4" data-icon="inline-start" />
+              Ver Archivo
             </Button>
           </div>
         </CardHeader>
@@ -494,8 +495,8 @@ export function InvoicesPage() {
               </span>
             )}
             <Button size="sm" variant="destructive" onClick={() => bulkDeleteMutation.mutate()}>
-              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-              Papelera
+              <Archive className="mr-1.5 h-3.5 w-3.5" />
+              Archivar
             </Button>
             <div className="h-4 w-px bg-border" />
             <Select value={selectedExportFormat ?? ""} onValueChange={(v) => setSelectedExportFormat(v)}>
@@ -533,11 +534,11 @@ export function InvoicesPage() {
                   <TableHead className="px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Fecha</TableHead>
                   <TableHead className="px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">NCF</TableHead>
                   <TableHead className="px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Proveedor</TableHead>
-                  <TableHead className="px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Categoría</TableHead>
+                  <TableHead className="hidden md:table-cell px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Categoría</TableHead>
                   <TableHead className="px-3 py-3 text-right text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Importe</TableHead>
-                  <TableHead className="px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Vencimiento</TableHead>
-                  <TableHead className="px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Pago / Banco</TableHead>
-                  <TableHead className="px-3 py-3 text-center text-[11px] uppercase tracking-wider font-medium text-muted-foreground">
+                  <TableHead className="hidden lg:table-cell px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Vencimiento</TableHead>
+                  <TableHead className="hidden md:table-cell px-3 py-3 text-left text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Pago / Banco</TableHead>
+                  <TableHead className="hidden sm:table-cell px-3 py-3 text-center text-[11px] uppercase tracking-wider font-medium text-muted-foreground">
                     <ArrowUpDown className="size-3 inline-block mr-1" />
                     Tipo
                   </TableHead>
@@ -550,7 +551,16 @@ export function InvoicesPage() {
                   Array.from({ length: 6 }).map((_, i) => (
                     <TableRow key={i}>
                       {Array.from({ length: 11 }).map((_, j) => (
-                        <TableCell key={j} className="px-3 py-3">
+                        <TableCell
+                          key={j}
+                          className={cn(
+                            "px-3 py-3",
+                            j === 4 && "hidden md:table-cell",
+                            j === 6 && "hidden lg:table-cell",
+                            j === 7 && "hidden md:table-cell",
+                            j === 8 && "hidden sm:table-cell"
+                          )}
+                        >
                           <Skeleton className={cn("h-4 rounded-md", j === 0 ? "size-4" : j === 5 ? "h-4 w-16 ml-auto" : j === 6 ? "h-5 w-16 mx-auto" : j === 7 ? "h-5 w-16 mx-auto" : j === 8 ? "h-5 w-16 ml-auto" : "h-4 w-full")} />
                         </TableCell>
                       ))}
@@ -911,7 +921,7 @@ function InvoiceRow({
         {invoice.vendor_name || <span className="italic text-muted-foreground/60">Procesando...</span>}
       </TableCell>
 
-      <TableCell className="px-3 py-3 max-w-[150px] truncate" title={categoryLabel(invoice.category, invoice.transaction_type)}>
+      <TableCell className="hidden md:table-cell px-3 py-3 max-w-[150px] truncate" title={categoryLabel(invoice.category, invoice.transaction_type)}>
         <Badge 
           variant={invoice.category ? "default" : "secondary"} 
           className={cn("max-w-full truncate block text-center", isCancelled && "opacity-50")}
@@ -920,10 +930,10 @@ function InvoiceRow({
         </Badge>
       </TableCell>
       <TableCell className={cn("px-3 py-3 text-right font-mono tabular-nums font-semibold", isCancelled ? "text-red-500/60 line-through" : "text-foreground")}>{amount}</TableCell>
-      <TableCell className="px-3 py-3 text-muted-foreground font-mono text-[11px]">
+      <TableCell className="hidden lg:table-cell px-3 py-3 text-muted-foreground font-mono text-[11px]">
         {invoice.due_date ? formatDate(invoice.due_date) : "—"}
       </TableCell>
-      <TableCell className="px-3 py-3">
+      <TableCell className="hidden md:table-cell px-3 py-3">
         <div className="flex flex-col gap-1">
           {invoice.payment_status ? (
             <Badge
@@ -950,7 +960,7 @@ function InvoiceRow({
           )}
         </div>
       </TableCell>
-      <TableCell className="px-3 py-3 text-center">
+      <TableCell className="hidden sm:table-cell px-3 py-3 text-center">
         {typeStyle ? (
           <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium", typeStyle.cls)}>
             {typeStyle.label}

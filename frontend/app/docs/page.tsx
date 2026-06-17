@@ -42,7 +42,7 @@ export default function DocsPage() {
             <h3 className="text-[16px] font-semibold text-[#0d253d]">Plan Inicial</h3>
           </div>
           <p className="text-[13px] text-[#64748d] leading-normal font-light">
-            Detalles de contabilidad y reportes, 50 OCR mensuales, usuarios ilimitados y validación NCF DGII. No incluye e-CF.
+            Contabilidad con IA, 50 OCR/mes, 150 consultas IA/mes, 1 entidad, 3 usuarios. e-CF por bloques desde RD$ 950. Ideal para freelancers.
           </p>
           <div className="flex items-center gap-1 text-[12px] font-medium text-[#0EA5E9] mt-4 group-hover:underline">
             Ver detalles del plan <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />
@@ -55,7 +55,7 @@ export default function DocsPage() {
             <h3 className="text-[16px] font-semibold text-[#0d253d]">Plan Profesional</h3>
           </div>
           <p className="text-[13px] text-[#64748d] leading-normal font-light">
-            Límites de facturación e-CF (500 facturas/mes), OCR con IA, usuarios ilimitados y la capacidad de agregar organizaciones adicionales de forma flexible.
+            Emisión e-CF DGII, 500 OCR/mes, 1,000 consultas IA/mes, 5 entidades, 10 usuarios. e-CF por bloques desde RD$ 950. Ideal para PyMEs.
           </p>
           <div className="flex items-center gap-1 text-[12px] font-medium text-[#0EA5E9] mt-4 group-hover:underline">
             Ver detalles del plan <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />
@@ -68,7 +68,7 @@ export default function DocsPage() {
             <h3 className="text-[16px] font-semibold text-[#0d253d]">Plan Despacho Contable</h3>
           </div>
           <p className="text-[13px] text-[#64748d] leading-normal font-light">
-            Estructuras de precios de despacho, adición modular de clientes estándar (+$10 USD/mes) o facturadores (+$25 USD/mes), pools de OCR y dashboard consolidado.
+            Dashboard multi-entidad, 1,000 OCR/mes, 10,000 consultas IA/mes, 20 entidades, usuarios ilimitados. e-CF por bloques con saldo independiente por entidad.
           </p>
           <div className="flex items-center gap-1 text-[12px] font-medium text-[#0EA5E9] mt-4 group-hover:underline">
             Ver detalles del plan <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />
@@ -78,10 +78,10 @@ export default function DocsPage() {
         <Link href="/docs/plans/organizaciones-extra" className="group p-5 rounded-2xl border border-[#e3e8ee] hover:border-[#0EA5E9] hover:shadow-brand transition-all bg-[#f6f9fc]/30 sm:col-span-2">
           <div className="flex items-center gap-3 mb-3">
             <FileText className="size-5 text-[#0EA5E9]" />
-            <h3 className="text-[16px] font-semibold text-[#0d253d]">Organizaciones Adicionales</h3>
+            <h3 className="text-[16px] font-semibold text-[#0d253d]">Capacidad de Entidades y Bloques</h3>
           </div>
           <p className="text-[13px] text-[#64748d] leading-normal font-light">
-            Detalles y precios sobre la adición modular de nuevas empresas estándar o facturadoras e-CF a tu suscripción principal, con usuarios ilimitados por cada entidad.
+            Detalles de todas las extensiones modulares: entidades gratis por plan (1/5/20) y extra a RD$ 600/mes, bloques de e-CF (RD$ 950/100 docs), bloques de IA (RD$ 600/500 consultas) y almacenamiento adicional (RD$ 300/10 GB). Cada entidad gestiona su propio presupuesto de e-CF.
           </p>
           <div className="flex items-center gap-1 text-[12px] font-medium text-[#0EA5E9] mt-4 group-hover:underline">
             Ver detalles de extensiones <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />

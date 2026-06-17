@@ -8,8 +8,12 @@ import { billingApi, VerificationStatus } from "@/lib/api/billing";
 export function VerificationBanner() {
   const [status, setStatus] = useState<VerificationStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isBillingSubdomain, setIsBillingSubdomain] = useState(false);
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      setIsBillingSubdomain(window.location.hostname.startsWith("factura."));
+    }
     async function checkStatus() {
       try {
         const data = await billingApi.getVerificationStatus();
@@ -77,7 +81,7 @@ export function VerificationBanner() {
           </p>
         </div>
       </div>
-      <Link href="/billing/settings?tab=dgii" className="shrink-0">
+      <Link href={isBillingSubdomain ? "/settings?tab=dgii" : "/billing/settings?tab=dgii"} className="shrink-0">
         <button type="button" className={`flex items-center gap-1 text-white font-medium px-3 h-7 rounded text-[11px] transition-colors ${buttonClass}`}>
           {buttonText}
           <ArrowRight className="size-3" />

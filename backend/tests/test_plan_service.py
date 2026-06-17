@@ -3,82 +3,82 @@ Tests for the subscription plan system — PlanService, UsageTracker,
 rate limiting, and plan enforcement integration.
 """
 import pytest
-from datetime import date, datetime, timedelta
 from unittest.mock import patch, MagicMock
 from uuid import uuid4
+
+from app.utils.dates import utc_now
 
 from app.database import SessionLocal
 from app.models import (
     SubscriptionPlan,
     OrganizationSubscription,
-    UsageRecord,
     UsageAlert,
     Organization,
+    Invoice,
 )
 from app.services.plan_service import PlanService, PlanLimitExceeded
-from app.services.usage_tracker import UsageTracker, _current_cycle
+from app.services.usage_tracker import UsageTracker
 
 # ── Shared session fixtures ─────────────────────────────────────────
 
 @pytest.fixture(scope="session")
 def plans():
-    """Get or create the four plans once per test session."""
+    """Get or create the three plans once per test session."""
     db = SessionLocal()
     try:
-        existing = {p.name: p for p in db.query(SubscriptionPlan).all()}
-        if len(existing) >= 4:
-            return existing
+        db.query(OrganizationSubscription).delete()
+        db.query(SubscriptionPlan).delete()
+        db.commit()
         items = [
-            SubscriptionPlan(name="esencial", display_name="Esencial",
-                price_monthly_cents=2900, max_users=2, max_entities=1,
-                max_ecf_monthly=50, max_ai_queries_monthly=300,
-                max_ocr_docs_monthly=30, max_storage_mb=500,
+            SubscriptionPlan(name="inicial", display_name="Inicial",
+                price_monthly_cents=99900, max_users=3, max_entities=1,
+                max_ecf_monthly=0, max_ai_queries_monthly=0,
+                max_ocr_docs_monthly=50, max_storage_mb=500,
                 max_ai_rate_per_minute=10, max_api_rate_per_minute=0,
                 max_api_calls_monthly=0,
                 max_ocr_rate_per_minute=5,
-                addon_ecf_block_size=100, addon_ecf_block_price_cents=500,
-                addon_ai_block_size=500, addon_ai_block_price_cents=1000,
-                addon_storage_block_mb=10240, addon_storage_block_price_cents=500,
+                addon_ecf_block_size=100, addon_ecf_block_price_cents=80000,
+                addon_ai_block_size=500, addon_ai_block_price_cents=60000,
+                addon_storage_block_mb=10240, addon_storage_block_price_cents=30000,
+                entity_slot_price_cents=60000, user_slot_price_cents=30000,
+                extra_entity_price_cents=0, extra_billing_entity_price_cents=0,
                 soft_limit_enabled=True, sort_order=10, is_public=True, is_active=True),
             SubscriptionPlan(name="profesional", display_name="Profesional",
-                price_monthly_cents=6900, max_users=5, max_entities=1,
-                max_ecf_monthly=300, max_ai_queries_monthly=3000,
-                max_ocr_docs_monthly=300, max_storage_mb=5120,
+                price_monthly_cents=299900, max_users=10, max_entities=5,
+                max_ecf_monthly=500, max_ai_queries_monthly=1000,
+                max_ocr_docs_monthly=500, max_storage_mb=5120,
                 max_ai_rate_per_minute=30, max_api_rate_per_minute=50,
                 max_api_calls_monthly=5000,
                 max_ocr_rate_per_minute=10,
-                addon_ecf_block_size=100, addon_ecf_block_price_cents=500,
-                addon_ai_block_size=500, addon_ai_block_price_cents=1000,
-                addon_storage_block_mb=10240, addon_storage_block_price_cents=500,
+                addon_ecf_block_size=100, addon_ecf_block_price_cents=80000,
+                addon_ai_block_size=500, addon_ai_block_price_cents=60000,
+                addon_storage_block_mb=10240, addon_storage_block_price_cents=30000,
+                entity_slot_price_cents=60000, user_slot_price_cents=30000,
+                extra_entity_price_cents=0, extra_billing_entity_price_cents=0,
                 soft_limit_enabled=True, has_api_access=True,
-                has_advanced_reports=True, overage_unit_price_cents=88,
+                has_advanced_reports=True, has_webhooks=True,
+                overage_unit_price_cents=900,
                 sort_order=20, is_public=True, is_active=True),
-            SubscriptionPlan(name="multi-entidad", display_name="Multi-Entidad",
-                price_monthly_cents=14900, extra_entity_price_cents=1200,
-                max_users=15, max_entities=10, max_ecf_monthly=5000,
-                max_ai_queries_monthly=10000, max_ocr_docs_monthly=2000,
+            SubscriptionPlan(name="despacho", display_name="Despacho Contable",
+                price_monthly_cents=799900,
+                max_users=999999, max_entities=20, max_ecf_monthly=500,
+                max_ai_queries_monthly=10000, max_ocr_docs_monthly=1000,
                 max_storage_mb=25600, max_ai_rate_per_minute=60,
                 max_api_rate_per_minute=100, max_api_calls_monthly=25000,
                 max_ocr_rate_per_minute=20,
-                addon_ecf_block_size=100, addon_ecf_block_price_cents=500,
-                addon_ai_block_size=500, addon_ai_block_price_cents=1000,
-                addon_storage_block_mb=10240, addon_storage_block_price_cents=500,
+                addon_ecf_block_size=100, addon_ecf_block_price_cents=80000,
+                addon_ai_block_size=500, addon_ai_block_price_cents=60000,
+                addon_storage_block_mb=10240, addon_storage_block_price_cents=30000,
+                entity_slot_price_cents=60000, user_slot_price_cents=30000,
+                extra_entity_price_cents=0, extra_billing_entity_price_cents=0,
                 soft_limit_enabled=True, has_api_access=True, has_webhooks=True,
                 has_multi_entity_dashboard=True, has_batch_ecf_generation=True,
+                has_sla=True,
+                overage_unit_price_cents=900,
                 sort_order=30, is_public=True, is_active=True),
-            SubscriptionPlan(name="enterprise", display_name="Enterprise",
-                price_monthly_cents=29900, max_users=999, max_entities=999,
-                max_ecf_monthly=10000, max_ai_queries_monthly=30000,
-                max_ocr_docs_monthly=10000, max_storage_mb=102400,
-                max_ai_rate_per_minute=200, max_api_rate_per_minute=500,
-                max_api_calls_monthly=250000,
-                max_ocr_rate_per_minute=100, soft_limit_enabled=True,
-                has_sla=True, has_api_access=True, has_webhooks=True,
-                is_enterprise=True, sort_order=40, is_public=True, is_active=True),
         ]
         for p in items:
-            if p.name not in existing:
-                db.add(p)
+            db.add(p)
         db.commit()
         for p in items:
             db.refresh(p)
@@ -115,51 +115,57 @@ def fresh_org(db_session, test_tenant):
 # ── Tests: Plan Model ───────────────────────────────────────────────
 
 def test_plan_to_dict(plans):
-    p = plans["esencial"]
+    p = plans["inicial"]
     d = p.to_dict()
-    assert d["name"] == "esencial"
-    assert d["price_monthly"] == 29.00
-    assert d["limits"]["max_ecf_monthly"] == 50
+    assert d["name"] == "inicial"
+    assert d["price_monthly"] == 999.00
+    assert d["limits"]["max_ecf_monthly"] == 0
     assert d["limits"]["max_ai_rate_per_minute"] == 10
     assert d["soft_limit_enabled"] is True
     assert d["is_enterprise"] is False
 
 
-def test_enterprise_plan_flag(plans):
-    assert plans["enterprise"].is_enterprise is True
-    assert plans["enterprise"].price_monthly_cents == 29900
+def test_no_enterprise_flag(plans):
+    for p in plans.values():
+        assert p.is_enterprise is False
 
 
-def test_esencial_limits(plans):
-    p = plans["esencial"]
-    assert p.max_ecf_monthly == 50
-    assert p.max_ai_queries_monthly == 300
+def test_inicial_limits(plans):
+    p = plans["inicial"]
+    assert p.max_ecf_monthly == 0
+    assert p.max_ai_queries_monthly == 0
     assert p.max_storage_mb == 500
-    assert p.max_users == 2
+    assert p.max_users == 3
+    assert p.user_slot_price_cents == 30000
+    assert p.entity_slot_price_cents == 60000
 
 
 def test_profesional_limits(plans):
     p = plans["profesional"]
-    assert p.max_ai_queries_monthly == 3000
+    assert p.max_ai_queries_monthly == 1000
     assert p.max_api_calls_monthly == 5000
     assert p.has_api_access is True
+    assert p.max_ecf_monthly == 500
+    assert p.max_ocr_docs_monthly == 500
 
 
-def test_multi_entidad_limits(plans):
-    p = plans["multi-entidad"]
-    assert p.max_ecf_monthly == 5000
-    assert p.max_entities == 10
-    assert p.extra_entity_price_cents == 1200
+def test_despacho_limits(plans):
+    p = plans["despacho"]
+    assert p.max_ecf_monthly == 500
+    assert p.max_entities == 20
+    assert p.max_users == 999999
     assert p.has_multi_entity_dashboard is True
+    assert p.max_ocr_docs_monthly == 1000
+    assert p.has_sla is True
 
 
 def test_plan_feature_flags(plans):
-    assert plans["esencial"].has_api_access is False
+    assert plans["inicial"].has_api_access is False
     assert plans["profesional"].has_api_access is True
-    assert plans["multi-entidad"].has_webhooks is True
-    assert plans["multi-entidad"].has_sla is False
-    assert plans["enterprise"].has_sla is True
-    assert plans["enterprise"].has_webhooks is True
+    assert plans["despacho"].has_webhooks is True
+    assert plans["despacho"].has_sla is True
+    assert plans["profesional"].has_webhooks is True
+    assert plans["profesional"].has_sla is False
 
 
 def test_all_plans_are_public(plans):
@@ -170,9 +176,14 @@ def test_all_plans_are_public(plans):
 
 def test_addon_margins(plans):
     p = plans["profesional"]
-    cost_per_doc = p.addon_ecf_block_price_cents / p.addon_ecf_block_size
-    alanube_cost_cents = 0.88
-    assert cost_per_doc / alanube_cost_cents > 5.0
+    # Bloque 100 e-CF: RD$950 (cost RD$522 → 45% margin)
+    assert p.addon_ecf_block_size == 100
+    assert p.addon_ecf_block_price_cents == 80000
+    # Excedente e-CF: RD$12.00 (cost RD$5.22 → 56% margin)
+    assert p.overage_unit_price_cents == 900
+    # Slot precios
+    assert p.entity_slot_price_cents == 60000
+    assert p.user_slot_price_cents == 30000
 
 
 # ── Tests: Subscription ────────────────────────────────────────────
@@ -181,7 +192,7 @@ def test_get_plan_for_org_creates_trial(db_session, plans, fresh_org):
     svc = PlanService(db_session)
     sub, plan = svc.get_plan_for_org(fresh_org.id)
     assert sub.status == "trialing"
-    assert sub.plan_id == plans["esencial"].id
+    assert sub.plan_id == plans["inicial"].id
     # Second call returns same
     sub2, _ = svc.get_plan_for_org(fresh_org.id)
     assert sub2.id == sub.id
@@ -213,18 +224,18 @@ def test_cancel_subscription(db_session, plans, fresh_org):
 def test_usage_summary(db_session, plans, fresh_org):
     svc = PlanService(db_session)
     summary = svc.get_usage_summary(fresh_org.id)
-    assert summary["plan"]["name"] == "esencial"
-    assert summary["usage"]["ecf"]["limit"] == 50
+    assert summary["plan"]["name"] == "inicial"
+    assert summary["usage"]["ecf"]["limit"] == 0
     assert summary["usage"]["ai_queries"]["used"] == 0
 
 
 def test_subscription_effective_limits(db_session, plans, fresh_org):
     svc = PlanService(db_session)
     sub, _ = svc.get_plan_for_org(fresh_org.id)
-    assert sub.effective_limits()["max_ecf_monthly"] == 50
+    assert sub.effective_limits()["max_ecf_monthly"] == 0
     sub.addon_ecf_blocks = 2
     db_session.commit()
-    assert sub.effective_limits()["max_ecf_monthly"] == 250
+    assert sub.effective_limits()["max_ecf_monthly"] == 200
 
 
 def test_purchase_addon_increases_limits(db_session, plans, fresh_org):
@@ -232,65 +243,121 @@ def test_purchase_addon_increases_limits(db_session, plans, fresh_org):
     svc.purchase_addon(fresh_org.id, "ecf", 2)
     svc.purchase_addon(fresh_org.id, "ai", 1)
     limits = svc.effective_limits(fresh_org.id)
-    assert limits["max_ecf_monthly"] == 250
-    assert limits["max_ai_queries_monthly"] == 800
+    assert limits["max_ecf_monthly"] == 200
+    assert limits["max_ai_queries_monthly"] == 500
 
 
-# ── Tests: AI Query Quota ───────────────────────────────────────────
+# ── Tests: User Slot Addon ──────────────────────────────────────────
+
+def test_user_slot_price_in_to_dict(plans):
+    d = plans["inicial"].to_dict()
+    assert d["user_slot_price_cents"] == 30000
+    assert d["user_slot_price"] == 300.00
+
+
+def test_purchase_user_slot_addon(db_session, plans, fresh_org):
+    svc = PlanService(db_session)
+    sub, _ = svc.get_plan_for_org(fresh_org.id)
+    svc.purchase_addon(fresh_org.id, "user_slot", 2)
+    db_session.refresh(sub)
+    assert sub.addon_user_slots == 2
+
+
+def test_effective_limits_includes_user_slots(db_session, plans, fresh_org):
+    svc = PlanService(db_session)
+    sub, _ = svc.get_plan_for_org(fresh_org.id)
+    # Base: Inicial has max_users=3
+    assert sub.effective_limits()["max_users"] == 3
+    # Add 2 user slots
+    sub.addon_user_slots = 2
+    db_session.commit()
+    assert sub.effective_limits()["max_users"] == 5
+
+
+def test_entity_slot_addon_updates_max_entities(db_session, plans, fresh_org):
+    svc = PlanService(db_session)
+    sub, _ = svc.get_plan_for_org(fresh_org.id)
+    # Base: Inicial has max_entities=1
+    assert sub.effective_limits()["max_entities"] == 1
+    svc.purchase_addon(fresh_org.id, "entity_slot", 3)
+    db_session.refresh(sub)
+    assert sub.addon_entity_slots == 3
+    assert sub.effective_limits()["max_entities"] == 4
+
+
+def test_purchase_addon_rejects_unknown_type(db_session, plans, fresh_org):
+    svc = PlanService(db_session)
+    with pytest.raises(ValueError, match="Unknown addon type"):
+        svc.purchase_addon(fresh_org.id, "invalid_type")
+
+
+def test_subscription_to_dict_includes_user_slots(db_session, plans, fresh_org):
+    svc = PlanService(db_session)
+    sub, _ = svc.get_plan_for_org(fresh_org.id)
+    sub.addon_user_slots = 3
+    db_session.commit()
+    d = sub.to_dict()
+    assert d["addons"]["user_slots"] == 3
+    assert d["limits"]["max_users"] == 6  # 3 base + 3 addon
+
+
+# ── Tests: AI Query Quota — uses Profesional (Inicial has AI=0) ─────
 
 def test_ai_query_allows_within_quota(db_session, plans, fresh_org):
-    result = PlanService(db_session).check_ai_query_limit(fresh_org.id)
+    svc = PlanService(db_session)
+    svc.change_plan(fresh_org.id, "profesional")
+    result = svc.check_ai_query_limit(fresh_org.id)
     assert result["allowed"] is True
     assert result["remaining"] > 0
 
 
 def test_ai_query_blocks_excess(db_session, plans, fresh_org):
     svc = PlanService(db_session)
-    UsageTracker(db_session).increment_ai_query(fresh_org.id, 300)
+    svc.change_plan(fresh_org.id, "profesional")
+    UsageTracker(db_session).increment_ai_query(fresh_org.id, 1000)
     with pytest.raises(PlanLimitExceeded):
         svc.check_ai_query_limit(fresh_org.id, amount=1)
 
 
 def test_ai_query_auto_addon(db_session, plans, fresh_org):
     svc = PlanService(db_session)
+    svc.change_plan(fresh_org.id, "profesional")
     sub, _ = svc.get_plan_for_org(fresh_org.id)
     sub.auto_renew_addons = True
     db_session.commit()
-    UsageTracker(db_session).increment_ai_query(fresh_org.id, 300)
+    UsageTracker(db_session).increment_ai_query(fresh_org.id, 1000)
     result = svc.check_ai_query_limit(fresh_org.id)
     assert result["allowed"] is True
     db_session.refresh(sub)
     assert sub.addon_ai_blocks == 1
 
 
-# ── Tests: e-CF Quota ──────────────────────────────────────────────
+# ── Tests: e-CF Quota — uses balance-based check ───────────────────
 
-def test_ecf_allows_within_quota(db_session, plans, fresh_org):
+def test_ecf_allows_within_balance(db_session, plans, fresh_org):
+    """Crediting e_cf_balance allows document emission."""
+    fresh_org.e_cf_balance = 100
+    db_session.commit()
     result = PlanService(db_session).check_ecf_limit(fresh_org.id)
     assert result["allowed"] is True
+    assert result["remaining"] == 99
+    assert result["deducted"] == 1
 
 
-def test_ecf_soft_block_with_overage(db_session, plans, fresh_org):
-    svc = PlanService(db_session)
-    UsageTracker(db_session).increment_ecf(fresh_org.id, 50)
-    result = svc.check_ecf_limit(fresh_org.id)
-    assert result["allowed"] is True
-    assert result["overage"] is True
-
-
-def test_ecf_limit_no_ecf_in_plan(db_session, plans, fresh_org):
-    svc = PlanService(db_session)
-    # Use a separate approach: query through the session and restore
-    plan = db_session.query(SubscriptionPlan).filter(
-        SubscriptionPlan.name == "esencial").first()
-    original_value = plan.max_ecf_monthly
-    plan.max_ecf_monthly = 0
+def test_ecf_blocks_exhausted_balance(db_session, plans, fresh_org):
+    """Depleting e_cf_balance blocks further emission."""
+    fresh_org.e_cf_balance = 5
     db_session.commit()
-    with pytest.raises(PlanLimitExceeded):
+    svc = PlanService(db_session)
+    svc.check_ecf_limit(fresh_org.id, 5)  # consume all
+    with pytest.raises(PlanLimitExceeded, match="insufficient_ecf_balance"):
         svc.check_ecf_limit(fresh_org.id)
-    # Restore to avoid contaminating other tests
-    plan.max_ecf_monthly = original_value
-    db_session.commit()
+
+
+def test_ecf_limit_zero_balance_blocks(db_session, plans, fresh_org):
+    """Zero e_cf_balance raises PlanLimitExceeded."""
+    with pytest.raises(PlanLimitExceeded, match="insufficient_ecf_balance"):
+        PlanService(db_session).check_ecf_limit(fresh_org.id)
 
 
 # ── Tests: Rate Limiting ───────────────────────────────────────────
@@ -324,11 +391,42 @@ def test_rate_limit_fallback_when_redis_down(db_session, plans, fresh_org):
 
 # ── Tests: Usage Recording ─────────────────────────────────────────
 
-def test_record_and_get_usage(db_session, plans, fresh_org):
+def test_record_and_get_usage(db_session, plans, fresh_org, test_tenant):
     svc = PlanService(db_session)
-    svc.record_ai_query(fresh_org.id, 5)
-    svc.record_ecf(fresh_org.id, 3)
-    svc.record_ocr_doc(fresh_org.id, 2)
+    now = utc_now()
+
+    for i in range(3):
+        db_session.add(Invoice(
+            tenant_id=test_tenant.id,
+            organization_id=fresh_org.id,
+            filename=f"ecf_{i}",
+            is_electronic=True,
+            created_at=now,
+            invoice_date=now,
+            total_amount=1000.0,
+        ))
+    for i in range(5):
+        db_session.add(Invoice(
+            tenant_id=test_tenant.id,
+            organization_id=fresh_org.id,
+            filename=f"ai_{i}",
+            openai_tokens_used=100,
+            created_at=now,
+            invoice_date=now,
+            total_amount=500.0,
+        ))
+    for i in range(2):
+        db_session.add(Invoice(
+            tenant_id=test_tenant.id,
+            organization_id=fresh_org.id,
+            filename=f"ocr_{i}",
+            source_type="image_ocr",
+            created_at=now,
+            invoice_date=now,
+            total_amount=200.0,
+        ))
+    db_session.commit()
+
     summary = svc.get_usage_summary(fresh_org.id)
     assert summary["usage"]["ai_queries"]["used"] == 5
     assert summary["usage"]["ecf"]["used"] == 3
@@ -336,11 +434,14 @@ def test_record_and_get_usage(db_session, plans, fresh_org):
 
 
 def test_recording_triggers_soft_limit_alerts(db_session, plans, fresh_org):
-    UsageTracker(db_session).increment_ecf(fresh_org.id, 40)
-    PlanService(db_session).record_ecf(fresh_org.id)
+    """Switch to Profesional first — Inicial has no e-CF quota to alert on."""
+    svc = PlanService(db_session)
+    svc.change_plan(fresh_org.id, "profesional")
+    UsageTracker(db_session).increment_ecf(fresh_org.id, 400)
+    svc.record_ecf(fresh_org.id)
     alerts = db_session.query(UsageAlert).filter(
         UsageAlert.organization_id == fresh_org.id).all()
-    assert any(a.alert_type == "80pct_ecf" for a in alerts)
+    assert any("ecf" in a.alert_type for a in alerts)
 
 
 # ── Tests: Storage Limit ───────────────────────────────────────────

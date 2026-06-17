@@ -67,6 +67,7 @@ export default function BillingDashboard() {
   const [loading, setLoading] = useState(true);
   const [transmittingId, setTransmittingId] = useState<string | null>(null);
   const [isEcfAuthorized, setIsEcfAuthorized] = useState<boolean>(true);
+  const [isBillingSubdomain, setIsBillingSubdomain] = useState(false);
 
   const fetchInvoices = async () => {
     try {
@@ -91,6 +92,9 @@ export default function BillingDashboard() {
   };
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      setIsBillingSubdomain(window.location.hostname.startsWith("factura."));
+    }
     fetchInvoices();
     fetchVerificationStatus();
   }, []);
@@ -136,13 +140,13 @@ export default function BillingDashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/billing/emit" passHref>
+          <Link href={isBillingSubdomain ? "/emit" : "/billing/emit"} passHref>
             <Button className="h-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-xs gap-1.5 px-3">
               <Zap className="size-3.5" />
               Nueva e-CF
             </Button>
           </Link>
-          <Link href="/billing/quick" passHref>
+          <Link href={isBillingSubdomain ? "/quick" : "/billing/quick"} passHref>
             <Button variant="outline" className="h-8 rounded-md border-border text-foreground hover:bg-muted text-xs gap-1.5 px-3">
               <PlusCircle className="size-3.5" />
               Rápida (clásico)
@@ -257,7 +261,7 @@ export default function BillingDashboard() {
               <p className="text-xs font-medium text-muted-foreground">
                 No hay facturas emitidas en esta organización.
               </p>
-              <Link href="/billing/quick" passHref className="mt-3">
+              <Link href={isBillingSubdomain ? "/quick" : "/billing/quick"} passHref className="mt-3">
                 <Button size="xs" variant="outline" className="h-7 text-[11px]">
                   Crear mi primera factura
                 </Button>
@@ -270,7 +274,7 @@ export default function BillingDashboard() {
                   <TableRow>
                     <TableHead className="text-xs">Número / NCF</TableHead>
                     <TableHead className="text-xs">Cliente</TableHead>
-                    <TableHead className="text-xs">Fecha</TableHead>
+                    <TableHead className="text-xs hidden sm:table-cell">Fecha</TableHead>
                     <TableHead className="text-xs text-right">Total</TableHead>
                     <TableHead className="text-xs">Estado Fiscal</TableHead>
                     <TableHead className="text-xs text-right pr-6">Acciones</TableHead>
@@ -287,7 +291,7 @@ export default function BillingDashboard() {
                       <TableCell className="text-xs py-3">
                         {invoice.client?.name || "Consumidor Final"}
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground py-3">
+                      <TableCell className="text-xs text-muted-foreground py-3 hidden sm:table-cell">
                         {invoice.invoice_date
                           ? new Date(invoice.invoice_date).toLocaleDateString("es-DO")
                           : "N/A"}

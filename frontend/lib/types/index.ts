@@ -25,6 +25,8 @@ export interface SessionPayload {
     website: string | null;
     country: string | null;
     fiscal_address: string | null;
+    is_deleted?: boolean;
+    deleted_at?: string | null;
   };
   role: string;
   company_name: string;

@@ -72,6 +72,11 @@ class TestNormalizer:
         result = normalizer.normalize(data, source_type="xml", confidence=1.0)
         assert result["invoice_number"] == "B010000001"
 
+    def test_normalize_date_dominican_preference(self):
+        data = {"invoice_date": "07/04/26", "total_amount": 100}
+        result = normalizer.normalize(data, source_type="image_ai", confidence=0.8)
+        assert result["invoice_date"] == "2026-04-07"
+
     def test_to_db_dict(self):
         normalized = {
             "vendor_name": "Test",

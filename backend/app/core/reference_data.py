@@ -1,7 +1,7 @@
 import hashlib
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session

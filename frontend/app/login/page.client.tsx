@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { getMe } from "@/lib/api/session"
 import { LoginForm } from "@/components/login-form"
 import { LogoLoader } from "@/components/logo-loader"
+import { PwaInstallPrompt } from "@/components/pwa-install-prompt"
 
 function LogoBars() {
   return (
@@ -20,15 +21,20 @@ export default function LoginPage() {
 
   useEffect(() => {
     getMe()
-      .then(() => { window.location.href = "/dashboard" })
+      .then(() => {
+        const isBillingSubdomain = typeof window !== "undefined" && window.location.hostname.startsWith("factura.");
+        window.location.href = isBillingSubdomain ? "/" : "/dashboard";
+      })
       .catch(() => setShowLoader(false))
   }, [])
 
   if (showLoader) return <LogoLoader />
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-zinc-950">
-      {/* ── Left: Form panel ── */}
+    <>
+      <PwaInstallPrompt />
+      <div className="flex h-dvh overflow-hidden bg-zinc-950">
+        {/* ── Left: Form panel ── */}
       <div className="relative flex w-full flex-col border-r border-white/[0.04] bg-zinc-900 lg:w-1/2">
         {/* Left glow accent */}
         <div className="pointer-events-none absolute -left-48 top-1/2 size-[400px] -translate-y-1/2 rounded-full bg-sky-500/5 blur-3xl" />
@@ -106,5 +112,6 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+    </>
   )
 }
