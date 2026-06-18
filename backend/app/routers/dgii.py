@@ -1,5 +1,5 @@
-"""
-Router dedicado a exportaciones y gestión DGII (606, 607, 608).
+# -*- coding: utf-8 -*-
+"""Router dedicado a exportaciones y gestión DGII (606, 607, 608).
 Expone endpoints con filtros ricos pensados para el flujo del contador:
 filtrar por rango de fechas, categorías, tipo de bienes/servicios, proveedor.
 """
@@ -7,6 +7,7 @@ import io
 import json
 import logging
 import re
+import httpx
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -1135,6 +1136,138 @@ async def dgii_export(
     except Exception as e:
         logger.exception("Error generating DGII export format=%s", body.format)
         raise HTTPException(status_code=500, detail=f"Error generando exportación: {e}") from e
+
+
+@router.get("/search-name")
+async def dgii_search_name(
+    name: str,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """
+    Busca contribuyentes en la DGII por nombre/razón social.
+
+    Utiliza el sitio web de la DGII (ASP.NET WebForms). La búsqueda por
+    nombre requiere JavaScript (Bootstrap tabs + __doPostBack) que no se
+    puede replicar vía HTTP server-side, por lo que este endpoint intenta
+    el mejor esfuerzo y puede devolver resultados limitados.
+    """
+    cleaned = name.strip()[:50]
+    if len(cleaned) < 3:
+        return {"results": []}
+
+    RNC_URL = "https://dgii.gov.do/app/WebApps/ConsultasWeb2/ConsultasWeb/consultas/rnc.aspx"
+    UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+            # Step 1: GET initial form + session cookie
+            resp = await client.get(RNC_URL, headers={"User-Agent": UA})
+            html = resp.text
+
+            viewstate = _extract_viewstate(html, "__VIEWSTATE")
+            viewstate_gen = _extract_viewstate(html, "__VIEWSTATEGENERATOR")
+            event_validation = _extract_viewstate(html, "__EVENTVALIDATION")
+
+            if not viewstate:
+                return {"results": [], "error": "No se pudo acceder al formulario DGII"}
+
+            # Step 2: Submit name search via full POST + __EVENTTARGET
+            fields = {
+                "__VIEWSTATE": viewstate,
+                "__VIEWSTATEGENERATOR": viewstate_gen or "",
+                "__EVENTVALIDATION": event_validation or "",
+                "__EVENTTARGET": "ctl00$cphMain$btnBuscarPorRazonSocial",
+                "__EVENTARGUMENT": "",
+                "ctl00$cphMain$hidActiveTab": "razonsocial",
+                "ctl00$cphMain$txtRazonSocial": cleaned,
+                "ctl00$cphMain$txtRNCCedula": "",
+            }
+
+            resp2 = await client.post(
+                RNC_URL,
+                data=fields,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "User-Agent": UA,
+                    "Referer": RNC_URL,
+                },
+            )
+
+            text = resp2.text
+
+            # Parse results from the dvDatosContribuyentes table
+            results = _parse_dgii_name_results(text)
+
+            # Fallback: check lblInformacion for error messages
+            msg = _extract_dgii_message(text)
+
+            return {
+                "results": results,
+                "note": msg if msg else None,
+            }
+    except httpx.TimeoutException:
+        return {"results": [], "error": "La DGII no respondió a tiempo"}
+    except httpx.HTTPError as e:
+        return {"results": [], "error": f"Error HTTP al consultar DGII: {e}"}
+    except Exception as e:
+        logger.exception("Error in DGII name search")
+        return {"results": [], "error": f"Error inesperado: {e}"}
+
+
+def _extract_viewstate(html: str, field: str) -> str:
+    m = re.search(r'id="' + re.escape(field) + r'" value="([^"]+)"', html)
+    return m.group(1) if m else ""
+
+
+def _extract_dgii_message(html: str) -> str | None:
+    m = re.search(r'id="cphMain_lblInformacion"[^>]*>([^<]*)<', html)
+    return m.group(1).strip() if m and m.group(1).strip() else None
+
+
+def _parse_dgii_name_results(html: str) -> list[dict]:
+    """Parse the dvDatosContribuyentes table for name search results."""
+    results = []
+
+    # Find the dataview table
+    dc = re.search(
+        r'id="cphMain_dvDatosContribuyentes"[^>]*>(.*?)</table>',
+        html, re.DOTALL,
+    )
+    if not dc:
+        return results
+
+    table_content = dc.group(1)
+    rows = re.findall(r"<tr[ >](.*?)</tr>", table_content, re.DOTALL)
+    if not rows:
+        return results
+
+    for row in rows:
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL)
+        if len(cells) < 2:
+            continue
+
+        clean = [
+            re.sub(r"<[^>]*>", "", c).strip().replace("\u00a0", " ").replace("\r\n", " ").replace("\n", " ")
+            for c in cells
+        ]
+
+        # DGII columns: RNC, name, tradeName, category, regime, status, isElectronic, licenses
+        rnc = clean[0] if len(clean) > 0 else ""
+        name = clean[1] if len(clean) > 1 else ""
+        trade_name = clean[2].strip() if len(clean) > 2 and clean[2].strip() else None
+        status = clean[5] if len(clean) > 5 else "INACTIVO"
+        is_electronic = len(clean) > 6 and clean[6].upper() == "SI"
+
+        if rnc and name:
+            results.append({
+                "rnc": rnc,
+                "name": name,
+                "tradeName": trade_name,
+                "status": status,
+                "isElectronicBillingRegistered": is_electronic,
+            })
+
+    return results
 
 
 @router.get("/summary")
