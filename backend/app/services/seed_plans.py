@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.database import SessionLocal
 from app.models import SubscriptionPlan
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -194,9 +195,15 @@ PLANS = [
 ]
 
 
-def seed_plans():
-    """Insert plans if they don't already exist."""
-    db = SessionLocal()
+def seed_plans(db: Session = None):
+    """Insert plans if they don't already exist.
+
+    Args:
+        db: Optional SQLAlchemy session. If not provided, creates its own.
+    """
+    own_session = db is None
+    if own_session:
+        db = SessionLocal()
     try:
         existing = {p.name for p in db.query(SubscriptionPlan).all()}
         created = 0
@@ -221,7 +228,8 @@ def seed_plans():
             )
 
     finally:
-        db.close()
+        if own_session:
+            db.close()
 
 
 if __name__ == "__main__":

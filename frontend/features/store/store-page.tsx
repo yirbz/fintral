@@ -38,6 +38,7 @@ import {
   CalendarDays,
   Users,
   Target,
+  ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/hooks/use-session";
@@ -93,7 +94,9 @@ function PlanCard({
       </p>
 
       <div className="mt-4">
-        {commitMonths > 1 ? (
+        {plan.is_enterprise ? (
+          <span className="text-lg font-light text-muted-foreground">Contáctanos</span>
+        ) : commitMonths > 1 ? (
           <>
             <span className="text-3xl font-light tabular-nums text-foreground">
               RD$ {new Intl.NumberFormat("es-DO").format(Math.round(discountedPrice(plan.price_monthly, commitMonths)))}
@@ -123,28 +126,44 @@ function PlanCard({
       </div>
 
       <div className="mt-3 text-[10px] text-muted-foreground/60">
-        {plan.limits?.max_ecf_monthly || 0} ECF/mes · {plan.limits?.max_users || 0} usuarios
+        {plan.is_enterprise ? "Personalizado" : `${plan.limits?.max_ecf_monthly || 0} ECF/mes · ${plan.limits?.max_users || 0} usuarios`}
       </div>
 
-      <Button
-        size="sm"
-        className={cn("w-full mt-4 text-xs h-8 gap-1.5", inCart && "bg-green-600 hover:bg-green-700")}
-        variant={isCurrent ? "outline" : "default"}
-        disabled={isCurrent}
-        onClick={onAddToCart}
-      >
-        {inCart ? (
-          <>
-            <Check className="size-3" />
-            En carrito
-          </>
-        ) : (
-          <>
-            <ShoppingCart className="size-3" />
-            {isCurrent ? "Plan actual" : "Agregar al carrito"}
-          </>
-        )}
-      </Button>
+      {plan.is_enterprise ? (
+        <Link
+          href="mailto:yirber@fintral.app?subject=Quiero%20información%20del%20plan%20Enterprise"
+          className="block mt-4"
+        >
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full text-xs h-8 gap-1.5"
+          >
+            <ExternalLink className="size-3" />
+            Contactar
+          </Button>
+        </Link>
+      ) : (
+        <Button
+          size="sm"
+          className={cn("w-full mt-4 text-xs h-8 gap-1.5", inCart && "bg-green-600 hover:bg-green-700")}
+          variant={isCurrent ? "outline" : "default"}
+          disabled={isCurrent}
+          onClick={onAddToCart}
+        >
+          {inCart ? (
+            <>
+              <Check className="size-3" />
+              En carrito
+            </>
+          ) : (
+            <>
+              <ShoppingCart className="size-3" />
+              {isCurrent ? "Plan actual" : "Agregar al carrito"}
+            </>
+          )}
+        </Button>
+      )}
     </div>
   );
 }
