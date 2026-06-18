@@ -12,6 +12,7 @@ from app.services.auth_service import create_admin_user
 from app.services.dgii_health import start_dgii_health_task
 from app.services.websocket import start_heartbeat_task
 from app.services.daily_metrics import start_daily_metrics_task
+from app.services.seed_plans import seed_plans
 
 logger = setup_logging()
 
@@ -224,6 +225,13 @@ async def run_startup(db: Session) -> None:
         ensure_default_admin(db)
     except Exception as exc:
         logger.error("Admin user creation failed: %s", exc)
+
+    logger.info("")
+    logger.info("--- Phase 4/4: Subscription Plans ---")
+    try:
+        seed_plans(db)
+    except Exception as exc:
+        logger.error("Plan seeding failed: %s", exc)
 
     logger.info("")
     logger.info("--- Phase 5/5: Services ---")
