@@ -242,7 +242,6 @@ class InvoiceRepository:
             Invoice.tenant_id == tenant_id,
             Invoice.organization_id == org_id,
             Invoice.is_deleted.is_(True),
-            Invoice.status != "permanently_deleted",
         )
         total = query.count()
         invoices = query.order_by(desc(Invoice.deleted_at)).offset(skip).limit(limit).all()
@@ -275,7 +274,6 @@ class InvoiceRepository:
             Invoice.organization_id == org_id,
             Invoice.is_deleted.is_(False),
             Invoice.cancelled_at.is_(None),
-            Invoice.is_electronic.is_(False),
             Invoice.status != "draft",
         )
 

@@ -22,8 +22,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { billingApi, type Client } from "@/lib/api/billing";
-import { dgiiService } from "@/lib/services/dgii";
-import { consultRncAction } from "@/app/actions/dgii";
+import { dgiiService, type NameSearchResult } from "@/lib/services/dgii";
+import { consultCedulaAction, consultRncAction } from "@/app/actions/dgii";
 import { toast } from "sonner";
 
 interface CustomerSearchProps {
@@ -78,6 +78,10 @@ export function CustomerSearch({ value, onChange, disabled }: CustomerSearchProp
   const createNameRef = useRef(createName);
   const autoFilledRnc = useRef("");
 
+  const [searchQuery, setSearchQuery] = useState("");
+  const [dgiiSearchResults, setDgiiSearchResults] = useState<NameSearchResult[]>([]);
+  const [dgiiSearchLoading, setDgiiSearchLoading] = useState(false);
+
   useEffect(() => {
     createNameRef.current = createName;
   }, [createName]);
@@ -104,7 +108,15 @@ export function CustomerSearch({ value, onChange, disabled }: CustomerSearchProp
     setDgiiNotFound(false);
     const timer = setTimeout(async () => {
       try {
-        const data = await consultRncAction(cleanCreateRnc);
+        let data: { name: string } | null = null;
+        if (cleanCreateRnc.length === 9) {
+          data = await consultRncAction(cleanCreateRnc);
+        } else {
+          const citizen = await consultCedulaAction(cleanCreateRnc);
+          if (citizen?.found && citizen.name) {
+            data = { name: citizen.name };
+          }
+        }
         if (!active) return;
         if (data?.name) {
           setDgiiResult(data);
@@ -128,6 +140,28 @@ export function CustomerSearch({ value, onChange, disabled }: CustomerSearchProp
       clearTimeout(timer);
     };
   }, [cleanCreateRnc, existingMatch]);
+
+  // DGII name search when typing in the search bar
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 3) {
+      setDgiiSearchResults([]);
+      setDgiiSearchLoading(false);
+      return;
+    }
+    let active = true;
+    setDgiiSearchLoading(true);
+    const timer = setTimeout(async () => {
+      const results = await dgiiService.searchByName(q);
+      if (!active) return;
+      setDgiiSearchResults(results);
+      setDgiiSearchLoading(false);
+    }, 400);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [searchQuery]);
 
   const createMutation = useMutation({
     mutationFn: (data: { name: string; tax_id: string; phone?: string; email?: string; address?: string }) =>
@@ -154,6 +188,18 @@ export function CustomerSearch({ value, onChange, disabled }: CustomerSearchProp
       toast.error(err.message || "Error al registrar cliente");
     },
   });
+
+  const handleSelectDgiiResult = (result: NameSearchResult) => {
+    const existing = clients.find((c) => c.tax_id === result.rnc.replace(/[^0-9]/g, ""));
+    if (existing) {
+      handleSelect(existing);
+      return;
+    }
+    createMutation.mutate({
+      name: result.name,
+      tax_id: result.rnc.replace(/[^0-9]/g, ""),
+    });
+  };
 
   const handleSelect = (client: Client) => {
     onChange({
@@ -230,11 +276,19 @@ export function CustomerSearch({ value, onChange, disabled }: CustomerSearchProp
         </PopoverTrigger>
         <PopoverContent className="w-[320px] p-0" align="start">
           <Command id="customer-search-listbox">
-            <CommandInput placeholder="Buscar cliente por nombre o RNC..." />
+            <CommandInput
+              placeholder="Buscar cliente por nombre o RNC..."
+              value={searchQuery}
+              onValueChange={setSearchQuery}
+            />
             <CommandList>
               <CommandEmpty>
                 <div className="py-4 text-center space-y-2">
-                  <p className="text-sm text-muted-foreground">No se encontraron clientes</p>
+                  <p className="text-sm text-muted-foreground">
+                    {searchQuery.trim().length >= 3 && dgiiSearchLoading
+                      ? "Buscando en DGII..."
+                      : "No se encontraron clientes"}
+                  </p>
                   <Button
                     variant="outline"
                     size="sm"
@@ -248,13 +302,9 @@ export function CustomerSearch({ value, onChange, disabled }: CustomerSearchProp
                   </Button>
                 </div>
               </CommandEmpty>
-              <CommandGroup heading="Clientes existentes">
-                {isLoading ? (
-                  <div className="flex items-center justify-center py-4">
-                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                  </div>
-                ) : (
-                  clients.map((client) => (
+              {clients.length > 0 && (
+                <CommandGroup heading="Clientes existentes">
+                  {clients.map((client) => (
                     <CommandItem
                       key={client.id}
                       value={`${client.name} ${client.tax_id ?? ""} ${client.email ?? ""}`}
@@ -273,9 +323,32 @@ export function CustomerSearch({ value, onChange, disabled }: CustomerSearchProp
                         )}
                       </div>
                     </CommandItem>
-                  ))
-                )}
-              </CommandGroup>
+                  ))}
+                </CommandGroup>
+              )}
+              {dgiiSearchLoading && (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  <span className="ml-2 text-xs text-muted-foreground">Buscando en DGII...</span>
+                </div>
+              )}
+              {dgiiSearchResults.length > 0 && (
+                <CommandGroup heading="Padrón DGII">
+                  {dgiiSearchResults.map((result) => (
+                    <CommandItem
+                      key={result.rnc}
+                      value={`${result.name} ${result.rnc}`}
+                      onSelect={() => handleSelectDgiiResult(result)}
+                    >
+                      <Search className="mr-2 size-3.5 text-muted-foreground" />
+                      <div className="flex flex-col">
+                        <span className="text-sm">{result.name}</span>
+                        <span className="text-xs text-muted-foreground">{result.rnc}</span>
+                      </div>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              )}
               <CommandGroup>
                 <CommandItem
                   value="__create__"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -93,15 +93,15 @@ export function DateInput({
   placeholder?: string;
 }) {
   const pickerRef = useRef<HTMLInputElement>(null);
-  const [pattern, setPattern] = useState("DD/MM/YYYY");
-  const [displayValue, setDisplayValue] = useState("");
+  const pattern = getUserDateFormat();
+  const prevValue = useRef(value);
+  const [displayValue, setDisplayValue] = useState(() => toDisplay(value ?? "", pattern));
   const [error, setError] = useState(false);
 
-  useEffect(() => {
-    const fmt = getUserDateFormat();
-    setPattern(fmt);
-    setDisplayValue(toDisplay(value ?? "", fmt));
-  }, [value]);
+  if (value !== prevValue.current) {
+    prevValue.current = value;
+    setDisplayValue(toDisplay(value ?? "", pattern));
+  }
 
   const handleManualChange = (text: string) => {
     setDisplayValue(text);

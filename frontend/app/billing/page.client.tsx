@@ -12,6 +12,44 @@ import { InvoiceList } from "@/features/billing/billing-invoice-list";
 import { EcfBanner } from "@/features/billing/ecf-banner";
 import { CorrectionSection } from "@/features/billing/correction-section";
 
+function formatCurrency(amount: number) {
+  return new Intl.NumberFormat("es-DO", {
+    style: "currency",
+    currency: "DOP",
+  }).format(amount);
+}
+
+function getStatusBadge(status: string) {
+  switch (status) {
+    case "verified":
+      return (
+        <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 flex items-center gap-1 w-fit text-[11px] h-5 px-2">
+          <CheckCircle2 className="size-3" /> Aprobado DGII
+        </Badge>
+      );
+    case "draft":
+      return (
+        <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 flex items-center gap-1 w-fit text-[11px] h-5 px-2">
+          <Clock className="size-3" /> Borrador
+        </Badge>
+      );
+    case "pending":
+      return (
+        <Badge className="bg-sky-500/10 text-sky-500 border-sky-500/20 flex items-center gap-1 w-fit text-[11px] h-5 px-2">
+          <Loader2 className="size-3 animate-spin" /> Procesando
+        </Badge>
+      );
+    case "rejected":
+      return (
+        <Badge className="bg-rose-500/10 text-rose-500 border-rose-500/20 flex items-center gap-1 w-fit text-[11px] h-5 px-2">
+          <AlertCircle className="size-3" /> Rechazado
+        </Badge>
+      );
+    default:
+      return <Badge variant="secondary">{status}</Badge>;
+  }
+}
+
 export default function BillingDashboard() {
   const [invoices, setInvoices] = useState<BillingInvoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,6 +58,7 @@ export default function BillingDashboard() {
   const [certificationStatus, setCertificationStatus] = useState("none");
   const [isCertificationCompleted, setIsCertificationCompleted] =
     useState(false);
+  const [isBillingSubdomain, setIsBillingSubdomain] = useState(false);
 
   const fetchInvoices = async () => {
     try {
@@ -50,6 +89,9 @@ export default function BillingDashboard() {
   };
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      setIsBillingSubdomain(window.location.hostname.startsWith("factura."));
+    }
     fetchInvoices();
     fetchVerificationStatus();
   }, []);
@@ -111,21 +153,21 @@ export default function BillingDashboard() {
         </div>
         <div className="flex items-center gap-2">
           {isEcfAuthorized ? (
-            <Link href="/billing/emit" passHref>
+            <Link href={isBillingSubdomain ? "/emit" : "/billing/emit"} passHref>
               <Button className="h-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-xs gap-1.5 px-3">
                 <Zap className="size-3.5" />
                 Nueva e-CF
               </Button>
             </Link>
           ) : (
-            <Link href="/billing/quick" passHref>
+            <Link href={isBillingSubdomain ? "/quick" : "/billing/quick"} passHref>
               <Button className="h-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-xs gap-1.5 px-3">
                 <PlusCircle className="size-3.5" />
                 Nueva factura
               </Button>
             </Link>
           )}
-          <Link href="/billing/quick" passHref>
+          <Link href={isBillingSubdomain ? "/quick" : "/billing/quick"} passHref>
             <Button
               variant="outline"
               className="h-8 rounded-md border-border text-foreground hover:bg-muted text-xs gap-1.5 px-3"

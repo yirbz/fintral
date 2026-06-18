@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
+from app.services.dgii_validation import dgii_validation_service
 from app.services.pipeline.base import ProcessingResult
 from app.services.pipeline.categorizer import categorizer
 from app.services.pipeline.classifier import classifier
@@ -68,6 +69,8 @@ class PipelineOrchestrator:
             )
 
             if result.success:
+                if result.warnings:
+                    result.data.setdefault("audit_warnings", []).extend(result.warnings)
                 normalized = self.normalizer.normalize(
                     result.data,
                     source_type=source_type,
@@ -140,26 +143,36 @@ class PipelineOrchestrator:
                 )
 
     def _resolve_direction(self, data: Dict[str, Any], org_rnc: Optional[str]) -> None:
-        """Resolve transaction_type for e-CF invoices by comparing RNCs.
+        """Resolve transaction_type for invoices by comparing RNCs.
 
-        The e-CF parser stays agnostic about direction. This method
-        determines it here — after extraction, before validation — by
+        Determines the direction after extraction, before validation, by
         comparing the issuer/ buyer RNC against the organization's RNC.
 
         Special cases:
-        - Types 41 (Compras) and 43 (Gastos Menores) are always expense,
-          even though the tenant is the issuer.
+        - Types 41 (Compras), 43 (Gastos Menores), 11 (Compras a Proveedores Informales),
+          and 17 (Pagos al Exterior) are always expense, even if the tenant is the issuer.
         """
-        ecf_type = data.get("ecf_type")
-        if not ecf_type or not org_rnc:
+        if not org_rnc:
             return
 
         clean_org = re.sub(r"[^0-9]", "", org_rnc)
         if not clean_org:
             return
 
-        # Types 41 and 43 are always expense (tenant-issued purchases)
-        if ecf_type in ("41", "43"):
+        ecf_type = data.get("ecf_type")
+        if not ecf_type:
+            ncf = data.get("invoice_number")
+            if ncf:
+                ncf_clean = ncf.strip().upper()
+                if len(ncf_clean) == 13 and ncf_clean[0] == 'E' and ncf_clean[1:3].isdigit():
+                    ecf_type = ncf_clean[1:3]
+                    data["ecf_type"] = ecf_type
+                elif len(ncf_clean) == 11 and ncf_clean[0] == 'B' and ncf_clean[1:3].isdigit():
+                    ecf_type = ncf_clean[1:3]
+                    data["ecf_type"] = ecf_type
+
+        # Types 41/43/11/17 are always expense (tenant-issued purchases/withholdings)
+        if ecf_type in ("41", "43", "11", "17"):
             data["transaction_type"] = "expense"
             return
 
@@ -202,12 +215,62 @@ class PipelineOrchestrator:
         elif strategy == "xlsx_processor":
             return xlsx_processor.process(file_path)
         elif strategy in ("image_preprocessor", "pdf_image"):
+            qr_result = self._process_image_with_qr(file_path)
+            if qr_result.success and qr_result.confidence >= CONFIDENCE_THRESHOLD:
+                return qr_result
             return self._process_image_with_ocr(file_path)
         else:
             return ProcessingResult(
                 success=False,
                 error=f"Formato de archivo no soportado ({strategy}). Usa JPG, PNG, PDF, XML o XLSX.",
                 source_type=source_type,
+                confidence=0.0,
+            )
+
+    def _process_image_with_qr(self, file_path: str) -> ProcessingResult:
+        """Try QR-based extraction first — free, fast, and high-confidence."""
+        try:
+            qr_codes = image_preprocessor.detect_qr_codes(file_path)
+            if not qr_codes:
+                return ProcessingResult(
+                    success=False,
+                    source_type="image_qr",
+                    confidence=0.0,
+                )
+
+            for qr in qr_codes:
+                if qr.get("is_dgii_ecf") and qr.get("parsed"):
+                    data = dgii_validation_service.extract_invoice_data_from_qr(qr["text"])
+                    if data:
+                        data["line_items"] = []
+                        data["currency"] = "DOP"
+                        data["vendor_country"] = "DOM"
+                        data["country_detection_method"] = "dgii_qr"
+                        data["country_confidence"] = 1.0
+                        data["qr_raw_url"] = qr["text"]
+                        logger.info(
+                            "QR-based extraction successful for %s: NCF=%s, RNC=%s",
+                            file_path, data.get("invoice_number"), data.get("vendor_tax_id"),
+                        )
+                        return ProcessingResult(
+                            success=True,
+                            data=data,
+                            source_type="image_qr",
+                            confidence=1.0,
+                            warnings=[],
+                        )
+
+            return ProcessingResult(
+                success=False,
+                source_type="image_qr",
+                confidence=0.0,
+            )
+
+        except Exception as e:
+            logger.debug("QR extraction failed for %s: %s", file_path, e)
+            return ProcessingResult(
+                success=False,
+                source_type="image_qr",
                 confidence=0.0,
             )
 

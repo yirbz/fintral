@@ -9,6 +9,7 @@ from .dgii_submission import DgiiSubmission
 from .invoice_dgii_status import InvoiceDgiiStatus
 from .invoice import Invoice
 # from .credit_note import CreditNote  # DEPRECATED — unified into Invoice model
+from .mio_payment import MioPayment
 from .notification import Notification
 from .pending_upload import PendingUpload
 from .organization import Organization
@@ -32,6 +33,10 @@ from .subscription_plan import SubscriptionPlan
 from .organization_subscription import OrganizationSubscription
 from .usage_record import UsageRecord, UsageAlert
 from .upload_link import UploadLink
+from .alanube_telemetry import AlanubeTelemetry
+from .metrics_snapshot import MetricsSnapshot
+from .payment_proof import PaymentProof
+from .monthly_charge import MonthlyCharge
 
 __all__ = [
     "AccountMapping",
@@ -46,6 +51,7 @@ __all__ = [
     "Invoice",
     "IntegrationConnection",
     "Invitation",
+    "MioPayment",
     "Notification",
     "Organization",
     "PendingUpload",
@@ -63,4 +69,8 @@ __all__ = [
     "UsageRecord",
     "UsageAlert",
     "UploadLink",
+    "AlanubeTelemetry",
+    "MetricsSnapshot",
+    "PaymentProof",
+    "MonthlyCharge",
 ]

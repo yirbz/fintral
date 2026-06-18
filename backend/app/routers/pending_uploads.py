@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from app.config import SUPABASE_URL, PUBLIC_APP_URL, SUPABASE_STORAGE_BUCKET
+from app.config import SUPABASE_URL, PUBLIC_APP_URL
 from app.database import get_db
 from app.core.container import openai_processor, webhook_sender
 from app.dependencies.tenant import TenantContext, require_tenant
@@ -18,6 +18,7 @@ from app.repositories import InvoiceRepository
 from app.services import InvoiceProcessingService
 from app.services.pipeline.image_preprocessor import image_preprocessor
 from app.services.supabase_storage import upload_invoice_file
+from app.services.usage_tracker import UsageTracker
 from app.services.websocket import websocket_manager
 from app.services.audit_logger import record
 from app.routers.invoices import ALLOWED_EXTENSIONS, get_file_type
@@ -95,6 +96,12 @@ async def create_pending_upload(
             except Exception as exc:
                 logger.warning("Could not preprocess image at upload: %s", exc)
 
+    # Track storage usage
+    try:
+        UsageTracker(ctx.db).increment_storage(ctx.org_id, len(file_data))
+    except Exception:
+        logger.exception("Failed to track storage usage")
+
     ctx.db.commit()
     ctx.db.refresh(pending)
 
@@ -155,6 +162,7 @@ async def process_pending_upload(
             filename=pending.filename,
             file_path=pending.file_path,
             file_type=pending.file_type,
+            file_size=pending.file_size,
             processed=False,
         )
         invoice_repo.create(ctx.db, invoice)
@@ -229,6 +237,7 @@ async def bulk_process_pending(
                 filename=pending.filename,
                 file_path=pending.file_path,
                 file_type=pending.file_type,
+                file_size=pending.file_size,
                 processed=False,
             )
             invoice_repo.create(ctx.db, invoice)
@@ -556,13 +565,14 @@ async def process_public_pending_uploads(
                 filename=pending.filename,
                 file_path=pending.file_path,
                 file_type=pending.file_type,
+                file_size=pending.file_size,
                 processed=False,
                 upload_link_id=link.id,
             )
             invoice_repo.create(db, invoice)
             db.flush()
 
-            result = await processing_service.process_invoice_record(
+            await processing_service.process_invoice_record(
                 db, invoice, link.tenant_id, link.organization_id,
             )
 

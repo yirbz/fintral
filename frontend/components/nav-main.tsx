@@ -1,26 +1,26 @@
-"use client"
+"use client";
 
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ui/button";
 import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "@/components/ui/sidebar"
-import { PlusIcon, UploadIcon } from "lucide-react"
+} from "@/components/ui/sidebar";
+import { PlusIcon, Bell } from "lucide-react";
 
-import Link from "next/link"
+import Link from "next/link";
 
 export function NavMain({
   items,
 }: {
   items: {
-    title: string
-    url: string
-    icon?: React.ReactNode
-    badge?: string | number
-  }[]
+    title: string;
+    url: string;
+    icon?: React.ReactNode;
+    badge?: string | number;
+  }[];
 }) {
   return (
     <SidebarGroup>
@@ -43,8 +43,8 @@ export function NavMain({
               className="size-8 group-data-[collapsible=icon]:opacity-0"
               variant="outline"
             >
-              <Link href="/dashboard/upload">
-                <UploadIcon />
+              <Link href="/dashboard/notifications">
+                <Bell />
                 <span className="sr-only">Subir</span>
               </Link>
             </Button>
@@ -69,5 +69,5 @@ export function NavMain({
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
-  )
+  );
 }

@@ -1,5 +1,4 @@
 import re
-import os
 import unicodedata
 
 def normalize_filename(filename: str, max_length: int = 50) -> str:

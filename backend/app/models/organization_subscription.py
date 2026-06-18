@@ -34,7 +34,10 @@ class OrganizationSubscription(Base):
     addon_ecf_blocks = Column(Integer, default=0)        # extra 100-doc blocks
     addon_ai_blocks = Column(Integer, default=0)         # extra 500-query blocks
     addon_storage_blocks = Column(Integer, default=0)    # extra 10GB blocks
-    addon_extra_entities = Column(Integer, default=0)    # additional entities beyond plan
+    addon_extra_entities = Column(Integer, default=0)    # DEPRECATED — always 0
+    addon_billing_entities = Column(Integer, default=0)  # DEPRECATED — always 0
+    addon_entity_slots = Column(Integer, default=0)      # extra entity slots beyond plan limit
+    addon_user_slots = Column(Integer, default=0)        # extra user slots beyond plan limit
     auto_renew_addons = Column(Boolean, default=False)   # auto-purchase on soft limit
 
     # ── Override (for Enterprise custom plans) ───────────────────────
@@ -64,7 +67,10 @@ class OrganizationSubscription(Base):
                 "ecf_blocks": self.addon_ecf_blocks,
                 "ai_blocks": self.addon_ai_blocks,
                 "storage_blocks": self.addon_storage_blocks,
-                "extra_entities": self.addon_extra_entities,
+                "extra_entities": 0,  # DEPRECATED
+                "billing_entities": 0,  # DEPRECATED
+                "entity_slots": self.addon_entity_slots,
+                "user_slots": self.addon_user_slots,
             },
             "auto_renew_addons": self.auto_renew_addons,
             "limits": limits,
@@ -78,8 +84,8 @@ class OrganizationSubscription(Base):
 
         plan = self.plan
         base = {
-            "max_users": plan.max_users,
-            "max_entities": plan.max_entities + self.addon_extra_entities,
+            "max_users": plan.max_users + self.addon_user_slots,
+            "max_entities": plan.max_entities + self.addon_entity_slots,
             "max_ecf_monthly": plan.max_ecf_monthly
                 + (self.addon_ecf_blocks * plan.addon_ecf_block_size),
             "max_ai_queries_monthly": plan.max_ai_queries_monthly

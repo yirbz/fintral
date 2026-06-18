@@ -47,24 +47,24 @@ const ECONOMIC_ACTIVITIES = [
   { value: "Otra", label: "Otra Actividad Económica" }
 ];
 
+function getStartingStep(statusStr: string) {
+  switch (statusStr) {
+    case "company_registered":
+      return 2;
+    case "certificate_uploaded":
+      return 3;
+    case "set_test_running":
+      return 3;
+    case "set_test_approved":
+    case "certified":
+      return 4;
+    default:
+      return 1;
+  }
+}
+
 export function CertificationWizard({ initialStatus, onComplete }: CertificationWizardProps) {
   // Determine starting step based on certification_status
-  const getStartingStep = (statusStr: string) => {
-    switch (statusStr) {
-      case "company_registered":
-        return 2;
-      case "certificate_uploaded":
-        return 3;
-      case "set_test_running":
-        return 3;
-      case "set_test_approved":
-      case "certified":
-        return 4;
-      default:
-        return 1;
-    }
-  };
-
   const [step, setStep] = useState<number>(() => getStartingStep(initialStatus.certification_status));
   const [loading, setLoading] = useState<boolean>(false);
 
@@ -538,7 +538,10 @@ export function CertificationWizard({ initialStatus, onComplete }: Certification
               onDragLeave={handleDrag}
               onDragOver={handleDrag}
               onDrop={handleDrop}
+              role="button"
+              tabIndex={0}
               onClick={() => fileInputRef.current?.click()}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
               className={`border border-dashed rounded-lg p-8 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all ${
                 dragActive 
                   ? "border-primary bg-primary/5" 

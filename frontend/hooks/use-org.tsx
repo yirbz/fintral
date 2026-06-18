@@ -79,40 +79,31 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
   }, [session, sessionLoading, activeOrgId]);
 
   // Fetch user's org list (always refetch when session changes)
-  const orgsQuery = useQuery({
+  const {data: orgsQuery_data, isLoading: orgsQuery_isLoading} = useQuery({
     queryKey: ["user-organizations"],
     queryFn: listUserOrganizations,
     enabled: !!session,
     staleTime: 30_000,
   });
 
-  const userOrgs = orgsQuery.data ?? [];
+  const userOrgs = orgsQuery_data ?? [];
 
   const switchOrg = useCallback(
     async (orgId: string) => {
       if (orgId === activeOrgId) return;
       try {
         const newSession = await switchOrganization(orgId);
-        // Update stored org
-        setActiveOrgId(orgId);
         saveStoredOrg(orgId);
-        // Update session cache so the whole app re-renders with new org data
-        queryClient.setQueryData(["session"], newSession);
-        // Invalidate org-specific queries
-        queryClient.invalidateQueries({
-          queryKey: ["user-organizations"],
-        });
-        queryClient.invalidateQueries({ queryKey: ["organization-settings"] });
-        queryClient.invalidateQueries({ queryKey: ["pending-uploads"] });
-        queryClient.invalidateQueries({ queryKey: ["pending-upload-count"] });
-        toast.success(`Cambiaste a ${newSession.organization.name}`);
+        // Full page reload so everything (sidebar, billing, invoices, etc.)
+        // picks up the new org's data without tracking every query key.
+        window.location.reload();
       } catch (err) {
         const msg =
           err instanceof Error ? err.message : "Error al cambiar de organización";
         toast.error(msg);
       }
     },
-    [activeOrgId, queryClient]
+    [activeOrgId]
   );
 
   const refreshOrgs = useCallback(() => {
@@ -124,7 +115,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
       value={{
         activeOrgId,
         userOrgs,
-        isLoading: orgsQuery.isLoading || sessionLoading,
+        isLoading: orgsQuery_isLoading || sessionLoading,
         switchOrg,
         refreshOrgs,
       }}

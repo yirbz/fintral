@@ -62,7 +62,9 @@ export function AiChatSidebar() {
     setLoading(true);
 
     try {
-      const result = await sendChatMessage(message);
+      // Send last 6 exchanges as context (no overload)
+      const history = messages.slice(-12);
+      const result = await sendChatMessage(message, history);
       setMessages((prev) => [
         ...prev,
         { role: "assistant", content: result.response },
@@ -121,8 +123,8 @@ export function AiChatSidebar() {
       {/* Sidebar panel */}
       <div
         className={cn(
-          "fixed right-0 top-0 z-50 flex h-full flex-col border-l bg-background shadow-lg transition-all duration-300",
-          open ? "w-[22rem]" : "w-0 overflow-hidden"
+          "fixed right-0 top-0 z-[60] flex h-full flex-col border-none sm:border-l bg-background shadow-lg transition-all duration-300",
+          open ? "w-full sm:w-[22rem]" : "w-0 overflow-hidden"
         )}
       >
         {/* Header */}
@@ -170,6 +172,7 @@ export function AiChatSidebar() {
                 {SUGGESTIONS.map((s, i) => (
                   <button
                     key={i}
+                    type="button"
                     onClick={() => handleSend(s)}
                     className="rounded-lg border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   >

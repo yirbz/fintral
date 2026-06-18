@@ -28,12 +28,9 @@ IS_DEVELOPMENT: bool = ENVIRONMENT == "DEVELOPMENT"
 # Server
 # ===========================================================================
 # TCP port the backend HTTP server binds to (uvicorn)
-BACKEND_PORT: int = int(os.getenv("BACKEND_PORT", os.getenv("PORT", "8000")))
-# Deprecated: use BACKEND_PORT instead
-_ = os.getenv("PORT")  # kept for backwards compat during migration
+BACKEND_PORT: int = int(os.getenv("PORT", os.getenv("BACKEND_PORT", "8000")))
 
-APP_JWT_SECRET_KEY: str = os.getenv("APP_JWT_SECRET_KEY", os.getenv("SECRET_KEY", ""))
-SECRET_KEY: str = APP_JWT_SECRET_KEY
+APP_JWT_SECRET_KEY: str = os.getenv("APP_JWT_SECRET_KEY", "")
 
 # ===========================================================================
 # Database (PostgreSQL only)
@@ -60,6 +57,12 @@ IS_POSTGRES: bool = DATABASE_URL.startswith("postgresql://")
 # DEVELOPMENT: http://host.docker.internal:54321  (local Supabase CLI)
 # PRODUCTION:  https://<project>.supabase.co
 SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+
+# Expected JWT issuer claim (defaults to SUPABASE_URL/auth/v1).
+# Override when the internal Docker URL differs from what gotrue uses
+# as the issuer in JWTs (e.g. gotrue uses 127.0.0.1:54321 internally).
+# Example: http://127.0.0.1:54321/auth/v1
+SUPABASE_JWT_ISSUER: str = os.getenv("SUPABASE_JWT_ISSUER", "")
 
 # service_role key for admin operations (user creation, storage admin).
 # NEVER expose this to the client. Use SUPABASE_ANON_KEY for public ops.
@@ -113,6 +116,14 @@ AI_ASSISTANT_MODEL: str = AI_SIDECAR_MODEL
 # Transactional emails: verification, password reset, notifications.
 RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
 EMAIL_FROM: str = os.getenv("EMAIL_FROM", "Fintral <onboarding@resend.dev>")
+BILLING_EMAIL_FROM: str = os.getenv("BILLING_EMAIL_FROM", "Fintral Facturación <billing@noreply.fintral.app>")
+
+# ===========================================================================
+# Bank transfer details (shown in checkout modal and invoice emails)
+# ===========================================================================
+BANK_NAME: str = os.getenv("BANK_NAME", "Banco Popular Dominicano")
+BANK_ACCOUNT_HOLDER: str = os.getenv("BANK_ACCOUNT_HOLDER", "Fintral SRL")
+BANK_ACCOUNT_NUMBER: str = os.getenv("BANK_ACCOUNT_NUMBER", "123-456789-01")
 
 # Public-facing URL of the frontend (used in OAuth redirect URIs and email links).
 # NOT the internal docker-compose service URL.
@@ -134,16 +145,6 @@ REMEMBER_ME_EXPIRE_DAYS: int = int(os.getenv("REMEMBER_ME_EXPIRE_DAYS", "30"))
 # Defaults to ./uploads and ./static relative to the app root.
 # In Docker: /app/uploads and /app/static (handled by volumes).
 FINTRAL_DATA_DIR: str = os.getenv("FINTRAL_DATA_DIR", os.path.join(os.getcwd(), "data"))
-
-# ===========================================================================
-# Feature flags
-# ===========================================================================
-# Set to "true" to disable the WebSocket heartbeat ping task.
-# Useful in dev when you don't need real-time connections.
-FINTRAL_DISABLE_WS_HEARTBEAT: bool = os.getenv("FINTRAL_DISABLE_WS_HEARTBEAT", "false").lower() == "true"
-# Deprecated alias — remove after Doppler migration
-if os.getenv("DISABLE_HEARTBEAT_TASK", "false").lower() == "true":
-    FINTRAL_DISABLE_WS_HEARTBEAT = True
 
 # ===========================================================================
 # Integrations: OAuth + Third-party APIs
@@ -169,3 +170,11 @@ XERO_REDIRECT_URI: str = os.getenv(
 # Alanube (DGII electronic invoicing — Dominican Republic)
 ALANUBE_API_URL: str = os.getenv("ALANUBE_API_URL", "https://sandbox-api.alanube.co/dom/v1")
 ALANUBE_JWT: str = os.getenv("ALANUBE_JWT", "")
+
+# ===========================================================================
+# Telegram Bot (admin notifications)
+# ===========================================================================
+# Bot token from @BotFather. The bot will send payment proof alerts here.
+TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+# Chat ID of the admin (or group) where alerts are sent.
+TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")

@@ -38,6 +38,36 @@ export function PendingInvoiceView({ result, onBack }: PendingInvoiceViewProps) 
   const isRejected = invoice?.status === "rejected";
   const isStillPending = !isVerified && !isRejected;
 
+  useEffect(() => {
+    if (isVerified && invoiceId) {
+      const existing = document.getElementById("print-iframe-pending");
+      if (existing) {
+        existing.remove();
+      }
+      const iframe = document.createElement("iframe");
+      iframe.id = "print-iframe-pending";
+      iframe.style.position = "absolute";
+      iframe.style.width = "0px";
+      iframe.style.height = "0px";
+      iframe.style.border = "none";
+      iframe.src = `/billing/invoices/${invoiceId}/print?auto=true`;
+      document.body.appendChild(iframe);
+
+      const handleMessage = (e: MessageEvent) => {
+        if (e.data && e.data.type === "printed") {
+          iframe.remove();
+          window.removeEventListener("message", handleMessage);
+        }
+      };
+      window.addEventListener("message", handleMessage);
+      return () => {
+        window.removeEventListener("message", handleMessage);
+        const frame = document.getElementById("print-iframe-pending");
+        if (frame) frame.remove();
+      };
+    }
+  }, [isVerified, invoiceId]);
+
   return (
     <div className="flex flex-col items-center justify-center py-12 gap-6 max-w-md mx-auto text-center">
       {isVerified ? (

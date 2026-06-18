@@ -188,6 +188,7 @@ class Normalizer:
             "subtotales": data.get("subtotales", []),
             "formas_pago": data.get("formas_pago", []),
             "original_xml_data": data.get("original_xml_data"),
+            "electronic_seal": data.get("electronic_seal"),
         }
 
         # Clean/infer payment_condition
@@ -323,7 +324,7 @@ class Normalizer:
             return None
         try:
             date_str = str(value).strip()
-            for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%Y/%m/%d"]:
+            for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y", "%m/%d/%Y", "%m/%d/%y", "%d-%m-%Y", "%d-%m-%y", "%Y/%m/%d"]:
                 try:
                     parsed = datetime.strptime(date_str, fmt)
                     return parsed.strftime("%Y-%m-%d")

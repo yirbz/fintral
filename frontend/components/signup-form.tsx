@@ -280,49 +280,55 @@ function StepCompany({
   onBack: () => void;
   loading: boolean;
 }) {
-  const [verifying, setVerifying] = useState(false);
-  const [verificationResult, setVerificationResult] = useState<{
+  const cleanRnc = dgiiService.cleanRNC(taxId);
+  const isValidRnc = cleanRnc.length === 9 || cleanRnc.length === 11;
+  const checksumValid = isValidRnc && dgiiService.isValidRNC(cleanRnc);
+
+  type RncFeedback = {
     success: boolean;
     name?: string;
     message?: string;
-  } | null>(null);
+  };
+
+  const formatError: RncFeedback | null = !isValidRnc
+    ? null
+    : !checksumValid
+      ? { success: false, message: "Formato/Dígito verificador inválido" }
+      : null;
+
+  const [verifying, setVerifying] = useState(false);
+  const [apiResult, setApiResult] = useState<RncFeedback | null>(null);
+
+  const verificationResult = formatError ?? apiResult;
 
   useEffect(() => {
-    const clean = dgiiService.cleanRNC(taxId);
-    if (clean.length === 9 || clean.length === 11) {
-      if (dgiiService.isValidRNC(clean)) {
-        let active = true;
-        const lookup = async () => {
-          setVerifying(true);
-          setVerificationResult(null);
-          try {
-            const data = await consultRncAction(clean);
-            if (!active) return;
-            if (data && data.name) {
-              setVerificationResult({ success: true, name: data.name });
-              // Autofill company name if empty
-              if (!companyName.trim()) {
-                setCompanyName(data.name);
-              }
-            } else {
-              setVerificationResult({ success: false, message: "No encontrado en padrón DGII" });
-            }
-          } catch (e) {
-            if (!active) return;
-            setVerificationResult({ success: false, message: "Error de conexión con DGII" });
-          } finally {
-            if (active) setVerifying(false);
+    if (!isValidRnc || !checksumValid) return;
+    let active = true;
+    const lookup = async () => {
+      setVerifying(true);
+      setApiResult(null);
+      try {
+        const data = await consultRncAction(cleanRnc);
+        if (!active) return;
+        if (data && data.name) {
+          setApiResult({ success: true, name: data.name });
+          // Autofill company name if empty
+          if (!companyName.trim()) {
+            setCompanyName(data.name);
           }
-        };
-        lookup();
-        return () => { active = false; };
-      } else {
-        setVerificationResult({ success: false, message: "Formato/Dígito verificador inválido" });
+        } else {
+          setApiResult({ success: false, message: "No encontrado en padrón DGII" });
+        }
+      } catch (e) {
+        if (!active) return;
+        setApiResult({ success: false, message: "Error de conexión con DGII" });
+      } finally {
+        if (active) setVerifying(false);
       }
-    } else {
-      setVerificationResult(null);
-    }
-  }, [taxId, setCompanyName]);
+    };
+    lookup();
+    return () => { active = false; };
+  }, [cleanRnc, isValidRnc, checksumValid, companyName, setCompanyName]);
 
   const valid = companyName.trim().length > 0;
   return (
@@ -530,7 +536,8 @@ export function SignUpForm({
     try {
       await verifyAndLogin(email, code);
       clearSignupState();
-      window.location.href = "/dashboard";
+      const isBillingSubdomain = typeof window !== "undefined" && window.location.hostname.startsWith("factura.");
+      window.location.href = isBillingSubdomain ? "/" : "/dashboard";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Código inválido");
     } finally {
@@ -617,9 +624,20 @@ export function SignUpForm({
 
       <p className="text-center text-xs leading-relaxed text-zinc-600">
         Al registrarte, aceptas nuestros{" "}
-        <a href="#" className="underline underline-offset-2 hover:text-zinc-400">términos y condiciones</a>{" "}
+        <Link
+          href="/docs/terms-conditions"
+          className="underline underline-offset-2 hover:text-zinc-400 text-xs inline"
+        >
+          términos y condiciones
+        </Link>{" "}
         y{" "}
-        <a href="#" className="underline underline-offset-2 hover:text-zinc-400">política de privacidad</a>.
+        <Link
+          href="/docs/privacy"
+          className="underline underline-offset-2 hover:text-zinc-400 text-xs inline"
+        >
+          política de privacidad
+        </Link>
+        .
       </p>
     </form>
   )

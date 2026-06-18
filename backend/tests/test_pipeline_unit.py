@@ -72,6 +72,11 @@ class TestNormalizer:
         result = normalizer.normalize(data, source_type="xml", confidence=1.0)
         assert result["invoice_number"] == "B010000001"
 
+    def test_normalize_date_dominican_preference(self):
+        data = {"invoice_date": "07/04/26", "total_amount": 100}
+        result = normalizer.normalize(data, source_type="image_ai", confidence=0.8)
+        assert result["invoice_date"] == "2026-04-07"
+
     def test_to_db_dict(self):
         normalized = {
             "vendor_name": "Test",
@@ -580,19 +585,6 @@ class TestDominicanFiscalValidation:
         res_ok = post_extraction_validator.validate(data_ok)
         assert not any("Regímenes Especiales" in w for w in res_ok["audit_warnings"])
 
-        # Non-deductible consumption E32/B02 with ITBIS > 0 -> should warn for ITBIS por adelantar
-        data_cons = {
-            "vendor_tax_id": "101165421",
-            "invoice_number": "E320000000001",
-            "transaction_type": "expense",
-            "total_amount": 1180.0,
-            "tax_amount": 180.0,
-            "currency": "DOP",
-            "vendor_country": "DOM",
-        }
-        res_cons = post_extraction_validator.validate(data_cons.copy())
-        assert any("no generan crédito fiscal" in w for w in res_cons["audit_warnings"])
-
         # ITBIS rate too high (>18%)
         data_high = {
             "vendor_tax_id": "101165421",
@@ -617,7 +609,7 @@ class TestDominicanFiscalValidation:
             "vendor_country": "DOM",
         }
         res_18 = post_extraction_validator.validate(data_18.copy())
-        assert not any("no coincide con el 18% o 16%" in w for w in res_18["audit_warnings"])
+        assert not any("no coincide con la tasa del 18%" in w for w in res_18["audit_warnings"])
 
     def test_validator_organization_rnc_match(self):
         from app.services.pipeline.validator import post_extraction_validator

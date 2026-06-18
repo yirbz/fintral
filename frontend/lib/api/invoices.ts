@@ -114,6 +114,45 @@ export async function bulkCancel(invoiceIds: string[]) {
   });
 }
 
+export async function voidInvoice(invoiceId: string, cancellationType = "01", reason?: string) {
+  return apiFetch<{ message: string; invoice: Invoice; credit_note: Invoice }>(`/invoices/${invoiceId}/void`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cancellation_type: cancellationType, reason })
+  });
+}
+
+export async function correctInvoiceText(
+  invoiceId: string,
+  items?: Array<{
+    description: string;
+    quantity: number;
+    unit_price: number;
+    discount_rate?: number;
+    tax_rate?: number;
+  }>,
+  reason?: string
+) {
+  return apiFetch<{ message: string; corrected_invoice: Invoice }>(`/invoices/${invoiceId}/correct`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ correction_type: "text", items, reason })
+  });
+}
+
+export async function correctInvoiceAmount(
+  invoiceId: string,
+  newTotalAmount: number,
+  newTaxAmount?: number,
+  reason?: string
+) {
+  return apiFetch<{ message: string; modificatory_invoice: Invoice }>(`/invoices/${invoiceId}/correct`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ correction_type: "amount", new_total_amount: newTotalAmount, new_tax_amount: newTaxAmount, reason })
+  });
+}
+
 export async function pushWebhook(invoiceIds: string[]) {
   return apiFetch<{ status: string }>("/api/invoices/push-webhook", {
     method: "POST",
@@ -261,8 +300,8 @@ export async function restoreInvoice(invoiceId: string) {
   });
 }
 
-export async function permanentDeleteInvoice(invoiceId: string) {
-  return apiFetch<{ message: string }>(`/invoices/${invoiceId}/permanent`, {
+export async function archiveInvoice(invoiceId: string) {
+  return apiFetch<{ message: string }>(`/invoices/${invoiceId}/archive`, {
     method: "DELETE"
   });
 }
@@ -275,8 +314,8 @@ export async function bulkRestore(invoiceIds: string[]) {
   });
 }
 
-export async function bulkPermanentDelete(invoiceIds: string[]) {
-  return apiFetch<{ message: string; count: number }>("/api/invoices/bulk-permanent-delete", {
+export async function bulkArchive(invoiceIds: string[]) {
+  return apiFetch<{ message: string; count: number }>("/api/invoices/bulk-archive", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ invoice_ids: invoiceIds })

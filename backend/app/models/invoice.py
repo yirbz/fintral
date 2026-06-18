@@ -62,6 +62,9 @@ class Invoice(Base):
     country_confidence = Column(Float)
     goods_services_type = Column(String)  # DGII 606
 
+    # File metadata
+    file_size = Column(Integer, nullable=True)  # bytes of the original uploaded file
+
     # Pipeline metadata
     source_type = Column(String(20))  # xml, pdf_text, pdf_image, image_ocr, image_ai, xlsx, manual
     quality_report = Column(Text, nullable=True)  # JSON with quality analysis
@@ -106,6 +109,33 @@ class Invoice(Base):
     # DGII cancellation (Formulario 608)
     cancelled_at = Column(DateTime(timezone=True), nullable=True, index=True)
     cancellation_type = Column(String(2), nullable=True)  # Código 01-10 DGII
+
+    # DGII real-time validation (ConsultaTimbreFC)
+    dgii_security_code = Column(String, nullable=True)  # CodigoSeguridad del QR
+    dgii_validation_status = Column(String(20), nullable=False, default="unchecked", index=True)  # unchecked, accepted, rejected, voided, registered, pending, not_found, error
+    dgii_validation_date = Column(DateTime(timezone=True), nullable=True, index=True)  # Última validación
+    dgii_validation_detail = Column(Text, nullable=True)  # JSON con detalle de validación DGII
+
+    # Fiscal conciliation status (independent from commercial flow)
+    # Controls whether this invoice is included in DGII 606/607 reports
+    fiscal_status = Column(
+        String(20),
+        nullable=False,
+        default="pending_review",
+        index=True,
+    )
+    # When fiscal_status = 'deferred', overrides which period the invoice reports in
+    fiscal_period_override = Column(String(6), nullable=True)  # "202607"
+    # When fiscal_status = 'non_deductible', reason code
+    fiscal_exclusion_reason = Column(String(100), nullable=True)
+
+    FISCAL_STATUSES = {
+        "pending_review": "Recién ingresada, aún no clasificada fiscalmente",
+        "valid": "Validada: NCF correcto, RNC existe, datos completos. Pasa al 606.",
+        "invalid": "Tiene problemas detectados. Requiere acción del usuario antes del cierre.",
+        "deferred": "Excluida de este período, se mueve al siguiente usando fiscal_period_override.",
+        "non_deductible": "Gasto real pero sin validez fiscal. Excluida permanentemente del 606.",
+    }
 
     # Relationships
     organization = relationship("Organization", back_populates="invoices")
@@ -220,4 +250,11 @@ class Invoice(Base):
             "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
             "cancelled_at": self.cancelled_at.isoformat() if self.cancelled_at else None,
             "cancellation_type": self.cancellation_type,
+            "dgii_security_code": self.dgii_security_code,
+            "dgii_validation_status": self.dgii_validation_status or "unchecked",
+            "dgii_validation_date": self.dgii_validation_date.isoformat() if self.dgii_validation_date else None,
+            "dgii_validation_detail": self.dgii_validation_detail,
+            "fiscal_status": self.fiscal_status or "pending_review",
+            "fiscal_period_override": self.fiscal_period_override,
+            "fiscal_exclusion_reason": self.fiscal_exclusion_reason,
         }

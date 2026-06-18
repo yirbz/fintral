@@ -1,13 +1,13 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Ban, Code2, Download, Expand, FileCode2, FileText, Flame, Lock, RotateCcw, Save, Sparkles, Trash2, X, XCircle, CheckCircle2 } from "lucide-react";
+import { Archive, ArrowLeft, Ban, Code2, Download, Expand, FileCode2, FileText, Lock, RotateCcw, Save, Sparkles, X, XCircle, CheckCircle2 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
-import { bulkPermanentDelete as permanentDeleteApi, cancelInvoice, deleteInvoice, getInvoice, getOptimizedImage, processInvoice, restoreInvoice, uncancelInvoice, updateInvoice } from "@/lib/api/invoices";
+import { archiveInvoice, cancelInvoice, getInvoice, getOptimizedImage, processInvoice, restoreInvoice, uncancelInvoice, updateInvoice } from "@/lib/api/invoices";
 import { getBankAccounts } from "@/lib/api/payments";
 import { formatDate, getItbisDetail } from "@/lib/utils/date";
 import type { ChildModificatory, Invoice } from "@/lib/types";
@@ -195,7 +195,7 @@ function getDirtyFields(original: Invoice, current: Partial<Invoice>): Partial<I
 export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const query = useQuery({
+  const {data: query_data, isLoading: query_isLoading, refetch: query_refetch} = useQuery({
     queryKey: ["invoice", invoiceId],
     queryFn: () => getInvoice(invoiceId)
   });
@@ -203,39 +203,38 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   const [showFullImage, setShowFullImage] = useState(false);
   const [showXmlCode, setShowXmlCode] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
   const [cancelType, setCancelType] = useState("01");
   const [imageLoaded, setImageLoaded] = useState(false);
-  const image = useQuery({
+  const {data: image_data, isLoading: image_isLoading} = useQuery({
     queryKey: ["invoice-image", invoiceId],
     queryFn: () => getOptimizedImage(invoiceId),
-    enabled: query.data?.file_type === "image"
+    enabled: query_data?.file_type === "image"
   });
 
-  const bankAccountsQuery = useQuery({
+  const {data: bankAccountsQuery_data} = useQuery({
     queryKey: ["bank-accounts"],
     queryFn: getBankAccounts,
   });
 
-  useEffect(() => {
-    if (query.data) {
-      let pm = null;
-      let wr = false;
-      if (query.data.raw_extracted_data) {
-        try {
-          const raw = JSON.parse(query.data.raw_extracted_data);
-          pm = normalizePaymentMethod(raw.payment_method);
-          wr = raw.warnings_reviewed === true;
-        } catch {}
-      }
-      setEditable({
-        ...query.data,
-        payment_method: pm,
-        warnings_reviewed: wr,
-      } as any);
-      setImageLoaded(false);
+  const editableInitRef = useRef(false);
+  if (query_data && !editableInitRef.current) {
+    editableInitRef.current = true;
+    let pm = null;
+    let wr = false;
+    if (query_data.raw_extracted_data) {
+      try {
+        const raw = JSON.parse(query_data.raw_extracted_data);
+        pm = normalizePaymentMethod(raw.payment_method);
+        wr = raw.warnings_reviewed === true;
+      } catch {}
     }
-  }, [query.data]);
+    setEditable({
+      ...query_data,
+      payment_method: pm,
+      warnings_reviewed: wr,
+    } as any);
+  }
 
   const incomeTypesQuery = useReferenceData("income_types");
   const incomeTypeOptions = useMemo(() =>
@@ -249,7 +248,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
 
   const saveMutation = useMutation({
     mutationFn: () => {
-      const dirty = getDirtyFields(query.data!, editable);
+      const dirty = getDirtyFields(query_data!, editable);
       if (isLocked) {
         const filtered: Record<string, unknown> = {};
         for (const key of Object.keys(dirty)) {
@@ -261,16 +260,16 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
       }
       return updateInvoice(invoiceId, dirty);
     },
-    onSuccess: () => query.refetch()
+    onSuccess: () => query_refetch()
   });
 
   const processMutation = useMutation({
     mutationFn: () => processInvoice(invoiceId),
-    onSuccess: () => query.refetch()
+    onSuccess: () => query_refetch()
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: () => deleteInvoice(invoiceId),
+  const archiveMutation = useMutation({
+    mutationFn: () => archiveInvoice(invoiceId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["invoices"] });
       router.push("/dashboard/invoices");
@@ -281,26 +280,16 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
     mutationFn: () => restoreInvoice(invoiceId),
     onSuccess: () => {
       toast.success("Factura restaurada exitosamente");
-      void query.refetch();
+      void query_refetch();
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Error al restaurar"),
-  });
-
-  const permanentDeleteMutation = useMutation({
-    mutationFn: () => permanentDeleteApi([invoiceId]),
-    onSuccess: async (data) => {
-      toast.success(`${data.count} factura eliminada permanentemente`);
-      await queryClient.invalidateQueries({ queryKey: ["invoices"] });
-      router.push("/dashboard/invoices/trash");
-    },
-    onError: (err) => toast.error(err instanceof Error ? err.message : "Error al eliminar"),
   });
 
   const cancelMutation = useMutation({
     mutationFn: (cancellationType: string) => cancelInvoice(invoiceId, cancellationType),
     onSuccess: () => {
       toast.success("Factura anulada exitosamente");
-      void query.refetch();
+      void query_refetch();
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Error al anular"),
   });
@@ -309,32 +298,32 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
     mutationFn: () => uncancelInvoice(invoiceId),
     onSuccess: () => {
       toast.success("Anulación revertida");
-      void query.refetch();
+      void query_refetch();
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Error al revertir anulación"),
   });
 
   const flags = useMemo(() => {
-    if (!query.data?.audit_flags) return [] as string[];
+    if (!query_data?.audit_flags) return [] as string[];
     try {
-      const parsed = JSON.parse(query.data.audit_flags);
+      const parsed = JSON.parse(query_data.audit_flags);
       return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
     }
-  }, [query.data?.audit_flags]);
+  }, [query_data?.audit_flags]);
 
   const hasUnsavedChanges = useMemo(() => {
-    if (!query.data) return false;
-    return Object.keys(getDirtyFields(query.data, editable)).length > 0;
-  }, [editable, query.data]);
+    if (!query_data) return false;
+    return Object.keys(getDirtyFields(query_data, editable)).length > 0;
+  }, [editable, query_data]);
 
   const rawData = useMemo(() => {
-    if (!query.data?.raw_extracted_data) return null;
-    try { return JSON.parse(query.data.raw_extracted_data) as Record<string, unknown>; } catch { return null; }
-  }, [query.data?.raw_extracted_data]);
+    if (!query_data?.raw_extracted_data) return null;
+    try { return JSON.parse(query_data.raw_extracted_data) as Record<string, unknown>; } catch { return null; }
+  }, [query_data?.raw_extracted_data]);
 
-  if (query.isLoading || !query.data) {
+  if (query_isLoading || !query_data) {
     return (
       <div className="flex flex-col gap-4">
         <Card>
@@ -392,7 +381,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
     );
   }
 
-  const invoice = query.data!;
+  const invoice = query_data!;
   const isTrashed = !!invoice.deleted_at;
   const isLocked = !!invoice.original_xml_data || invoice.status === "verified";
   const discardChanges = () => {
@@ -433,15 +422,12 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
           <div className="flex flex-wrap items-center gap-2">
             {isTrashed ? (
               <>
-                <Badge variant="destructive">En papelera</Badge>
+                <Badge variant="destructive">En archivo</Badge>
                 <Button size="sm" variant="outline" onClick={() => restoreMutation.mutate()} disabled={restoreMutation.isPending}>
                   <RotateCcw className="size-3.5" data-icon="inline-start" />
                   Restaurar
                 </Button>
-                <Button size="sm" variant="destructive" onClick={() => permanentDeleteMutation.mutate()} disabled={permanentDeleteMutation.isPending}>
-                  <Flame className="size-3.5" data-icon="inline-start" />
-                  Eliminar permanentemente
-                </Button>
+
               </>
             ) : (
               <>
@@ -487,9 +473,9 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                     Anular
                   </Button>
                 ) : null}
-                <Button size="sm" variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
-                  <Trash2 className="size-3.5" data-icon="inline-start" />
-                  Eliminar
+                <Button size="sm" variant="destructive" onClick={() => setArchiveDialogOpen(true)}>
+                  <Archive className="size-3.5" data-icon="inline-start" />
+                  Archivar
                 </Button>
               </>
             )}
@@ -501,7 +487,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
         <Card className="border-destructive/30 bg-destructive/5">
           <CardContent className="py-3">
             <p className="text-xs text-destructive">
-              Esta factura está en la papelera. No se puede modificar hasta que sea restaurada.
+              Esta factura está archivada. No se puede modificar hasta que sea restaurada.
               {invoice.deleted_at ? ` Eliminada el ${new Date(invoice.deleted_at).toLocaleDateString("es-DO", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}.` : null}
             </p>
           </CardContent>
@@ -1166,7 +1152,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                     </a>
                   </Button>
                 ) : null}
-                {invoice.file_type === "image" && image.data?.optimized_image ? (
+                {invoice.file_type === "image" && image_data?.optimized_image ? (
                   <Button variant="ghost" size="icon-xs" onClick={() => setShowFullImage(true)}>
                     <Expand className="size-3.5" />
                   </Button>
@@ -1194,11 +1180,11 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                   ) : null}
                 </div>
               ) : invoice.file_type === "image" ? (
-                image.isLoading ? (
+                image_isLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <Skeleton className="h-48 w-full rounded-b-md" />
                   </div>
-                ) : image.data?.optimized_image ? (
+                ) : image_data?.optimized_image ? (
                   <div className="relative">
                     {!imageLoaded ? (
                       <div className="flex items-center justify-center py-12 absolute inset-0 z-10">
@@ -1209,7 +1195,11 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                     <Image
                       alt="Factura"
                       className={`max-h-72 w-full cursor-zoom-in rounded-b-md border-t object-contain transition-opacity duration-300 ${imageLoaded ? "opacity-100" : "opacity-0"}`}
-                      src={image.data.optimized_image}
+                      src={image_data.optimized_image}
+                      width={0}
+                      height={0}
+                      sizes="100vw"
+                      unoptimized
                       onLoad={() => setImageLoaded(true)}
                       onError={() => setImageLoaded(true)}
                     />
@@ -1495,7 +1485,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">No asociada / Ninguna</SelectItem>
-                    {bankAccountsQuery.data?.map((acc) => (
+                    {bankAccountsQuery_data?.map((acc) => (
                       <SelectItem key={acc.id} value={acc.id}>
                         {acc.name} ({new Intl.NumberFormat("es-DO", { style: "currency", currency: "DOP" }).format(acc.balance)})
                       </SelectItem>
@@ -1547,8 +1537,8 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
 
       {/* ── Cancel Dialog ────────────────────────────────────────────── */}
       {cancelDialogOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setCancelDialogOpen(false)}>
-          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation" onClick={() => setCancelDialogOpen(false)}>
+          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-2xl" role="presentation" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-sm font-semibold mb-3">Anular factura</h3>
             <p className="text-xs text-muted-foreground mb-3">
               Esto marcará la factura como anulada. Aparecerá en el formulario 608 de la DGII como factura anulada.
@@ -1591,36 +1581,37 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
         </div>
       )}
 
-      {/* ── Delete confirmation ──────────────────────────────────────── */}
-      {deleteDialogOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setDeleteDialogOpen(false)}>
-          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-semibold mb-2">Mover a la papelera</h3>
+      {/* ── Archive confirmation ────────────────────────────────────── */}
+      {archiveDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation" onClick={() => setArchiveDialogOpen(false)}>
+          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-2xl" role="presentation" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold mb-2">Archivar factura</h3>
             <p className="text-xs text-muted-foreground mb-4">
-              La factura se moverá a la papelera. Podrás restaurarla o eliminarla permanentemente desde allí.
+              La factura se archivará. Podrás restaurarla desde el archivo.
             </p>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setDeleteDialogOpen(false)}>
+              <Button variant="outline" size="sm" onClick={() => setArchiveDialogOpen(false)}>
                 Cancelar
               </Button>
               <Button size="sm" variant="destructive" onClick={() => {
-                deleteMutation.mutate();
-                setDeleteDialogOpen(false);
+                archiveMutation.mutate();
+                setArchiveDialogOpen(false);
               }}>
-                <Trash2 className="size-3.5 mr-1" />
-                Mover a papelera
+                <Archive className="size-3.5 mr-1" />
+                Archivar
               </Button>
             </div>
           </div>
         </div>
       )}
 
-      {showFullImage && image.data?.optimized_image ? (
+      {showFullImage && image_data?.optimized_image ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-6"
+          role="presentation"
           onClick={() => setShowFullImage(false)}
         >
-          <Image alt="Factura completa" className="max-h-full max-w-full rounded-md" src={image.data.optimized_image} width={0} height={0} sizes="100vw" unoptimized />
+          <Image alt="Factura completa" className="max-h-full max-w-full rounded-md" src={image_data.optimized_image} width={0} height={0} sizes="100vw" unoptimized />
         </div>
       ) : null}
     </div>

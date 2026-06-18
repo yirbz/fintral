@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 
 import { getOrganization, type OrgMember } from "@/lib/api/settings";
+import { getMyPlan } from "@/lib/api/plans";
 import {
   removeMember,
   updateMemberRole,
@@ -160,9 +161,11 @@ function RoleBadge({ role }: { role: string }) {
 
 function InviteDialog({
   orgId,
+  memberCount,
   onSuccess,
 }: {
   orgId: string;
+  memberCount: number;
   onSuccess: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -170,8 +173,22 @@ function InviteDialog({
   const [role, setRole] = useState("member");
   const [inviteResult, setInviteResult] = useState<{ token: string; email: string } | null>(null);
 
+  const { data: planData } = useQuery({
+    queryKey: ["plans", "my"],
+    queryFn: getMyPlan,
+    staleTime: 30_000,
+  });
+
+  const userLimit = planData?.subscription?.limits?.max_users ?? Infinity;
+  const atUserLimit = memberCount >= userLimit;
+
   const inviteMutation = useMutation({
-    mutationFn: () => createInvitation(orgId, { email, role }),
+    mutationFn: () => {
+      if (atUserLimit) {
+        throw new Error("limit_reached");
+      }
+      return createInvitation(orgId, { email, role });
+    },
     onSuccess: (result: any) => {
       toast.success(`Invitación creada para ${email}`);
       setInviteResult({ token: result.token, email });
@@ -179,7 +196,17 @@ function InviteDialog({
       onSuccess();
     },
     onError: (err: Error) => {
-      toast.error("Error al invitar", { description: err.message });
+      if (err.message === "limit_reached") {
+        toast.error("Límite de usuarios alcanzado", {
+          description: `Tu plan permite hasta ${userLimit} usuario(s). Ve a la tienda para adquirir más espacios.`,
+          action: {
+            label: "Ir a la tienda",
+            onClick: () => window.open("/dashboard/store", "_blank"),
+          },
+        });
+      } else {
+        toast.error("Error al invitar", { description: err.message });
+      }
     },
   });
 
@@ -355,7 +382,7 @@ function InviteDialog({
 function PendingInvitations({ orgId }: { orgId: string }) {
   const queryClient = useQueryClient();
 
-  const invitesQuery = useQuery({
+  const {data: invitesQuery_data} = useQuery({
     queryKey: ["org-invitations", orgId],
     queryFn: () => listInvitations(orgId),
     enabled: !!orgId,
@@ -375,7 +402,7 @@ function PendingInvitations({ orgId }: { orgId: string }) {
     },
   });
 
-  const invites = invitesQuery.data ?? [];
+  const invites = invitesQuery_data ?? [];
 
   if (invites.length === 0) return null;
 
@@ -633,17 +660,17 @@ export function TeamPage() {
   const { activeOrgId, userOrgs, switchOrg } = useOrg();
   const queryClient = useQueryClient();
 
-  const orgQuery = useQuery({
+  const {data: orgQuery_data, isLoading: orgQuery_isLoading} = useQuery({
     queryKey: ["organization-settings"],
     queryFn: getOrganization,
   });
 
   const isAdmin =
     session.data?.role === "owner" || session.data?.role === "admin";
-  const members = orgQuery.data?.members ?? [];
-  const memberCount = orgQuery.data?.member_count ?? 0;
+  const members = orgQuery_data?.members ?? [];
+  const memberCount = orgQuery_data?.member_count ?? 0;
   const currentUserId = session.data?.user?.id;
-  const currentOrgId = activeOrgId ?? orgQuery.data?.id;
+  const currentOrgId = activeOrgId ?? orgQuery_data?.id;
   const currentOrgName =
     userOrgs.find((o) => o.id === currentOrgId)?.name ??
     session.data?.organization?.name ??
@@ -733,6 +760,7 @@ export function TeamPage() {
         {currentOrgId && (
           <InviteDialog
             orgId={currentOrgId}
+            memberCount={memberCount}
             onSuccess={() => {
               queryClient.invalidateQueries({
                 queryKey: ["organization-settings"],
@@ -777,7 +805,7 @@ export function TeamPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {orgQuery.isLoading ? (
+          {orgQuery_isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="size-5 animate-spin text-muted-foreground" />
             </div>

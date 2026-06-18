@@ -5,34 +5,91 @@ import { useParams } from "next/navigation";
 import { billingApi, BillingInvoice } from "@/lib/api/billing";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Printer, ArrowLeft, ShieldCheck } from "lucide-react";
+import { Printer, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
+
+const formatRnc = (rnc?: string) => {
+  if (!rnc) return "";
+  const clean = rnc.replace(/[^0-9]/g, "");
+  if (clean.length === 9) {
+    return `${clean.substring(0, 3)}-${clean.substring(3, 8)}-${clean.substring(8)}`;
+  }
+  if (clean.length === 11) {
+    return `${clean.substring(0, 3)}-${clean.substring(3, 10)}-${clean.substring(10)}`;
+  }
+  return rnc;
+};
+
+const formatCurrency = (amount: number) => {
+  return new Intl.NumberFormat("es-DO", {
+    style: "currency",
+    currency: "DOP",
+  }).format(amount);
+};
+
+const Divider = () => (
+  <div className="border-t border-dashed border-neutral-300 dark:border-neutral-700 my-2.5" />
+);
+
+const MetaRow = ({ label, value, bold }: { label: string; value: string; bold?: boolean }) => (
+  <div className="flex justify-between text-[9px]">
+    <span>{label}</span>
+    <span className={bold ? "font-bold" : ""}>{value}</span>
+  </div>
+);
 
 export default function PrintInvoicePage() {
   const { id } = useParams() as { id: string };
   const [invoice, setInvoice] = useState<BillingInvoice | null>(null);
+  const [org, setOrg] = useState<any>(null);
+  const [verStatus, setVerStatus] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isBillingSubdomain, setIsBillingSubdomain] = useState(false);
 
   useEffect(() => {
-    const fetchInvoice = async () => {
+    if (typeof window !== "undefined") {
+      setIsBillingSubdomain(window.location.hostname.startsWith("factura."));
+    }
+    const fetchInvoiceData = async () => {
       try {
         setLoading(true);
-        const data = await billingApi.getInvoice(id);
-        setInvoice(data);
+        const [invoiceData, orgData, verStatusData] = await Promise.all([
+          billingApi.getInvoice(id),
+          billingApi.getOrganization().catch(() => null),
+          billingApi.getVerificationStatus().catch(() => null),
+        ]);
+        setInvoice(invoiceData);
+        setOrg(orgData);
+        setVerStatus(verStatusData);
       } catch (err) {
         console.error("Error fetching invoice for print:", err);
       } finally {
         setLoading(false);
       }
     };
-    if (id) fetchInvoice();
+    if (id) fetchInvoiceData();
   }, [id]);
+
+  useEffect(() => {
+    if (!loading && invoice) {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("auto") === "true") {
+        const timer = setTimeout(() => {
+          window.print();
+          if (window.self !== window.top) {
+            window.parent.postMessage({ type: "printed", invoiceId: id }, "*");
+          }
+        }, 1000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [loading, invoice, id]);
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-muted/20">
-        <Skeleton className="h-96 w-[80mm] rounded-lg shadow-sm" />
+      <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-neutral-100">
+        <Skeleton className="h-96 w-[80mm] rounded-none shadow-sm" />
       </div>
     );
   }
@@ -41,14 +98,13 @@ export default function PrintInvoicePage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen p-4">
         <p className="text-sm font-semibold text-rose-500">Factura no encontrada</p>
-        <Link href="/billing" className="mt-4">
+        <Link href={isBillingSubdomain ? "/" : "/billing"} className="mt-4">
           <Button size="xs" variant="outline">Volver</Button>
         </Link>
       </div>
     );
   }
 
-  // Parse Metadata
   let metadata: any = {};
   if (invoice.raw_extracted_data) {
     try {
@@ -58,168 +114,254 @@ export default function PrintInvoicePage() {
     }
   }
 
-  const qrUrl = metadata.qr_url || `https://dgii.gov.do/consulta/ecf?rnc=${invoice.currency}&encf=${invoice.invoice_number}`;
+  const isEcfAuthorized = org?.is_ecf_authorized ?? verStatus?.is_ecf_authorized ?? false;
+  const invoiceIsElectronic = invoice.is_electronic && (invoice.invoice_number?.startsWith("E") ?? false);
+  const showElectronicBadge = invoiceIsElectronic && isEcfAuthorized;
+  const showQR = invoiceIsElectronic && isEcfAuthorized;
+
+  const getDocTypeName = () => {
+    const code = invoice.ecf_type || (invoice.invoice_number ? invoice.invoice_number.substring(0, 3) : "");
+    const cleanCode = code.replace(/[^0-9]/g, "");
+    const typeNum = parseInt(cleanCode);
+
+    if (typeNum === 1 || typeNum === 31) return "Factura de Crédito Fiscal";
+    if (typeNum === 2 || typeNum === 32) return "Factura de Consumo";
+    if (typeNum === 3 || typeNum === 33) return "Nota de Débito";
+    if (typeNum === 4 || typeNum === 34) return "Nota de Crédito";
+    if (typeNum === 41) return "Registro de Compras";
+    if (typeNum === 43) return "Gastos Menores";
+    if (typeNum === 44) return "Regímenes Especiales";
+    if (typeNum === 45) return "Comprobante Gubernamental";
+    if (typeNum === 46) return "Comprobante para Exportación";
+    if (typeNum === 47) return "Pagos al Exterior";
+
+    return "Factura";
+  };
+
+  const issuerRnc = org?.tax_id || verStatus?.tax_id || "";
+  const cleanIssuerRnc = issuerRnc.replace(/[^0-9]/g, "");
+
   const securityCode = metadata.security_code || "N/A";
   const trackId = metadata.track_id || "N/A";
-  const legalStatus = metadata.legal_status || "ACCEPTED";
+  const legalStatus = metadata.legal_status || "";
 
-  // Parse line items
   let lineItems: any[] = [];
   if ((invoice as any).line_items) {
     lineItems = (invoice as any).line_items;
   }
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("es-DO", {
-      style: "currency",
-      currency: "DOP",
-    }).format(amount);
-  };
 
   const handlePrint = () => {
     window.print();
   };
 
   return (
-    <div className="min-h-screen bg-neutral-100 dark:bg-neutral-900 py-6 print:py-0 flex flex-col items-center">
-      {/* Print Controls (hidden on print) */}
-      <div className="w-[80mm] mb-4 flex justify-between items-center print:hidden px-2">
-        <Link href="/billing" passHref>
-          <Button variant="outline" size="xs" className="h-7 text-[11px] gap-1 px-2 rounded-md">
+    <div className="min-h-screen bg-neutral-100 dark:bg-neutral-950 py-6 print:py-0 flex flex-col items-center print:bg-white">
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          @page {
+            size: 80mm auto;
+            margin: 0;
+          }
+          body {
+            background: white !important;
+            color: black !important;
+            margin: 0;
+            padding: 0;
+            width: 80mm;
+            font-family: 'Courier New', 'Courier', monospace;
+          }
+          html, body {
+            overflow: visible !important;
+            height: auto !important;
+          }
+          img.qr-code {
+            image-rendering: pixelated;
+            -ms-interpolation-mode: nearest-neighbor;
+          }
+        }
+        @media screen {
+          body { background: white; }
+        }
+      `}} />
+
+      {/* Print Controls */}
+      <div className="w-[80mm] mb-4 flex justify-between items-center print:hidden px-1">
+        <Link href={isBillingSubdomain ? "/" : "/billing"} passHref>
+          <Button variant="outline" size="xs" className="h-7 text-[11px] gap-1 px-2 rounded">
             <ArrowLeft className="size-3" /> Atrás
           </Button>
         </Link>
         <Button
           onClick={handlePrint}
-          className="h-7 text-[11px] bg-primary text-primary-foreground hover:bg-primary/90 gap-1 px-2 rounded-md"
+          className="h-7 text-[11px] bg-primary text-primary-foreground hover:bg-primary/90 gap-1 px-2 rounded"
           size="xs"
         >
           <Printer className="size-3" /> Imprimir
         </Button>
       </div>
 
-      {/* Ticket Wrapper (80mm width standard) */}
-      <div className="w-[80mm] bg-white dark:bg-gray-950 text-black dark:text-white p-4 font-mono text-[10px] shadow-md print:shadow-none border border-neutral-200 dark:border-neutral-800 print:border-none leading-tight">
-        {/* Header */}
-        <div className="text-center space-y-1 pb-3 border-b border-dashed border-neutral-300 dark:border-neutral-700">
-          <div className="font-bold text-xs tracking-wider uppercase">Fintral Facturación</div>
-          <div className="font-bold uppercase">{invoice.client?.name ? "EMISOR AUTORIZADO" : "CONSUMIDOR FINAL"}</div>
-          <div className="text-[9px] text-neutral-600 dark:text-neutral-400">
-            RNC: {invoice.currency === "DOP" ? "132-10912-2" : "132109122"}
-          </div>
-          <div className="text-[9px] text-neutral-600 dark:text-neutral-400">
-            Calle Principal #123, Santo Domingo
-          </div>
-          <div className="text-[9px] text-neutral-600 dark:text-neutral-400">
-            Tel: (809) 555-0199
-          </div>
-        </div>
+      {/* ── THERMAL TICKET (80mm) ── */}
+      <div className="w-[80mm] bg-white text-black p-3 font-mono text-[9.5px] shadow print:shadow-none leading-[1.15]">
 
-        {/* Invoice Metadata */}
-        <div className="py-2.5 space-y-0.5 border-b border-dashed border-neutral-300 dark:border-neutral-700">
-          <div className="flex justify-between">
-            <span>FECHA:</span>
-            <span>
-              {invoice.invoice_date
-                ? new Date(invoice.invoice_date).toLocaleString("es-DO")
-                : "N/A"}
-            </span>
+        {/* ── Header ── */}
+        <div className="text-center space-y-0.5 pb-2">
+          <div className="text-[11px] font-bold tracking-wider uppercase leading-tight">
+            {org?.name || verStatus?.name || "Fintral Facturación"}
           </div>
-          <div className="flex justify-between font-bold">
-            <span>NCF / e-CF:</span>
-            <span>{invoice.invoice_number}</span>
+          {showElectronicBadge && (
+            <div className="text-[8px] font-bold tracking-widest text-neutral-600 uppercase">
+              EMISOR ELECTRÓNICO AUTORIZADO
+            </div>
+          )}
+          <div className="text-[8.5px] text-neutral-600">
+            RNC: {formatRnc(issuerRnc || "132109122")}
           </div>
-          <div className="flex justify-between">
-            <span>TIPO DOC:</span>
-            <span>Comprobante Electrónico (e-CF)</span>
+          <div className="text-[8px] text-neutral-500">
+            {org?.fiscal_address || verStatus?.fiscal_address || "Santo Domingo, RD"}
           </div>
-          <div className="flex justify-between">
-            <span>CONDICION:</span>
-            <span className="uppercase">{invoice.payment_condition || "CONTADO"}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>ESTADO DGII:</span>
-            <span className="font-bold text-emerald-600">{legalStatus}</span>
-          </div>
-        </div>
-
-        {/* Client details */}
-        <div className="py-2.5 space-y-0.5 border-b border-dashed border-neutral-300 dark:border-neutral-700">
-          <div className="font-bold">ADQUIRIENTE:</div>
-          <div>{invoice.client?.name || "Consumidor Final"}</div>
-          {invoice.client?.tax_id && (
-            <div>RNC/CÉDULA: {invoice.client.tax_id}</div>
+          {org?.phone && (
+            <div className="text-[8px] text-neutral-500">
+              Tel: {org.phone}
+            </div>
           )}
         </div>
 
-        {/* Items Table */}
-        <div className="py-2 border-b border-dashed border-neutral-300 dark:border-neutral-700">
-          <div className="grid grid-cols-12 font-bold mb-1 border-b border-neutral-200 dark:border-neutral-800 pb-1">
-            <span className="col-span-6">CONCEPTO</span>
-            <span className="col-span-2 text-right">CANT</span>
-            <span className="col-span-4 text-right">TOTAL</span>
-          </div>
-          <div className="space-y-1">
-            {lineItems.map((item, idx) => (
-              <div key={idx} className="grid grid-cols-12 gap-y-0.5">
-                <span className="col-span-12 font-semibold">{item.name}</span>
-                <span className="col-span-6 text-neutral-500 text-[9px]">
-                  {formatCurrency(item.unit_price)} {item.discount_rate > 0 ? `(-${item.discount_rate}%)` : ""}
-                </span>
-                <span className="col-span-2 text-right">{item.quantity}</span>
-                <span className="col-span-4 text-right font-semibold">
-                  {formatCurrency((item.quantity * item.unit_price) * (1 - (item.discount_rate || 0) / 100))}
-                </span>
-              </div>
-            ))}
-          </div>
+        <Divider />
+
+        {/* ── Metadata ── */}
+        <div className="space-y-0.5">
+          <MetaRow label="FECHA:" value={
+            invoice.invoice_date
+              ? new Date(invoice.invoice_date).toLocaleDateString("es-DO", {
+                  year: "numeric", month: "2-digit", day: "2-digit",
+                  hour: "2-digit", minute: "2-digit"
+                })
+              : "N/A"
+          } />
+          <MetaRow label="NCF/e-CF:" value={invoice.invoice_number || "N/A"} bold />
+          <MetaRow label="TIPO:" value={getDocTypeName()} />
+          <MetaRow label="CONDICIÓN:" value={(invoice.payment_condition || "CONTADO").toUpperCase()} />
+          {showElectronicBadge && legalStatus && (
+            <MetaRow label="ESTADO DGII:" value={legalStatus} bold />
+          )}
         </div>
 
-        {/* Totals */}
-        <div className="py-2.5 space-y-1 border-b border-dashed border-neutral-300 dark:border-neutral-700">
-          <div className="flex justify-between">
-            <span>SUBTOTAL:</span>
-            <span>{formatCurrency(invoice.total_amount - invoice.tax_amount)}</span>
+        <Divider />
+
+        {/* ── Buyer ── */}
+        <div className="space-y-0.5">
+          <div className="text-[9px] font-bold uppercase">ADQUIRIENTE:</div>
+          <div className="text-[9px]">
+            {invoice.client?.name || metadata.buyer_name || "Consumidor Final"}
           </div>
-          <div className="flex justify-between">
-            <span>ITBIS (18%):</span>
-            <span>{formatCurrency(invoice.tax_amount)}</span>
+          {(invoice.client?.tax_id || metadata.buyer_rnc) && (
+            <div className="text-[8.5px] text-neutral-600">
+              RNC/CÉDULA: {invoice.client?.tax_id || metadata.buyer_rnc}
+            </div>
+          )}
+        </div>
+
+        <Divider />
+
+        {/* ── Items ── */}
+        <div className="mb-1">
+          <div className="flex text-[9px] font-bold border-b border-neutral-300 pb-0.5 mb-1">
+            <span className="w-[36%]">CONCEPTO</span>
+            <span className="w-[16%] text-right">CANT</span>
+            <span className="w-[20%] text-right">P/UNIT</span>
+            <span className="w-[28%] text-right">TOTAL</span>
           </div>
-          <div className="flex justify-between font-bold text-xs border-t border-neutral-200 dark:border-neutral-800 pt-1.5">
+          {lineItems.map((item: any, idx: number) => {
+            const lineTotal = (item.quantity * item.unit_price) * (1 - (item.discount_rate || 0) / 100);
+            return (
+              <div key={idx} className="mb-1.5">
+                <div className="text-[9px] font-semibold truncate">{item.name}</div>
+                <div className="flex text-[8.5px] text-neutral-600">
+                  <span className="w-[36%]">
+                    {item.discount_rate > 0 && `(-${item.discount_rate}%)`}
+                  </span>
+                  <span className="w-[16%] text-right">{item.quantity}</span>
+                  <span className="w-[20%] text-right">{formatCurrency(item.unit_price)}</span>
+                  <span className="w-[28%] text-right font-semibold text-black">
+                    {formatCurrency(lineTotal)}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <Divider />
+
+        {/* ── Totals ── */}
+        <div className="space-y-0.5">
+          <MetaRow label="SUBTOTAL:" value={formatCurrency(invoice.total_amount - invoice.tax_amount)} />
+          <MetaRow label="ITBIS:" value={formatCurrency(invoice.tax_amount)} />
+          <div className="border-t border-neutral-400 pt-0.5 mt-0.5" />
+          <div className="flex justify-between text-[10px] font-bold">
             <span>TOTAL A PAGAR:</span>
             <span>{formatCurrency(invoice.total_amount)}</span>
           </div>
         </div>
 
-        {/* Security / QR Details */}
-        <div className="py-3 text-center space-y-2">
-          <div className="flex flex-col items-center justify-center bg-neutral-50 dark:bg-neutral-900 p-2 rounded-xs border border-neutral-200 dark:border-neutral-800">
-            <Image
-              src={`https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${encodeURIComponent(qrUrl)}`}
-              alt="DGII e-CF QR Verification"
-              width={112}
-              height={112}
-              unoptimized
-              className="size-28 border border-neutral-200 dark:border-neutral-800"
-            />
-            <span className="text-[8px] text-neutral-500 mt-1 uppercase font-semibold">Escanear para verificar en la DGII</span>
-          </div>
+        {/* ── QR & Security (e-CF only) ── */}
+        {showQR && (
+          <>
+            <Divider />
+            <div className="text-center space-y-1.5">
+              <div className="inline-flex flex-col items-center border border-neutral-300 p-2">
+                <Image
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(
+                    metadata.document_stamp_url || metadata.qr_url || ""
+                  )}`}
+                  alt="QR DGII"
+                  width={100}
+                  height={100}
+                  unoptimized
+                  className="qr-code"
+                />
+                <span className="text-[7px] text-neutral-500 mt-0.5 uppercase">
+                  Escanear para verificar en la DGII
+                </span>
+              </div>
+              <div className="text-left text-[7.5px] text-neutral-600 space-y-0.5">
+                <div>CÓDIGO DE SEGURIDAD: <span className="font-semibold text-black">{securityCode}</span></div>
+                <div>TRACK ID: <span className="font-semibold text-black">{trackId}</span></div>
+              </div>
+            </div>
+          </>
+        )}
 
-          <div className="space-y-0.5 text-left text-[8px] text-neutral-600 dark:text-neutral-400">
-            <div>CÓDIGO SEGURIDAD: <span className="font-semibold text-neutral-800 dark:text-neutral-200">{securityCode}</span></div>
-            <div>ID DE CERTIFICACIÓN (DGII): <span className="font-semibold text-neutral-800 dark:text-neutral-200">{trackId}</span></div>
-          </div>
-        </div>
-
-        {/* Footer legal text */}
-        <div className="text-center text-[7px] text-neutral-500 pt-2 border-t border-dashed border-neutral-300 dark:border-neutral-700 space-y-1">
-          <p className="uppercase font-bold flex items-center justify-center gap-1">
-            <ShieldCheck className="size-3 text-emerald-500" />
-            DOCUMENTO ELECTRÓNICO FIRMADO
+        {/* ── Footer ── */}
+        <Divider />
+        <div className="text-center text-[7px] text-neutral-500 space-y-0.5">
+          {showElectronicBadge ? (
+            <>
+              <p className="text-[8px] font-bold uppercase tracking-wider">
+                DOCUMENTO ELECTRÓNICO FIRMADO
+              </p>
+              <p>
+                Esta es una representación impresa de un Comprobante Fiscal
+                Electrónico (e-CF) emitido conforme a la Ley de Facturación
+                Electrónica de la República Dominicana.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-[8px] font-bold uppercase tracking-wider">
+                COMPROBANTE FÍSICO
+              </p>
+              <p>
+                Esta es una representación impresa de un comprobante fiscal
+                físico (NCF) registrado conforme a la normativa de la DGII.
+              </p>
+            </>
+          )}
+          <p className="text-[8px] font-bold text-neutral-700 pt-1">
+            ¡Gracias por preferirnos!
           </p>
-          <p>Esta es una representación impresa de un Comprobante Fiscal Electrónico (e-CF), emitido conforme a la Ley de Facturación Electrónica de la República Dominicana.</p>
-          <p className="font-bold">¡Gracias por preferirnos!</p>
         </div>
+
       </div>
     </div>
   );

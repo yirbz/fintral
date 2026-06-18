@@ -8,7 +8,6 @@ Create Date: 2026-06-03 12:00:00.000000
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
@@ -20,13 +19,23 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    op.add_column('invoices', sa.Column('is_deleted', sa.Boolean(), nullable=False, server_default=sa.text('false')))
-    op.create_index(op.f('ix_invoices_is_deleted'), 'invoices', ['is_deleted'])
-
+    op.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 
+                FROM information_schema.columns 
+                WHERE table_name = 'invoices' AND column_name = 'is_deleted'
+            ) THEN
+                ALTER TABLE invoices ADD COLUMN is_deleted BOOLEAN DEFAULT false NOT NULL;
+            END IF;
+        END $$;
+    """)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_invoices_is_deleted ON invoices (is_deleted)")
     op.execute("UPDATE invoices SET is_deleted = true WHERE deleted_at IS NOT NULL")
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    op.drop_index(op.f('ix_invoices_is_deleted'), table_name='invoices')
-    op.drop_column('invoices', 'is_deleted')
+    op.execute("DROP INDEX IF EXISTS ix_invoices_is_deleted")
+    op.execute("ALTER TABLE invoices DROP COLUMN IF EXISTS is_deleted")

@@ -13,6 +13,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import {
   LayoutDashboardIcon,
@@ -85,6 +86,11 @@ const data = {
       icon: <Settings2Icon />,
     },
     {
+      title: "Estado de Cuenta",
+      url: "/dashboard/billing/statement",
+      icon: <FileTextIcon />,
+    },
+    {
       title: "Ayuda",
       url: "/dashboard/help",
       icon: <CircleHelpIcon />,
@@ -118,15 +124,48 @@ const data = {
   ],
 }
 
-import { useEffect, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useEffect, useState, useRef } from "react"
+import { usePathname } from "next/navigation"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSession } from "@/hooks/use-session"
+import { useRealtime } from "@/hooks/use-realtime"
 import { getPendingUploadCount } from "@/lib/api/invoices"
+
+function getLink(path: string) {
+  if (typeof window === "undefined") {
+    return `/billing${path === "/" ? "" : path}`
+  }
+  const isSub = window.location.hostname.startsWith("factura.")
+  if (isSub) {
+    return path
+  }
+  return `/billing${path === "/" ? "" : path}`
+}
+
+function getHubUrl() {
+  if (typeof window !== "undefined") {
+    const host = window.location.host
+    if (host.startsWith("factura.localhost")) {
+      return `http://${host.replace("factura.localhost", "localhost")}/dashboard`
+    }
+    if (host.startsWith("factura.")) {
+      return `https://${host.replace("factura.", "")}/dashboard`
+    }
+  }
+  return "/dashboard"
+}
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const session = useSession()
+  const pathname = usePathname()
+  const { setOpenMobile } = useSidebar()
   const [user, setUser] = useState(data.user)
   const [isBillingSubdomain, setIsBillingSubdomain] = useState(false)
+
+  // Automatically close sidebar on mobile when navigating
+  useEffect(() => {
+    setOpenMobile(false)
+  }, [pathname, setOpenMobile])
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -137,38 +176,29 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
   }, [])
 
-  const getLink = (path: string) => {
-    if (typeof window === "undefined") {
-      return `/billing${path === "/" ? "" : path}`
-    }
-    const isSub = window.location.hostname.startsWith("factura.")
-    if (isSub) {
-      return path
-    }
-    return `/billing${path === "/" ? "" : path}`
-  }
+  const queryClient = useQueryClient()
+  const realtime = useRealtime()
+  const lastEventRef = useRef<string>("")
 
-  const getHubUrl = () => {
-    if (typeof window !== "undefined") {
-      const host = window.location.host
-      if (host.startsWith("factura.localhost")) {
-        return `http://${host.replace("factura.localhost", "localhost")}/dashboard`
-      }
-      if (host.startsWith("factura.")) {
-        return `https://${host.replace("factura.", "")}/dashboard`
-      }
-    }
-    return "/dashboard"
-  }
-
-  const pendingQuery = useQuery({
+  const {data: pendingQuery_data} = useQuery({
     queryKey: ["pending-upload-count"],
     queryFn: getPendingUploadCount,
-    refetchInterval: 15_000,
     refetchOnWindowFocus: true,
-    staleTime: 0,
-    enabled: !isBillingSubdomain, // disable for billing
+    staleTime: 60_000,
+    enabled: !isBillingSubdomain,
   })
+
+  // Invalidate count on relevant real-time events (no polling)
+  useEffect(() => {
+    const latest = realtime.events[0]
+    if (!latest) return
+    const eventKey = `${latest.type}:${latest.timestamp}`
+    if (eventKey === lastEventRef.current) return
+    lastEventRef.current = eventKey
+    if (["invoice_uploaded", "processing_complete"].includes(latest.type)) {
+      queryClient.invalidateQueries({ queryKey: ["pending-upload-count"] })
+    }
+  }, [realtime.events, queryClient])
 
   // Dynamic nav items
   const billingNavMain = [
@@ -221,7 +251,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     ? billingNavMain
     : data.navMain.map((item) =>
         item.url === "/dashboard/upload"
-          ? { ...item, badge: pendingQuery.data?.count ?? undefined }
+          ? { ...item, badge: pendingQuery_data?.count ?? undefined }
           : item
       )
 
@@ -245,10 +275,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           <SidebarMenuItem>
             <SidebarMenuButton
               asChild
-              className="data-[slot=sidebar-menu-button]:p-1.5! h-auto [&_svg]:w-auto [&_svg]:h-auto"
+              className="data-[slot=sidebar-menu-button]:p-1.5! h-auto"
             >
               <a href={getLink("/")} className="flex items-center gap-3">
-                <LogoMark className="max-md:size-5 md:!size-9" />
+                <LogoMark className="size-5 md:size-9 shrink-0" />
                 <span className="text-base font-semibold tracking-tight">
                   {isBillingSubdomain ? "Fintral Factura" : "Fintral"}
                 </span>

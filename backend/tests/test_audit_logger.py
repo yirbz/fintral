@@ -154,7 +154,7 @@ class TestQuery:
     def test_returns_entries_for_tenant_and_org(self, test_tenant, test_org):
         db = SessionLocal()
         try:
-            before = db.query(type(entry := record(
+            db.query(type(_entry := record(
                 db, tenant_id=test_tenant.id, organization_id=test_org.id,
                 actor_id=_make_actor(), action="invoice.uploaded", summary="Test",
             ))).count()

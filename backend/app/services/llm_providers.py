@@ -1,9 +1,8 @@
 import logging
 import time
 import requests
-import json
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List
+from typing import Dict, Optional, List
 import openai
 
 logger = logging.getLogger(__name__)
@@ -267,23 +266,50 @@ class OllamaProvider(LLMProvider):
 
 
 class LLMProviderFactory:
-    """Factory to instantiate the appropriate LLMProvider based on API Key and Model Name."""
+    """Factory to instantiate the appropriate LLMProvider based on Model Name and API Key."""
+
+    @staticmethod
+    def detect_provider_type(api_key: str, configured_model: str) -> str:
+        """Detect provider type: 'gemini', 'openai', or 'ollama'.
+
+        Uses the model name as the primary signal (stable, human-readable),
+        and falls back to key prefix detection for backward compatibility.
+        """
+        key_lower = api_key.lower()
+        model_lower = configured_model.lower()
+
+        # 1. Explicit Ollama keyword
+        if key_lower in ("ollama", "local"):
+            return "ollama"
+
+        # 2. Model name detection (stable — won't change format)
+        if "gemini" in model_lower:
+            return "gemini"
+        if "gpt-" in model_lower:
+            return "openai"
+
+        # 3. Key prefix detection (backward compat)
+        if api_key.startswith("AIza"):
+            return "gemini"
+
+        # 4. Default
+        return "openai"
+
     @staticmethod
     def get_provider(api_key: Optional[str], configured_model: str, ollama_host: str = "http://localhost:11434", ollama_model: str = "gemma4:e2b-it-q4_K_M") -> LLMProvider:
         if not api_key:
             raise ValueError("API Key is not configured.")
-        
-        key_lower = api_key.lower()
-        if key_lower in ("ollama", "local"):
-            # Resolve model name: if configured model seems to be a Gemini/OpenAI default model, use the Ollama model instead.
+
+        provider_type = LLMProviderFactory.detect_provider_type(api_key, configured_model)
+
+        if provider_type == "ollama":
             model = ollama_model if "gemini" in configured_model or "gpt-" in configured_model else configured_model
             return OllamaProvider(host=ollama_host, model_name=model)
-        
-        if api_key.startswith("AIza"):
-            # Google Gemini
+
+        if provider_type == "gemini":
             model = configured_model if "gemini" in configured_model else "gemini-2.0-flash"
             return GeminiProvider(api_key=api_key, model_name=model)
-        
+
         # Default: OpenAI
         model = configured_model if "gpt-" in configured_model else "gpt-4o"
         return OpenAIProvider(api_key=api_key, model_name=model)

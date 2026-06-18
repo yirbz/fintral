@@ -215,7 +215,7 @@ function BillingSettingsPageInner() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Organization ──
-  const orgQuery = useQuery({
+  const {data: orgQuery_data, isLoading: orgQuery_isLoading} = useQuery({
     queryKey: ["billing-org"],
     queryFn: getOrganization,
   });
@@ -229,7 +229,7 @@ function BillingSettingsPageInner() {
   const [savingOrg, setSavingOrg] = useState(false);
 
   // ── Preferences ──
-  const settingsQuery = useQuery({ queryKey: ["billing-settings"], queryFn: getSettings });
+  const {data: settingsQuery_data} = useQuery({ queryKey: ["billing-settings"], queryFn: getSettings });
   const [editable, setEditable] = useState<SettingsPayload>({});
   const [theme, setTheme] = useState<ThemeMode>("system");
   const [savingPrefs, setSavingPrefs] = useState(false);
@@ -243,12 +243,12 @@ function BillingSettingsPageInner() {
   });
 
   // ── Sequences ──
-  const seqQuery = useQuery({
+  const {data: seqQuery_data, isLoading: seqQuery_isLoading, refetch: seqQuery_refetch} = useQuery({
     queryKey: ["billing", "sequences"],
     queryFn: () => billingApi.getSequences(),
   });
-  const activeSeqs = seqQuery.data?.filter((s) => s.is_active) ?? [];
-  const inactiveSeqs = seqQuery.data?.filter((s) => !s.is_active) ?? [];
+  const activeSeqs = seqQuery_data?.filter((s) => s.is_active) ?? [];
+  const inactiveSeqs = seqQuery_data?.filter((s) => !s.is_active) ?? [];
 
   // ── Hydrate from session ──
   useEffect(() => {
@@ -263,8 +263,8 @@ function BillingSettingsPageInner() {
 
   // ── Hydrate org ──
   useEffect(() => {
-    if (orgQuery.data) {
-      const d = orgQuery.data;
+    if (orgQuery_data) {
+      const d = orgQuery_data;
       setOrgName(d.name || "");
       setTaxId(d.tax_id || "");
       setOrgPhone(d.phone || "");
@@ -273,14 +273,14 @@ function BillingSettingsPageInner() {
       setCountry(d.country || "DOM");
       setFiscalAddress(d.fiscal_address || "");
     }
-  }, [orgQuery.data]);
+  }, [orgQuery_data]);
 
   // ── Hydrate preferences ──
   useEffect(() => {
-    if (settingsQuery.data) {
-      setEditable(structuredClone(settingsQuery.data));
+    if (settingsQuery_data) {
+      setEditable(structuredClone(settingsQuery_data));
     }
-  }, [settingsQuery.data]);
+  }, [settingsQuery_data]);
 
   useEffect(() => {
     const stored = localStorage.getItem("theme") as ThemeMode | null;
@@ -445,17 +445,17 @@ function BillingSettingsPageInner() {
   const currencyPreview = formatDemoCurrency(currencyPref);
 
   const hasOrgChanges =
-    orgName !== (orgQuery.data?.name || "") ||
-    taxId !== (orgQuery.data?.tax_id || "") ||
-    orgPhone !== (orgQuery.data?.phone || "") ||
-    orgEmail !== (orgQuery.data?.email_contact || "") ||
-    website !== (orgQuery.data?.website || "") ||
-    country !== (orgQuery.data?.country || "DOM") ||
-    fiscalAddress !== (orgQuery.data?.fiscal_address || "");
+    orgName !== (orgQuery_data?.name || "") ||
+    taxId !== (orgQuery_data?.tax_id || "") ||
+    orgPhone !== (orgQuery_data?.phone || "") ||
+    orgEmail !== (orgQuery_data?.email_contact || "") ||
+    website !== (orgQuery_data?.website || "") ||
+    country !== (orgQuery_data?.country || "DOM") ||
+    fiscalAddress !== (orgQuery_data?.fiscal_address || "");
 
-  const members = orgQuery.data?.members ?? [];
-  const memberCount = orgQuery.data?.member_count ?? 0;
-  const updatedAt = relativeTime(orgQuery.data?.updated_at ?? null);
+  const members = orgQuery_data?.members ?? [];
+  const memberCount = orgQuery_data?.member_count ?? 0;
+  const updatedAt = relativeTime(orgQuery_data?.updated_at ?? null);
   const isAdmin = role === "owner" || role === "admin";
 
    return (
@@ -734,9 +734,9 @@ function BillingSettingsPageInner() {
                           onChange={(e) => setTaxId(e.target.value.replace(/\D/g, ""))}
                           placeholder="000000000"
                           maxLength={11}
-                          disabled={!!orgQuery.data?.tax_id}
+                          disabled={!!orgQuery_data?.tax_id}
                           className={`pl-8 pr-14 font-mono tracking-wider ${
-                            orgQuery.data?.tax_id ? "bg-muted cursor-not-allowed opacity-80" : ""
+                            orgQuery_data?.tax_id ? "bg-muted cursor-not-allowed opacity-80" : ""
                           } ${
                             taxId.length > 0 && taxId.length !== 9 && taxId.length !== 11
                               ? "border-amber-500/50 focus-visible:ring-amber-500/30"
@@ -754,7 +754,7 @@ function BillingSettingsPageInner() {
                         </span>
                       </div>
                       <p className="mt-1 text-[10px] text-muted-foreground">
-                        {orgQuery.data?.tax_id 
+                        {orgQuery_data?.tax_id 
                           ? "El RNC/Cédula está bloqueado y no puede ser modificado por razones de cumplimiento fiscal." 
                           : "9 dígitos (empresa) · 11 dígitos (cédula) · Validación DGII"}
                       </p>
@@ -870,7 +870,7 @@ function BillingSettingsPageInner() {
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0">
-                  {orgQuery.isLoading ? (
+                  {orgQuery_isLoading ? (
                     <div className="flex items-center justify-center py-8">
                       <Loader2 className="size-4 animate-spin text-muted-foreground" />
                     </div>
@@ -1215,7 +1215,7 @@ function BillingSettingsPageInner() {
                 initialStatus={verificationStatus} 
                 onComplete={() => {
                   billingApi.getVerificationStatus().then(setVerificationStatus).catch(() => {});
-                  seqQuery.refetch();
+                  seqQuery_refetch();
                 }} 
               />
             )
@@ -1234,13 +1234,13 @@ function BillingSettingsPageInner() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {seqQuery.isLoading ? (
+              {seqQuery_isLoading ? (
                 <div className="space-y-2">
                   {Array.from({ length: 2 }).map((_, i) => (
                     <div key={i} className="h-16 rounded-lg bg-muted/50 animate-pulse" />
                   ))}
                 </div>
-              ) : seqQuery.data && seqQuery.data.length > 0 ? (
+              ) : seqQuery_data && seqQuery_data.length > 0 ? (
                 [...activeSeqs, ...inactiveSeqs].map((seq) => {
                   const usage = seq.end_number - seq.start_number + 1;
                   const consumed = seq.current_number - seq.start_number + 1;

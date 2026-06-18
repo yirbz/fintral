@@ -344,13 +344,10 @@ export default function HelpPage() {
                   <p className="text-[11px] text-muted-foreground">soporte@fintral.app</p>
                 </div>
               </a>
-              <a
-                href="#"
-                className="flex items-center gap-3 rounded-lg bg-muted/30 px-3 py-2.5 text-xs transition-colors hover:bg-muted/50"
-                onClick={(e) => {
-                  e.preventDefault();
-                  setShowEscalate(true);
-                }}
+              <button
+                type="button"
+                className="flex w-full items-center gap-3 rounded-lg bg-muted/30 px-3 py-2.5 text-xs transition-colors hover:bg-muted/50 text-left"
+                onClick={() => setShowEscalate(true)}
               >
                 <div className="flex size-7 items-center justify-center rounded-md bg-primary/10">
                   <MessageSquare className="size-3.5 text-primary" />
@@ -359,7 +356,7 @@ export default function HelpPage() {
                   <p className="font-medium">WhatsApp</p>
                   <p className="text-[11px] text-muted-foreground">Disponible pronto</p>
                 </div>
-              </a>
+              </button>
             </div>
           </div>
 
@@ -376,14 +373,13 @@ export default function HelpPage() {
                 { label: "Facturación electrónica e-CF", href: "#" },
                 { label: "Integración WhatsApp", href: "#" },
               ].map((link) => (
-                <a
+                <span
                   key={link.label}
-                  href={link.href}
-                  className="flex items-center gap-2 rounded-md px-2.5 py-2 text-[11px] text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground"
+                  className="flex items-center gap-2 rounded-md px-2.5 py-2 text-[11px] text-muted-foreground"
                 >
                   <ExternalLink className="size-3 shrink-0" />
                   {link.label}
-                </a>
+                </span>
               ))}
             </div>
           </div>

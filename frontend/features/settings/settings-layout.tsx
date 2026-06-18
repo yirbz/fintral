@@ -6,14 +6,11 @@ import {
   Settings2,
   User,
   Building2,
-  MessageCircle,
-  Webhook,
-  Mail,
-  Bell,
   CreditCard,
   Globe,
   KeyRound,
   Users,
+  ShieldCheck,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useSession } from "@/hooks/use-session";
@@ -31,12 +28,9 @@ const SECTIONS: SectionDef[] = [
   { id: "team", label: "Equipo", icon: Users },
   { id: "preferences", label: "Preferencias", icon: Settings2 },
   { id: "password", label: "Contraseña", icon: KeyRound },
-  { id: "notifications", label: "Notificaciones", icon: Bell },
-  { id: "email", label: "Correo", icon: Mail },
-  { id: "whatsapp", label: "WhatsApp", icon: MessageCircle },
-  { id: "webhooks", label: "Webhooks", icon: Webhook },
   { id: "integraciones", label: "Integraciones", icon: Globe },
   { id: "billing", label: "Facturación", icon: CreditCard },
+  { id: "certification", label: "Certificación", icon: ShieldCheck },
 ];
 
 export function SettingsLayout({ children }: { children: React.ReactNode }) {

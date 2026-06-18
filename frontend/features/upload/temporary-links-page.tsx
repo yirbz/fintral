@@ -58,6 +58,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { UploadNav } from "./upload-nav";
 
+function getPublicLinkUrl(token: string) {
+  if (typeof window !== "undefined") {
+    return `${window.location.origin}/upload/public?token=${token}`;
+  }
+  return "";
+}
+
 export function TemporaryLinksPage() {
   const queryClient = useQueryClient();
   const session = useSession();
@@ -71,13 +78,13 @@ export function TemporaryLinksPage() {
   const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
   const [emailPopoverOpen, setEmailPopoverOpen] = useState(false);
 
-  const orgQuery = useQuery({
+  const {data: orgQuery_data} = useQuery({
     queryKey: ["organization"],
     queryFn: () => getOrganization(),
     staleTime: 5 * 60_000,
   });
 
-  const orgMembers = orgQuery.data?.members ?? [];
+  const orgMembers = orgQuery_data?.members ?? [];
 
   const filteredMembers = useMemo(() => {
     if (!inviteDestination.trim()) return orgMembers;
@@ -89,31 +96,24 @@ export function TemporaryLinksPage() {
     );
   }, [orgMembers, inviteDestination]);
 
-  const linksQuery = useQuery({
+  const {data: linksQuery_data, isLoading: linksQuery_isLoading} = useQuery({
     queryKey: ["upload-links"],
     queryFn: () => listUploadLinks(),
     refetchInterval: 30_000,
   });
 
-  const invoicesQuery = useQuery({
+  const {data: invoicesQuery_data, isLoading: invoicesQuery_isLoading} = useQuery({
     queryKey: ["link-invoices", selectedLinkId],
     queryFn: () => getLinkInvoices(selectedLinkId!),
     enabled: !!selectedLinkId,
   });
 
-  const uploadLinks = linksQuery.data?.upload_links ?? [];
+  const uploadLinks = linksQuery_data?.upload_links ?? [];
 
   const activeLinks = uploadLinks.filter(
     (l) => l.is_active && new Date(l.expires_at).getTime() > Date.now()
   );
   const totalFilesUploaded = uploadLinks.reduce((sum, l) => sum + l.uploaded_count, 0);
-
-  const getPublicLinkUrl = (token: string) => {
-    if (typeof window !== "undefined") {
-      return `${window.location.origin}/upload/public?token=${token}`;
-    }
-    return "";
-  };
 
   const handleCreateLink = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -430,7 +430,7 @@ export function TemporaryLinksPage() {
               </div>
             </CardHeader>
             <CardContent className="px-4 sm:px-6 pb-4 sm:pb-6">
-              {linksQuery.isLoading ? (
+              {linksQuery_isLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="size-4 animate-spin text-muted-foreground" />
                 </div>
@@ -593,13 +593,13 @@ export function TemporaryLinksPage() {
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
-            {invoicesQuery.isLoading ? (
+            {invoicesQuery_isLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="size-5 animate-spin text-muted-foreground" />
               </div>
-            ) : invoicesQuery.data?.invoices && invoicesQuery.data.invoices.length > 0 ? (
+            ) : invoicesQuery_data?.invoices && invoicesQuery_data.invoices.length > 0 ? (
               <div className="space-y-3">
-                {invoicesQuery.data.invoices.map((invoice) => {
+                {invoicesQuery_data.invoices.map((invoice) => {
                   const formattedDate = invoice.invoice_date
                     ? new Date(invoice.invoice_date).toLocaleDateString("es-DO")
                     : "S/F";

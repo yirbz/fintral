@@ -182,6 +182,10 @@ class TestValidateDate:
         p = make_processor()
         assert p._validate_date("15/01/2026") == "2026-01-15"
 
+    def test_dd_mm_yy_slash_dominican_preference(self):
+        p = make_processor()
+        assert p._validate_date("07/04/26") == "2026-04-07"
+
     def test_dd_mm_yyyy_dash(self):
         p = make_processor()
         assert p._validate_date("15-01-2026") == "2026-01-15"

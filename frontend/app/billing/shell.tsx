@@ -8,39 +8,36 @@ import { getMe } from "@/lib/api/session";
 import { LogoLoader } from "@/components/logo-loader";
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
+import SessionExpiredOverlay from "@/components/session-expired-overlay";
 
-const LOAD_TIMEOUT = 5_000;
+const LOAD_TIMEOUT = 15_000;
 
 function isBackendUnreachable(err: unknown): boolean {
   if (err instanceof TypeError) return true;
   if (
-    err &&
-    typeof err === "object" &&
-    "code" in err &&
+    err && typeof err === "object" && "code" in err &&
     typeof (err as Record<string, unknown>).code === "string" &&
-    /ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT/.test(
-      (err as Record<string, string>).code
-    )
-  )
-    return true;
-  if (
-    err instanceof Error &&
-    /Failed to fetch|NetworkError|ECONNREFUSED|fetch|timeout|abort|proxy|aggregate/i.test(
-      err.message
-    )
-  )
-    return true;
+    /ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT/.test((err as Record<string, string>).code)
+  ) return true;
+  if (err instanceof Error && /Failed to fetch|NetworkError|ECONNREFUSED|fetch|timeout|abort|proxy|aggregate|abort/i.test(err.message)) return true;
   if (err && typeof err === "object" && "status" in err) {
-    const status = (err as { status: number }).status;
-    if (status >= 500) return true;
+    const s = (err as { status: number }).status;
+    if (s === 401) return false;
+    if (s >= 500) return true;
   }
+  if (err instanceof DOMException && err.name === "AbortError") return true;
   return false;
 }
+
+import { MobileNav } from "@/components/mobile-nav";
+import { ConnectionStatus } from "@/components/connection-status";
+import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
 
 export function BillingShell({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [connectionFailed, setConnectionFailed] = useState(false);
   const mountedRef = useRef(true);
+  const isRedirecting = useRef(false);
 
   const attempt = () => {
     setConnectionFailed(false);
@@ -54,10 +51,11 @@ export function BillingShell({ children }: { children: React.ReactNode }) {
       })
       .catch((err) => {
         clearTimeout(timeout);
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || isRedirecting.current) return;
         if (isBackendUnreachable(err)) {
           setConnectionFailed(true);
         } else {
+          isRedirecting.current = true;
           window.location.href = "/login";
         }
       });
@@ -66,9 +64,7 @@ export function BillingShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     mountedRef.current = true;
     attempt();
-    return () => {
-      mountedRef.current = false;
-    };
+    return () => { mountedRef.current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -107,13 +103,17 @@ export function BillingShell({ children }: { children: React.ReactNode }) {
         } as React.CSSProperties
       }
     >
+      <SessionExpiredOverlay />
       <AppSidebar variant="inset" />
       <SidebarInset>
         <SiteHeader />
-        <div className="@container/main flex-1 py-4 md:py-6">
+        <ConnectionStatus />
+        <div className="@container/main flex-1 py-4 md:py-6 has-mobile-nav">
           {children}
         </div>
+        <PwaInstallPrompt />
       </SidebarInset>
+      <MobileNav variant="billing" />
     </SidebarProvider>
   );
 }

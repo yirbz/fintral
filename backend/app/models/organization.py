@@ -1,6 +1,6 @@
 from app.utils.dates import utc_now
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship, validates
 from uuid_utils import uuid7
 
@@ -24,6 +24,7 @@ class Organization(Base):
     is_active = Column(Boolean, default=True)
     is_ecf_authorized = Column(Boolean, default=False, nullable=False)
     settings_json = Column(Text, default="{}")
+    e_cf_balance = Column(Integer, default=0, nullable=False)  # pre-purchased e-CF documents
     
     # Estado de certificación DGII/Alanube
     # Valores: "none" | "company_registered" | "certificate_uploaded" | "set_test_running" | "set_test_approved" | "certified" | "set_test_rejected"
@@ -34,7 +35,7 @@ class Organization(Base):
     economic_activity = Column(String, nullable=True)         # Actividad económica para DGII
     certification_step = Column(String, default="0", nullable=False)  # Paso actual del wizard (0=inicio, 1=datos empresa, 2=certificado, 3=test)
     is_certification_completed = Column(Boolean, default=False, nullable=False)  # ¿Terminó el proceso de certificación?
-    
+    is_deleted = Column(Boolean, default=False, nullable=False, server_default="false")
     deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), default=utc_now)
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)

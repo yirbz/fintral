@@ -1,7 +1,8 @@
-@import "tw-animate-css";
+@import "../node_modules/tw-animate-css/dist/tw-animate.css";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
 
 /*
  * Fintral Design System
@@ -54,11 +55,11 @@
     --sidebar-ring: 199 89% 48%;
 
     /* ── Brand (marketing / landing) ── */
-    --brand-primary: #533afd;
-    --brand-primary-deep: #4434d4;
-    --brand-primary-press: #2e2b8c;
-    --brand-primary-soft: #665efd;
-    --brand-primary-subdued: #b9b9f9;
+    --brand-primary: #0EA5E9;
+    --brand-primary-deep: #0284C7;
+    --brand-primary-press: #0369A1;
+    --brand-primary-soft: #38BDF8;
+    --brand-primary-subdued: #E0F2FE;
     --brand-dark-900: #1c1e54;
     --brand-ink: #0d253d;
     --brand-ink-secondary: #273951;
@@ -446,3 +447,82 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* ── PWA & Mobile ── */
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --mobile-nav-height: 4rem;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Prevent overscroll bounce in standalone PWA */
+@media (display-mode: standalone) {
+  body {
+    overscroll-behavior-y: contain;
+  }
+}
+
+/* Bottom padding for content when mobile nav is visible */
+@media (max-width: 1023px) {
+  .has-mobile-nav {
+    padding-bottom: calc(var(--mobile-nav-height) + var(--safe-area-bottom) + 2rem) !important;
+  }
+}
+
+/* Connection status animations */
+@keyframes status-slide-down {
+  0% { transform: translateY(-100%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes status-slide-up {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-100%); opacity: 0; }
+}
+
+.animate-status-enter {
+  animation: status-slide-down 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-status-exit {
+  animation: status-slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ── Custom smooth animation for the mobile navigation sidebar ── */
+[data-sidebar="sidebar"][data-mobile="true"][data-state="open"] {
+  animation: sidebar-slide-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+}
+
+[data-sidebar="sidebar"][data-mobile="true"][data-state="closed"] {
+  animation: sidebar-slide-out 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+}
+
+@keyframes sidebar-slide-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes sidebar-slide-out {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+

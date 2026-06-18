@@ -255,8 +255,7 @@ Abre `http://localhost:8000` y listo. 🎉
 
 ```bash
 # Obligatorio
-OPENAI_API_KEY=sk-tu-clave-aqui
-SECRET_KEY=genera-un-string-aleatorio-largo
+APP_JWT_SECRET_KEY=genera-un-string-aleatorio-largo
 
 # Admin inicial (se crea automáticamente)
 ADMIN_EMAIL=admin@tuempresa.com
@@ -419,7 +418,7 @@ heroku addons:create heroku-redis:mini
 
 # Configurar variables
 heroku config:set OPENAI_API_KEY=sk-tu-clave
-heroku config:set SECRET_KEY=$(openssl rand -hex 32)
+heroku config:set APP_JWT_SECRET_KEY=$(openssl rand -hex 32)
 heroku config:set ADMIN_EMAIL=admin@tuempresa.com
 heroku config:set ADMIN_PASSWORD=tu-password-seguro
 
@@ -438,8 +437,7 @@ Más detalles en [docs/heroku-setup.md](docs/heroku-setup.md).
 
 ```bash
 # Core (obligatorio)
-OPENAI_API_KEY=sk-proj-...
-SECRET_KEY=$(openssl rand -hex 32)
+APP_JWT_SECRET_KEY=$(openssl rand -hex 32)
 DATABASE_URL=postgresql://user:pass@host:5432/invoiceflow
 REDIS_URL=redis://host:6379/0
 PORT=8000
@@ -466,7 +464,7 @@ WEBHOOK_SECRET=secret-para-firmar-payloads
 
 #### Seguridad Checklist
 
-- [ ] Cambiar `SECRET_KEY` por valor aleatorio de 64+ caracteres
+- [ ] Cambiar `APP_JWT_SECRET_KEY` por valor aleatorio de 64+ caracteres
 - [ ] Cambiar `ADMIN_PASSWORD` inmediatamente después del primer login
 - [ ] Usar HTTPS en producción (Heroku lo provee gratis)
 - [ ] Configurar límites de OpenAI para evitar sobrecostos

@@ -95,16 +95,16 @@ function ToggleSwitch({
 
 export function PreferencesPage() {
   const queryClient = useQueryClient();
-  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings });
+  const {data: settingsQuery_data} = useQuery({ queryKey: ["settings"], queryFn: getSettings });
 
   const [editable, setEditable] = useState<SettingsPayload>({});
   const [theme, setTheme] = useState<ThemeMode>("system");
 
   useEffect(() => {
-    if (settingsQuery.data) {
-      setEditable(structuredClone(settingsQuery.data));
+    if (settingsQuery_data) {
+      setEditable(structuredClone(settingsQuery_data));
     }
-  }, [settingsQuery.data]);
+  }, [settingsQuery_data]);
 
   // Load theme from localStorage on mount
   useEffect(() => {

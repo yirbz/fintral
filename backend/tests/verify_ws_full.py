@@ -145,13 +145,28 @@ async def main():
     print("🚀 Iniciando pruebas de correcciones WebSocket y estadísticas")
     print("=" * 60)
     
-    # Probar endpoints HTTP primero
-    test_statistics_endpoint()
-    test_websocket_status_endpoint() 
-    test_security_config()
+    results = []
     
+    # Probar endpoints HTTP primero
+    for test_func in [test_statistics_endpoint, test_websocket_status_endpoint, test_security_config]:
+        try:
+            test_func()
+            results.append(True)
+        except AssertionError:
+            results.append(False)
+        except Exception as e:
+            print(f"❌ Error inesperado en {test_func.__name__}: {e}")
+            results.append(False)
+            
     # Probar WebSocket al final
-    await test_websocket_connection()
+    try:
+        await test_websocket_connection()
+        results.append(True)
+    except AssertionError:
+        results.append(False)
+    except Exception as e:
+        print(f"❌ Error inesperado en test_websocket_connection: {e}")
+        results.append(False)
     
     # Resumen de resultados
     print("\n" + "=" * 60)

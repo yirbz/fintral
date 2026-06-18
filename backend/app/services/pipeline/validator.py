@@ -6,10 +6,7 @@ from app.utils.validation import validate_rnc_checksum, validate_cedula_checksum
 
 logger = logging.getLogger(__name__)
 
-NCF_PREFIX_MAP = {
-    "B": "expense",
-    "E": "income",
-}
+# NCF prefixes in Dominican Republic (B = traditional physical, E = electronic)
 
 PAYMENT_METHOD_DEFAULT_GUESS = {
     "services": "2",
@@ -35,6 +32,8 @@ class PostExtractionValidator:
         warnings: list = data.get("audit_warnings", [])
         if not isinstance(warnings, list):
             warnings = []
+
+
 
         # Ensure ecf_type is inferred if missing but invoice_number matches e-NCF pattern
         ncf = data.get("invoice_number")
@@ -135,28 +134,10 @@ class PostExtractionValidator:
         return None
 
     def _check_ncf_type(self, ncf: str, transaction_type: str, data: Optional[Dict[str, Any]] = None) -> Optional[str]:
-        """Cross-check NCF prefix letter against transaction_type.
-
-        For e-CF NCFs (E prefix + ecf_type present), the E means "Electronic"
-        not "Income" — skip the traditional prefix check.
-        """
+        """Validate NCF prefix is B or E."""
         prefix = ncf[0].upper() if ncf else None
-        if not prefix:
-            return None
-        # e-CF NCFs use E prefix for "Electronic" — skip the income/expense mapping
-        if prefix == "E" and data and data.get("ecf_type"):
-            return None
-        if prefix not in NCF_PREFIX_MAP:
-            return None
-        expected_type = NCF_PREFIX_MAP[prefix]
-        if expected_type != transaction_type:
-            label = "ingreso" if expected_type == "income" else "gasto"
-            actual_label = "ingreso" if transaction_type == "income" else "gasto"
-            return (
-                f"El NCF \"{ncf}\" (prefijo {prefix}) corresponde a {label}, "
-                f"pero el tipo de transacción es {actual_label}. "
-                "Verifica el tipo de comprobante."
-            )
+        if prefix and prefix not in ("B", "E"):
+            return f"El NCF '{ncf}' tiene un prefijo inválido '{prefix}'. Los comprobantes en la República Dominicana deben iniciar con 'B' o 'E'."
         return None
 
     def _check_itbis_rules(self, data: Dict[str, Any], ecf_type: Optional[str] = None) -> Optional[str]:
@@ -168,7 +149,6 @@ class PostExtractionValidator:
         """
         total = data.get("total_amount")
         tax = data.get("tax_amount")
-        transaction_type = data.get("transaction_type")
 
         if total is None or tax is None:
             return None
@@ -182,12 +162,6 @@ class PostExtractionValidator:
         if ecf_type in ("14", "44", "16", "46"):
             if tax > 0:
                 return "Para comprobantes de Regímenes Especiales (B14/E44) o Exportaciones (B16/E46), el ITBIS debe ser 0% (exento/tasa cero)."
-            return None
-
-        # Non-deductible checks for expenses
-        if transaction_type == "expense" and ecf_type in ("02", "32", "17", "47"):
-            if tax > 0:
-                return "Las facturas de consumo (B02/E32) o pagos al exterior (B17/E47) no generan crédito fiscal de ITBIS por adelantar."
             return None
 
         if tax <= 0:
@@ -229,17 +203,20 @@ class PostExtractionValidator:
                 )
             return None
 
-        # Simple invoice: verify against standard rates (18% or 16% of total)
+        # Simple invoice: verify against standard rates (18%, 16%, or 9% of total)
         expected_18 = total * 18.0 / 118.0
         expected_16 = total * 16.0 / 116.0
+        expected_9 = total * 9.0 / 109.0
 
         diff_18 = abs(tax - expected_18) / expected_18 if expected_18 > 0 else 1.0
         diff_16 = abs(tax - expected_16) / expected_16 if expected_16 > 0 else 1.0
+        diff_9 = abs(tax - expected_9) / expected_9 if expected_9 > 0 else 1.0
 
-        if diff_18 > 0.05 and diff_16 > 0.05:
+        if diff_18 > 0.05 and diff_16 > 0.05 and diff_9 > 0.05:
             return (
-                f"El ITBIS ({tax:.2f}) no coincide con el 18% o 16% del total "
-                f"(esperado ≈ {expected_18:.2f} o {expected_16:.2f}). Verifica el monto."
+                f"El ITBIS ({tax:.2f}) no coincide con la tasa del 18%, 16% o 9% del total "
+                f"(esperados ≈ {expected_18:.2f}, {expected_16:.2f} o {expected_9:.2f}). "
+                "Verifica el monto o si contiene artículos exentos."
             )
         return None
 

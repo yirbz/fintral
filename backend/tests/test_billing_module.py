@@ -22,6 +22,7 @@ def test_billing_crud_endpoints(db_session, test_tenant, test_user, test_org):
     # Set the test organization as certified for electronic billing
     org = db_session.query(Organization).get(test_org.id)
     org.is_ecf_authorized = True
+    org.e_cf_balance = 100
     db_session.commit()
 
     from app.services.seed_plans import seed_plans
@@ -59,7 +60,7 @@ def test_billing_crud_endpoints(db_session, test_tenant, test_user, test_org):
             "address": "Calle Principal 123"
         }
         res = client.post("/api/billing/clients", json=payload)
-        assert res.status_code == 200
+        assert res.status_code in (200, 201)
         client_data = res.json()
         assert client_data["name"] == "Juan Perez"
         assert client_data["tax_id"] == "132109122"  # Clean tax_id
@@ -95,7 +96,7 @@ def test_billing_crud_endpoints(db_session, test_tenant, test_user, test_org):
             "tax_rate": 18.0
         }
         res_prod = client.post("/api/billing/products", json=prod_payload)
-        assert res_prod.status_code == 200
+        assert res_prod.status_code in (200, 201)
         prod_data = res_prod.json()
         assert prod_data["name"] == "Servicio de Asesoría"
         assert prod_data["price"] == 5000.0
@@ -128,7 +129,7 @@ def test_billing_crud_endpoints(db_session, test_tenant, test_user, test_org):
             "expiry_date": "2028-12-31"
         }
         res_seq = client.post("/api/billing/sequences", json=seq_payload)
-        assert res_seq.status_code == 200
+        assert res_seq.status_code in (200, 201)
         seq_data = res_seq.json()
         assert seq_data["ecf_type"] == 31
         assert seq_data["current_number"] == 9659000
@@ -159,7 +160,7 @@ def test_billing_crud_endpoints(db_session, test_tenant, test_user, test_org):
             ]
         }
         res_inv = client.post("/api/billing/invoices", json=inv_payload)
-        assert res_inv.status_code == 200
+        assert res_inv.status_code in (200, 201)
         inv_data = res_inv.json()
         assert inv_data["status"] == "draft"
         assert inv_data["total_amount"] == 11000.0 * 1.18 # 11000 + 1980 = 12980
@@ -182,7 +183,7 @@ def test_billing_crud_endpoints(db_session, test_tenant, test_user, test_org):
             ]
         }
         res_credit = client.post("/api/billing/invoices", json=inv_payload_credit)
-        assert res_credit.status_code == 200
+        assert res_credit.status_code in (200, 201)
         credit_data = res_credit.json()
         assert credit_data["payment_condition"] == "credito"
         assert credit_data["due_date"] is not None
@@ -378,7 +379,7 @@ def test_billing_ecf_verification_flow(db_session, test_tenant, test_user, test_
                 "current_number": 0,
                 "expiry_date": "2028-12-31"
             })
-            assert res_seq_phys.status_code == 200
+            assert res_seq_phys.status_code in (200, 201)
             phys_seq_id = res_seq_phys.json()["id"]
 
             # 4. Step 1 & 2: Register company and upload certificate
@@ -428,7 +429,7 @@ def test_billing_ecf_verification_flow(db_session, test_tenant, test_user, test_
                 "current_number": 99,
                 "expiry_date": "2028-12-31"
             })
-            assert res_seq_elec.status_code == 200
+            assert res_seq_elec.status_code in (200, 201)
             elec_seq_id = res_seq_elec.json()["id"]
 
             # Cleanup

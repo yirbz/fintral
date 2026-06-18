@@ -16,10 +16,15 @@ function isOnPublicPage(): boolean {
   if (typeof window === "undefined") return true;
   const path = window.location.pathname;
   return (
+    path === "/" ||
     path.startsWith("/login") ||
     path.startsWith("/logout") ||
     path.startsWith("/signup") ||
-    path.startsWith("/upload/public")
+    path.startsWith("/plans") ||
+    path.startsWith("/upload/public") ||
+    path.startsWith("/forgot") ||
+    path.startsWith("/docs") ||
+    path.startsWith("/verify")
   );
 }
 
@@ -65,7 +70,7 @@ export async function apiFetch<T>(
 
     if (response.status === 401 && !isOnPublicPage()) {
       try {
-        window.location.href = "/login";
+        window.dispatchEvent(new CustomEvent("auth:unauthorized", { detail: { path: input, message: errorMessage } }));
       } catch { /* noop */ }
       throw new ApiError(errorMessage, response.status, errorPayload);
     }

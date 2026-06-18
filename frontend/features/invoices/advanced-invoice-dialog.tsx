@@ -101,12 +101,13 @@ export function AdvancedInvoiceDialog({
 
   const { saveDraftDebounced, loadDraft, clearDraft } = useFormDraft<Record<string, unknown>>("manual-invoice-draft");
   const restored = useRef(false);
+  const openRef = useRef(open);
+  openRef.current = open;
 
   const isExpense = transactionType === "expense";
 
-  useEffect(() => {
-    if (!open) return;
-    if (restored.current) return;
+  if (open && !restored.current) {
+    restored.current = true;
     const draft = loadDraft();
     if (draft) {
       if (draft.vendorName) setVendorName(draft.vendorName as string);
@@ -128,9 +129,7 @@ export function AdvancedInvoiceDialog({
       if (draft.dueDate) setDueDate(draft.dueDate as string);
       if (draft.ncfModified) setNcfModified(draft.ncfModified as string);
       if (draft.lineItems) setLineItems(draft.lineItems as LineItem[]);
-      return; // draft takes priority over initial
-    }
-    if (initial) {
+    } else if (initial) {
       if (initial.vendor_name) setVendorName(initial.vendor_name);
       if (initial.vendor_tax_id) setVendorTaxId(initial.vendor_tax_id);
       if (initial.vendor_country) setVendorCountry(initial.vendor_country);
@@ -147,11 +146,10 @@ export function AdvancedInvoiceDialog({
       if (initial.tax_amount) setTaxAmount(String(initial.tax_amount));
       if (initial.description) setDescription(initial.description);
     }
-    restored.current = true;
-  }, [open, initial, loadDraft]);
+  }
 
   useEffect(() => {
-    if (!open) return;
+    if (!openRef.current) return;
     saveDraftDebounced({
       vendorName, vendorTaxId, vendorCountry, vendorFiscalAddress,
       invoiceNumber, invoiceDate, ncfModified, category,
@@ -159,7 +157,7 @@ export function AdvancedInvoiceDialog({
       goodsType, paymentMethod, paymentCondition, dueDate, lineItems,
     });
   }, [
-    open, vendorName, vendorTaxId, vendorCountry, vendorFiscalAddress,
+    vendorName, vendorTaxId, vendorCountry, vendorFiscalAddress,
     invoiceNumber, invoiceDate, ncfModified, category,
     totalAmount, taxAmount, currency, transactionType, description,
     goodsType, paymentMethod, paymentCondition, dueDate, lineItems, saveDraftDebounced,

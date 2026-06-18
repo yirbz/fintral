@@ -212,13 +212,14 @@ function ChartTooltipContent({
       ) : null}
       <div className="grid gap-1.5">
         {payload
-          .filter((item) => item.type !== "none")
-          .map((item, index) => {
+          .reduce<React.ReactNode[]>((acc, item) => {
+            if (item.type === "none") return acc;
             const key = `${nameKey ?? item.name ?? item.dataKey ?? "value"}`
             const itemConfig = getPayloadConfigFromPayload(config, item, key)
             const indicatorColor = color ?? item.payload?.fill ?? item.color
+            const index = acc.length
 
-            return (
+            acc.push(
               <div
                 key={index}
                 className={cn(
@@ -288,7 +289,9 @@ function ChartTooltipContent({
                 )}
               </div>
             )
-          })}
+
+            return acc
+          }, [])}
       </div>
     </div>
   )
@@ -321,12 +324,13 @@ function ChartLegendContent({
       )}
     >
       {payload
-        .filter((item) => item.type !== "none")
-        .map((item, index) => {
+        .reduce<React.ReactNode[]>((acc, item) => {
+          if (item.type === "none") return acc;
           const key = `${nameKey ?? item.dataKey ?? "value"}`
           const itemConfig = getPayloadConfigFromPayload(config, item, key)
+          const index = acc.length
 
-          return (
+          acc.push(
             <div
               key={index}
               className={cn(
@@ -346,7 +350,9 @@ function ChartLegendContent({
               {itemConfig?.label}
             </div>
           )
-        })}
+
+          return acc
+        }, [])}
     </div>
   )
 }

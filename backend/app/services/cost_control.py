@@ -48,6 +48,30 @@ class CostControlService:
         """
         Verifica si se pueden hacer más requests según rate limits
         """
+        from app.core.redis import get_redis_client
+        r = get_redis_client()
+        if r:
+            try:
+                now_ts = time.time()
+                one_hour_ago = now_ts - 3600
+                key = "cost_control:requests"
+                r.zremrangebyscore(key, 0, one_hour_ago)
+                requests_this_hour = r.zcard(key)
+                if requests_this_hour >= self.hourly_limit_requests:
+                    return {
+                        "allowed": False,
+                        "reason": "hourly_limit_exceeded",
+                        "requests_this_hour": requests_this_hour,
+                        "limit": self.hourly_limit_requests
+                    }
+                return {
+                    "allowed": True,
+                    "requests_this_hour": requests_this_hour,
+                    "limit": self.hourly_limit_requests
+                }
+            except Exception as e:
+                print(f"⚠️ Error check_rate_limits en Redis: {e}")
+
         now = datetime.now()
         
         # Limpiar requests viejos (más de 1 hora)
@@ -129,8 +153,20 @@ class CostControlService:
         """
         Registra el inicio de una request
         """
+        import uuid
+        from app.core.redis import get_redis_client
+        r = get_redis_client()
+        now_ts = time.time()
+        if r:
+            try:
+                key = "cost_control:requests"
+                r.zadd(key, {f"{now_ts}-{uuid.uuid4().hex}": now_ts})
+                r.expire(key, 3600)
+            except Exception as e:
+                print(f"⚠️ Error record_request_start en Redis: {e}")
+
         self.request_history.append(datetime.now())
-        return time.time()  # timestamp para medir duración
+        return now_ts  # timestamp para medir duración
     
     def calculate_cost(
         self, 
@@ -199,6 +235,17 @@ class CostControlService:
         if org_id:
             base_filter.append(Invoice.organization_id == org_id)
 
+        # Obtener requests de la última hora desde Redis si está disponible
+        from app.core.redis import get_redis_client
+        r = get_redis_client()
+        current_hour_requests = len(self.request_history)
+        if r:
+            try:
+                r.zremrangebyscore("cost_control:requests", 0, time.time() - 3600)
+                current_hour_requests = r.zcard("cost_control:requests")
+            except Exception:
+                pass
+
         # Estadísticas generales
         total_cost = db.query(func.sum(Invoice.openai_cost_usd)).filter(
             Invoice.openai_cost_usd.isnot(None),
@@ -211,7 +258,7 @@ class CostControlService:
         ).scalar() or 0
         
         total_requests = db.query(Invoice).filter(
-            Invoice.processed == True,
+            Invoice.processed,
             Invoice.openai_cost_usd.isnot(None),
             *base_filter
         ).count()
@@ -231,7 +278,7 @@ class CostControlService:
         daily_requests = db.query(Invoice).filter(
             Invoice.created_at >= today_start,
             Invoice.created_at <= today_end,
-            Invoice.processed == True,
+            Invoice.processed,
             Invoice.openai_cost_usd.isnot(None),
             *base_filter
         ).count()
@@ -301,7 +348,7 @@ class CostControlService:
             },
             "rate_limits": {
                 "hourly_limit": self.hourly_limit_requests,
-                "current_hour_requests": len(self.request_history)
+                "current_hour_requests": current_hour_requests
             },
             "model_breakdown": model_breakdown,
             "weekly_breakdown": weekly_breakdown

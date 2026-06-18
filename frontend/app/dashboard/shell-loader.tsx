@@ -9,24 +9,26 @@ import { SiteHeader } from "@/components/site-header";
 import { getMe } from "@/lib/api/session";
 import { LogoLoader } from "@/components/logo-loader";
 import { Button } from "@/components/ui/button";
-import { RefreshCw } from "lucide-react";
+import { AlertCircle, RefreshCw } from "lucide-react";
+import SessionExpiredOverlay from "@/components/session-expired-overlay";
+import { useSession } from "@/hooks/use-session";
 
-const LOAD_TIMEOUT = 3_000;
+const LOAD_TIMEOUT = 15_000;
 
 function isBackendUnreachable(err: unknown): boolean {
   if (err instanceof TypeError) return true;
   if (
-    err &&
-    typeof err === "object" &&
-    "code" in err &&
+    err && typeof err === "object" && "code" in err &&
     typeof (err as Record<string, unknown>).code === "string" &&
     /ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT/.test((err as Record<string, string>).code)
   ) return true;
-  if (err instanceof Error && /Failed to fetch|NetworkError|ECONNREFUSED|fetch|timeout|abort|proxy|aggregate/i.test(err.message)) return true;
+  if (err instanceof Error && /Failed to fetch|NetworkError|ECONNREFUSED|fetch|timeout|abort|proxy|aggregate|abort/i.test(err.message)) return true;
   if (err && typeof err === "object" && "status" in err) {
-    const status = (err as { status: number }).status;
-    if (status >= 500) return true;
+    const s = (err as { status: number }).status;
+    if (s === 401) return false; // auth error — not unreachable
+    if (s >= 500) return true;
   }
+  if (err instanceof DOMException && err.name === "AbortError") return true;
   return false;
 }
 
@@ -102,10 +104,58 @@ function BotIllustration() {
   );
 }
 
+import { MobileNav } from "@/components/mobile-nav";
+import { ConnectionStatus } from "@/components/connection-status";
+import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
+
+function SoftDeletedOrgBanner() {
+  const { data: session } = useSession();
+  const org = session?.organization;
+
+  if (!org?.is_deleted) return null;
+
+  return (
+    <div className="mx-4 md:mx-6 mb-4 md:mb-6 p-4 rounded-xl border border-destructive/20 bg-destructive/5 text-destructive backdrop-blur-md animate-in fade-in slide-in-from-top-4 duration-300">
+      <div className="flex items-start gap-3">
+        <div className="p-2 rounded-lg bg-destructive/10 shrink-0">
+          <AlertCircle className="size-5 text-destructive" />
+        </div>
+        <div className="space-y-1">
+          <h4 className="text-sm font-semibold tracking-tight text-destructive">
+            Organización marcada para eliminación
+          </h4>
+          <p className="text-xs text-destructive/80 leading-relaxed max-w-[60ch]">
+            Esta organización está en proceso de eliminación. Tienes acceso temporal de solo lectura para exportar y descargar toda tu información fiscal (comprobantes 606, 607, 608 e historial de facturas) antes de la eliminación definitiva.
+          </p>
+          <div className="pt-2 flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[10px] font-medium border-destructive/20 bg-transparent text-destructive hover:bg-destructive/10 active:scale-[0.97] transition-all"
+              onClick={() => window.location.href = "/dashboard/dgii"}
+            >
+              Ir a Panel DGII (Exportar)
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[10px] font-medium border-destructive/20 bg-transparent text-destructive hover:bg-destructive/10 active:scale-[0.97] transition-all"
+              onClick={() => window.location.href = "/dashboard/invoices"}
+            >
+              Ver Facturas
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ShellLoader({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [connectionFailed, setConnectionFailed] = useState(false);
   const mountedRef = useRef(true);
+  const isRedirecting = useRef(false);
 
   const attempt = () => {
     setConnectionFailed(false);
@@ -119,10 +169,11 @@ export function ShellLoader({ children }: { children: React.ReactNode }) {
       })
       .catch((err) => {
         clearTimeout(timeout);
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || isRedirecting.current) return;
         if (isBackendUnreachable(err)) {
           setConnectionFailed(true);
         } else {
+          isRedirecting.current = true;
           window.location.href = "/login";
         }
       });
@@ -173,23 +224,28 @@ export function ShellLoader({ children }: { children: React.ReactNode }) {
   return (
     <RealtimeProvider>
       <OrgProvider>
+        <SessionExpiredOverlay />
         <SidebarProvider
-        style={
-          {
-            "--sidebar-width": "18rem",
-            "--header-height": "4rem",
-          } as React.CSSProperties
-        }
-      >
-        <AppSidebar variant="inset" />
-        <SidebarInset>
-          <SiteHeader />
-          <div className="@container/main flex flex-1 flex-col py-4 md:py-6">
-            {children}
-          </div>
-        </SidebarInset>
-      </SidebarProvider>
-    </OrgProvider>
-  </RealtimeProvider>
+          style={
+            {
+              "--sidebar-width": "18rem",
+              "--header-height": "4rem",
+            } as React.CSSProperties
+          }
+        >
+          <AppSidebar variant="inset" />
+          <SidebarInset>
+            <SiteHeader />
+            <ConnectionStatus />
+            <div className="@container/main flex flex-1 flex-col py-4 md:py-6 has-mobile-nav">
+              <SoftDeletedOrgBanner />
+              {children}
+            </div>
+            <PwaInstallPrompt />
+          </SidebarInset>
+          <MobileNav variant="dashboard" />
+        </SidebarProvider>
+      </OrgProvider>
+    </RealtimeProvider>
   );
 }

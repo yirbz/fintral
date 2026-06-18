@@ -8,8 +8,6 @@ Create Date: 2026-05-24 13:47:55.654869
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
-import app
 
 revision: str = '4064f55f9792'
 down_revision: Union[str, Sequence[str], None] = '3a1b2c3d4e5f'
@@ -30,7 +28,17 @@ def upgrade() -> None:
     op.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS payment_status VARCHAR(20)")
     op.execute("CREATE INDEX IF NOT EXISTS ix_invoices_parent_invoice_id ON invoices (parent_invoice_id)")
     op.execute("CREATE INDEX IF NOT EXISTS ix_invoices_status ON invoices (status)")
-    op.execute("ALTER TABLE invoices ADD CONSTRAINT fk_invoices_parent_invoice FOREIGN KEY (parent_invoice_id) REFERENCES invoices (id)")
+    op.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'fk_invoices_parent_invoice'
+            ) THEN
+                ALTER TABLE invoices ADD CONSTRAINT fk_invoices_parent_invoice
+                    FOREIGN KEY (parent_invoice_id) REFERENCES invoices (id);
+            END IF;
+        END $$;
+    """)
 
 
 def downgrade() -> None:

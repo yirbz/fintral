@@ -25,6 +25,8 @@ export interface SessionPayload {
     website: string | null;
     country: string | null;
     fiscal_address: string | null;
+    is_deleted?: boolean;
+    deleted_at?: string | null;
   };
   role: string;
   company_name: string;
@@ -104,6 +106,8 @@ export interface Invoice {
     tone: "slate" | "sky" | "amber" | "red" | "emerald" | "indigo";
     locked: boolean;
   } | null;
+  dgii_validation_status?: string | null;
+  dgii_validation_detail?: string | null;
 }
 
 export interface NotificationItem {
@@ -205,6 +209,7 @@ export interface ChildModificatory {
   invoice_date: string | null;
   modification_reason: string | null;
   is_modificatory: boolean;
+  modificatory_sign: number;
   status: string;
   created_at: string | null;
 }

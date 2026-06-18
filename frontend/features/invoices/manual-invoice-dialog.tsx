@@ -75,52 +75,61 @@ export function ManualInvoiceDialog({
   const [vendorFiscalAddress, setVendorFiscalAddress] = useState("");
 
   const [verifyingVendorRnc, setVerifyingVendorRnc] = useState(false);
-  const [vendorRncFeedback, setVendorRncFeedback] = useState<{
+  const [vendorRncApiResult, setVendorRncApiResult] = useState<{
     success: boolean;
     name?: string;
     message?: string;
   } | null>(null);
 
+  const cleanRnc = dgiiService.cleanRNC(vendorTaxId);
+  const rncValidLength = cleanRnc.length === 9 || cleanRnc.length === 11;
+  const rncChecksumOk = rncValidLength && dgiiService.isValidRNC(cleanRnc);
+
+  type RncFeedback = {
+    success: boolean;
+    name?: string;
+    message?: string;
+  };
+
+  const rncFormatError: RncFeedback | null = !rncValidLength
+    ? null
+    : !rncChecksumOk
+      ? { success: false, message: "RNC/Cédula inválido (checksum)" }
+      : null;
+
+  const vendorRncFeedback = rncFormatError ?? vendorRncApiResult;
+
+  const openRef = useRef(open);
+  openRef.current = open;
+  const rncEffectActive = useRef(false);
   useEffect(() => {
-    if (!open) {
-      setVendorRncFeedback(null);
-      setVerifyingVendorRnc(false);
-      return;
-    }
-    const clean = dgiiService.cleanRNC(vendorTaxId);
-    if (clean.length === 9 || clean.length === 11) {
-      if (dgiiService.isValidRNC(clean)) {
-        let active = true;
-        const lookup = async () => {
-          setVerifyingVendorRnc(true);
-          setVendorRncFeedback(null);
-          try {
-            const data = await consultRncAction(clean);
-            if (!active) return;
-            if (data && data.name) {
-              setVendorRncFeedback({ success: true, name: data.name });
-              if (!vendorName.trim()) {
-                setVendorName(data.name);
-              }
-            } else {
-              setVendorRncFeedback({ success: false, message: "No encontrado en padrón DGII" });
-            }
-          } catch (e) {
-            if (!active) return;
-            setVendorRncFeedback({ success: false, message: "Error de conexión con DGII" });
-          } finally {
-            if (active) setVerifyingVendorRnc(false);
+    if (!openRef.current) return;
+    if (!rncValidLength || !rncChecksumOk) return;
+    rncEffectActive.current = true;
+    const lookup = async () => {
+      setVerifyingVendorRnc(true);
+      setVendorRncApiResult(null);
+      try {
+        const data = await consultRncAction(cleanRnc);
+        if (!rncEffectActive.current) return;
+        if (data && data.name) {
+          setVendorRncApiResult({ success: true, name: data.name });
+          if (!vendorName.trim()) {
+            setVendorName(data.name);
           }
-        };
-        lookup();
-        return () => { active = false; };
-      } else {
-        setVendorRncFeedback({ success: false, message: "RNC/Cédula inválido (checksum)" });
+        } else {
+          setVendorRncApiResult({ success: false, message: "No encontrado en padrón DGII" });
+        }
+      } catch (e) {
+        if (!rncEffectActive.current) return;
+        setVendorRncApiResult({ success: false, message: "Error de conexión con DGII" });
+      } finally {
+        if (rncEffectActive.current) setVerifyingVendorRnc(false);
       }
-    } else {
-      setVendorRncFeedback(null);
-    }
-  }, [vendorTaxId, open, vendorName]);
+    };
+    lookup();
+    return () => { rncEffectActive.current = false; };
+  }, [cleanRnc, rncValidLength, rncChecksumOk, vendorName]);
 
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
@@ -143,9 +152,8 @@ export function ManualInvoiceDialog({
   const { saveDraftDebounced, loadDraft, clearDraft } = useFormDraft<Record<string, unknown>>("manual-invoice-draft");
   const restored = useRef(false);
 
-  useEffect(() => {
-    if (!open) return;
-    if (restored.current) return;
+  if (open && !restored.current) {
+    restored.current = true;
     const draft = loadDraft();
     if (draft) {
       if (draft.vendorName) setVendorName(draft.vendorName as string);
@@ -167,11 +175,10 @@ export function ManualInvoiceDialog({
       if (draft.dueDate) setDueDate(draft.dueDate as string);
       if (draft.lineItems) setLineItems(draft.lineItems as LineItem[]);
     }
-    restored.current = true;
-  }, [open, loadDraft]);
+  }
 
   useEffect(() => {
-    if (!open) return;
+    if (!openRef.current) return;
     saveDraftDebounced({
       vendorName, vendorTaxId, vendorCountry, vendorFiscalAddress,
       invoiceNumber, invoiceDate, ncfModified, category,
@@ -179,7 +186,7 @@ export function ManualInvoiceDialog({
       goodsType, paymentMethod, paymentCondition, dueDate, lineItems,
     });
   }, [
-    open, vendorName, vendorTaxId, vendorCountry, vendorFiscalAddress,
+    vendorName, vendorTaxId, vendorCountry, vendorFiscalAddress,
     invoiceNumber, invoiceDate, ncfModified, category,
     totalAmount, taxAmount, currency, transactionType, description,
     goodsType, paymentMethod, paymentCondition, dueDate, lineItems, saveDraftDebounced,

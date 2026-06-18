@@ -1,5 +1,6 @@
 from datetime import timedelta
 from typing import Optional
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -8,7 +9,8 @@ from sqlalchemy import desc
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from app.config import ADMIN_EMAIL, ADMIN_PASSWORD, IS_PRODUCTION, REMEMBER_ME_EXPIRE_DAYS
+from app.config import ADMIN_EMAIL, ADMIN_PASSWORD, REMEMBER_ME_EXPIRE_DAYS, SUPABASE_URL, PUBLIC_APP_URL
+from app.dependencies.auth import resolve_user_from_token
 from app.core.auth import create_access_token, verify_password
 from app.core.container import openai_processor
 from app.database import get_db
@@ -18,9 +20,10 @@ from app.dependencies.tenancy import get_company_context
 from app.models import Invoice, Organization, User, UserOrganization
 from app.schemas import ChatRequest, ForgotPasswordRequest, RegisterRequest, ResetPasswordRequest, VerifyCodeRequest
 from app.utils.validation import validate_email, validate_full_name, validate_password
-from app.services.auth_service import provision_local_user, sign_in, sign_up_user, verify_and_login, verify_email_code, verify_user
+from app.services.auth_service import provision_local_user, sign_in, sign_up_user, verify_and_login, verify_email_code, verify_user, get_supabase_admin
 from app.services.email_service import send_password_changed_email, send_reset_password_email, send_verification_email
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Max-age in seconds for persistent "remember me" cookie
@@ -40,9 +43,9 @@ async def login_for_access_token(
     remember = str(raw_form.get("remember", "false")).lower() in ("true", "1", "yes")
     user = None
 
-    # 1) PROD: try Supabase Auth first (verify credentials via Supabase,
-    #    then issue our own long-lived JWT for the session)
-    if IS_PRODUCTION:
+    # 1) Try Supabase Auth first (verify credentials via Supabase,
+    #    then use the Supabase token directly for the session)
+    if SUPABASE_URL:
         result = sign_in(form_data.username, form_data.password)
         if result:
             user = provision_local_user(db, result["user"])
@@ -52,12 +55,12 @@ async def login_for_access_token(
             if not user:
                 raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
             _assert_not_deleted(user)
-            expire = timedelta(days=REMEMBER_ME_EXPIRE_DAYS) if remember else timedelta(minutes=_SESSION_EXPIRE_MINUTES)
-            token = create_access_token(data={"sub": form_data.username}, expires_delta=expire)
+            # Use the verified Supabase access token directly
+            token = result["access_token"]
             audit_record(
                 db, tenant_id=user.tenant_id, organization_id=user.tenant_id,
                 actor_id=str(user.id), actor_name=user.full_name, actor_email=user.email,
-                action="user.login", summary=f"Inicio de sesión: {user.email}",
+                action="user.login", summary=f"Inicio de sesión (Supabase): {user.email}",
             )
             return _create_token_response(token, persist=remember)
         # fall through to local verification if Supabase fails
@@ -386,6 +389,8 @@ async def get_current_session(ctx: TenantContext = Depends(require_tenant)):
             "phone": ctx.organization.phone,
             "country": ctx.organization.country,
             "fiscal_address": ctx.organization.fiscal_address,
+            "is_deleted": ctx.organization.is_deleted,
+            "deleted_at": ctx.organization.deleted_at.isoformat() if ctx.organization.deleted_at else None,
         },
         "role": ctx.role,
         **get_company_context(ctx.organization),
@@ -431,3 +436,52 @@ async def chat_finance(
         request.query, context_data, org_id=str(ctx.org_id), user_id=str(ctx.user.id),
     )
     return {"answer": answer}
+
+
+@router.get("/auth/google")
+async def auth_google():
+    if not SUPABASE_URL:
+        raise HTTPException(status_code=400, detail="Supabase no está configurado")
+    redirect_url = f"{SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to={PUBLIC_APP_URL}/auth/callback"
+    return RedirectResponse(url=redirect_url)
+
+
+@router.post("/api/auth/session")
+async def create_session_from_token(
+    body: dict,
+    db: Session = Depends(get_db),
+):
+    token = body.get("access_token")
+    code = body.get("code")
+    
+    if not token and not code:
+        raise HTTPException(status_code=400, detail="Se requiere access_token o code")
+        
+    # If PKCE code is provided, exchange it for a session token
+    if code:
+        supabase = get_supabase_admin()
+        if not supabase:
+            raise HTTPException(status_code=400, detail="Supabase no está configurado")
+        try:
+            res = supabase.auth.exchange_code_for_session({"auth_code": code})
+            if res and res.session:
+                token = res.session.access_token
+            else:
+                raise HTTPException(status_code=400, detail="No se pudo intercambiar el código")
+        except Exception as e:
+            logger.error("Error exchanging code: %s", e)
+            raise HTTPException(status_code=400, detail=f"Error al intercambiar el código: {e}")
+            
+    user = resolve_user_from_token(token, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuario no encontrado o no se pudo registrar")
+        
+    _assert_not_deleted(user)
+    
+    audit_record(
+        db, tenant_id=user.tenant_id, organization_id=user.tenant_id,
+        actor_id=str(user.id), actor_name=user.full_name, actor_email=user.email,
+        action="user.login", summary=f"Inicio de sesión vía OAuth/Token: {user.email}",
+    )
+    
+    return _create_token_response(token, persist=True)

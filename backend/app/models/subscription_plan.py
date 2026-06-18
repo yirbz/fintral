@@ -1,6 +1,6 @@
 """SubscriptionPlan — defines available tier plans for Fintral."""
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, Float, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
 from uuid_utils import uuid7
 
 from app.database import Base, GUID
@@ -12,14 +12,17 @@ class SubscriptionPlan(Base):
     __tablename__ = "subscription_plans"
 
     id = Column(GUID, primary_key=True, default=uuid7)
-    name = Column(String(64), unique=True, nullable=False, index=True)  # slug: esencial, profesional, multi-entidad, enterprise
+    name = Column(String(64), unique=True, nullable=False, index=True)  # slug: inicial, profesional, despacho
     display_name = Column(String(128), nullable=False)
     description = Column(Text, nullable=True)
 
     # ── Pricing ──────────────────────────────────────────────────────
     price_monthly_cents = Column(Integer, nullable=False)       # 2900 = $29.00
     currency = Column(String(3), default="USD")
-    extra_entity_price_cents = Column(Integer, default=0)       # 1200 = $12.00/addl entity
+    extra_entity_price_cents = Column(Integer, default=0)       # DEPRECATED — always 0
+    extra_billing_entity_price_cents = Column(Integer, default=0)  # DEPRECATED — always 0
+    entity_slot_price_cents = Column(Integer, default=0)        # RD$600 / extra entity slot beyond plan limit
+    user_slot_price_cents = Column(Integer, default=0)          # RD$300 / extra user slot beyond plan limit
     addon_ecf_block_size = Column(Integer, default=100)         # docs per add-on block
     addon_ecf_block_price_cents = Column(Integer, default=500)  # $5.00
     addon_ai_block_size = Column(Integer, default=500)          # queries per add-on block
@@ -75,7 +78,11 @@ class SubscriptionPlan(Base):
             "price_monthly": round(self.price_monthly_cents / 100, 2),
             "price_monthly_cents": self.price_monthly_cents,
             "currency": self.currency,
-            "extra_entity_price": round(self.extra_entity_price_cents / 100, 2) if self.extra_entity_price_cents else 0,
+            "extra_entity_price": 0,  # DEPRECATED — always 0
+            "extra_billing_entity_price": 0,  # DEPRECATED — always 0
+            "entity_slot_price": round(self.entity_slot_price_cents / 100, 2),
+            "user_slot_price_cents": self.user_slot_price_cents,
+            "user_slot_price": round(self.user_slot_price_cents / 100, 2),
             "addon_ecf_block_size": self.addon_ecf_block_size,
             "addon_ecf_block_price": round(self.addon_ecf_block_price_cents / 100, 2),
             "addon_ai_block_size": self.addon_ai_block_size,

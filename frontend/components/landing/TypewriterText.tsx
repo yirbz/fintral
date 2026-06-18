@@ -2,12 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 
-const words = [
-  "segundos.",
-  "minutos.",
-  "un clic.",
-  "tiempo real.",
-];
+const words = ["segundos.", "minutos.", "un click.", "tiempo real."];
 
 const TYPING_SPEED = 70;
 const DELETING_SPEED = 35;

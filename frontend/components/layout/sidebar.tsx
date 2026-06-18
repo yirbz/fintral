@@ -12,10 +12,11 @@ import {
   Loader2,
   LogOut,
   Search,
+  Bell,
   Settings,
+  ShoppingBag,
   Upload,
   Command,
-  Bell,
   Plus
 } from "lucide-react";
 import { useState, useMemo } from "react";
@@ -23,6 +24,7 @@ import { useState, useMemo } from "react";
 import { useSession } from "@/hooks/use-session";
 import { useRealtime } from "@/hooks/use-realtime";
 import { GlobalSearch } from "@/components/global-search";
+import { NotificationMenu } from "@/features/notifications/notification-menu";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -45,6 +47,8 @@ const NAV_ITEMS = [
   { href: "/dashboard/upload", label: "Pipeline", icon: Upload },
   { href: "/dashboard/reports", label: "Analítica", icon: ChartPie },
   { href: "/dashboard/history", label: "Historial", icon: Clock },
+  { href: "/dashboard/notifications", label: "Notificaciones", icon: Bell },
+  { href: "/dashboard/store", label: "Tienda", icon: ShoppingBag },
   { href: "/dashboard/help", label: "Ayuda", icon: LifeBuoy },
   { href: "/dashboard/settings", label: "Ajustes", icon: Settings }
 ];
@@ -78,7 +82,9 @@ function SidebarInner({ children }: { children: React.ReactNode }) {
   }
 
   if (session.error || !session.data) {
-    if (typeof window !== "undefined") window.location.href = "/login";
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("auth:unauthorized", { detail: { source: "sidebar" } }));
+    }
     return null;
   }
 
@@ -184,20 +190,7 @@ function SidebarInner({ children }: { children: React.ReactNode }) {
                 {connected ? "Conectado" : "Sin conexión"}
               </Badge>
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="relative">
-                    <Bell className="size-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-80">
-                  <DropdownMenuLabel>Notificaciones</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <div className="py-4 text-center text-xs text-muted-foreground">
-                    Sin notificaciones nuevas
-                  </div>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <NotificationMenu />
 
               <Button size="sm" className="gap-1.5 shadow-sm" onClick={() => router.push("/dashboard/upload")}>
                 <Plus className="size-3.5" />

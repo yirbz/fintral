@@ -37,9 +37,9 @@ const AVAILABLE_INTEGRATIONS: IntegrationDef[] = [
 ];
 
 export function IntegracionesPage() {
-  const odooQuery = useQuery({ queryKey: ["odoo-connections"], queryFn: listOdooConnections });
-  const qbQuery = useQuery({ queryKey: ["quickbooks-connections"], queryFn: listQuickBooksConnections });
-  const xeroQuery = useQuery({ queryKey: ["xero-connections"], queryFn: listXeroConnections });
+  const {data: odooQuery_data, isLoading: odooQuery_isLoading} = useQuery({ queryKey: ["odoo-connections"], queryFn: listOdooConnections });
+  const {data: qbQuery_data, isLoading: qbQuery_isLoading} = useQuery({ queryKey: ["quickbooks-connections"], queryFn: listQuickBooksConnections });
+  const {data: xeroQuery_data, isLoading: xeroQuery_isLoading} = useQuery({ queryKey: ["xero-connections"], queryFn: listXeroConnections });
   const queryClient = useQueryClient();
 
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -52,10 +52,10 @@ export function IntegracionesPage() {
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; error?: string; detail?: string }>>({});
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const loading = odooQuery.isLoading || qbQuery.isLoading || xeroQuery.isLoading;
-  const odooConns = odooQuery.data ?? [];
-  const qbConns = qbQuery.data ?? [];
-  const xeroConns = xeroQuery.data ?? [];
+  const loading = odooQuery_isLoading || qbQuery_isLoading || xeroQuery_isLoading;
+  const odooConns = odooQuery_data ?? [];
+  const qbConns = qbQuery_data ?? [];
+  const xeroConns = xeroQuery_data ?? [];
 
   function connsFor(id: string) {
     if (id === "odoo") return odooConns;
@@ -90,17 +90,19 @@ export function IntegracionesPage() {
               const connections = connsFor(integration.id);
               const isAvailable = integration.status === "available";
 
+              const handleIntegrationClick = () => {
+                if (!isAvailable) return;
+                if (connected) setExpanded(isExpanded ? null : integration.id);
+                else { if (integration.id === "odoo") setShowOdooDialog(true); if (integration.id === "quickbooks") handleQbConnect(); if (integration.id === "xero") handleXeroConnect(); }
+              };
+
               return (
                 <div key={integration.id} className={cn(
                   "rounded-lg border transition-all",
                   connected ? "border-l-2 border-l-green-500 border-border/80" : "border-border/60 hover:border-border",
                   isAvailable ? "cursor-pointer" : "opacity-60"
                 )}>
-                  <div className="flex items-start gap-3 p-4" onClick={() => {
-                    if (!isAvailable) return;
-                    if (connected) setExpanded(isExpanded ? null : integration.id);
-                    else { if (integration.id === "odoo") setShowOdooDialog(true); if (integration.id === "quickbooks") handleQbConnect(); if (integration.id === "xero") handleXeroConnect(); }
-                  }}>
+                  <div className="flex items-start gap-3 p-4" onClick={handleIntegrationClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleIntegrationClick(); } }}>
                     <div className={cn("flex size-10 shrink-0 items-center justify-center rounded-lg", integration.bg)}>{integration.icon}</div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">

@@ -222,6 +222,7 @@ export function InvoiceImageViewer({
         )}
       >
         <button
+          type="button"
           onClick={zoomOut}
           className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           title="Alejar"
@@ -233,6 +234,7 @@ export function InvoiceImageViewer({
           {Math.round(scale * 100)}%
         </span>
         <button
+          type="button"
           onClick={zoomIn}
           className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           title="Acercar"
@@ -242,6 +244,7 @@ export function InvoiceImageViewer({
         </button>
         <span className="mx-0.5 h-5 w-px bg-border" />
         <button
+          type="button"
           onClick={resetView}
           className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           title="Restablecer zoom"
@@ -250,6 +253,7 @@ export function InvoiceImageViewer({
           <RotateCw className="size-3.5" />
         </button>
         <button
+          type="button"
           onClick={toggleFullscreen}
           className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           title={isFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
