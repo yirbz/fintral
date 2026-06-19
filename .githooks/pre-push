@@ -1,0 +1,70 @@
+#!/bin/bash
+# Pre-push hook: run CI checks locally via act before pushing
+# Installed automatically by the project setup
+
+set -e
+
+echo "════════════════════════════════════════════════"
+echo " 🔍 Ejecutando CI checks locales via act..."
+echo "════════════════════════════════════════════════"
+
+# Get the current branch name
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# Only run on feature/* and develop branches
+if [[ "$BRANCH" != "develop" && "$BRANCH" != "main" && "$BRANCH" != feature/* ]]; then
+    echo "⚠️  Branch '$BRANCH' no requiere CI check. Pusheando directamente."
+    exit 0
+fi
+
+# Count commits being pushed
+ZERO_COMMIT="0000000000000000000000000000000000000000"
+while read local_ref local_sha remote_ref remote_sha; do
+    if [ "$local_sha" = "$ZERO_COMMIT" ]; then
+        # Deleting remote branch
+        continue
+    fi
+    if [ "$remote_sha" = "$ZERO_COMMIT" ]; then
+        # New branch, check all commits
+        RANGE="origin/$BRANCH..HEAD"
+    else
+        # Existing branch, check new commits
+        RANGE="$remote_sha..$local_sha"
+    fi
+done
+
+echo "📦 Rama: $BRANCH"
+echo ""
+
+# Check if act is available
+ACT_BIN="$HOME/.local/bin/act"
+if ! command -v "$ACT_BIN" &> /dev/null; then
+    echo "❌ act no encontrado en $ACT_BIN"
+    echo "   Instálalo con: curl -sL https://github.com/nektos/act/releases/latest/download/act_Linux_x86_64.tar.gz -o /tmp/act.tar.gz && tar -xzf /tmp/act.tar.gz -C /tmp && cp /tmp/act $ACT_BIN && chmod +x $ACT_BIN"
+    echo "   O pushea con --no-verify para saltar este hook"
+    exit 1
+fi
+
+# Run act for both jobs, abort on first failure
+echo "▶️  Backend: lint + tests..."
+if ! "$ACT_BIN" -j backend --pull=false 2>&1; then
+    echo ""
+    echo "❌ CI BACKEND FALLÓ. Revisa los errores antes de pushear."
+    echo "   Para saltar: git push --no-verify"
+    exit 1
+fi
+
+echo ""
+echo "▶️  Frontend: lint + typecheck + build..."
+if ! "$ACT_BIN" -j frontend --pull=false 2>&1; then
+    echo ""
+    echo "❌ CI FRONTEND FALLÓ. Revisa los errores antes de pushear."
+    echo "   Para saltar: git push --no-verify"
+    exit 1
+fi
+
+echo ""
+echo "════════════════════════════════════════════════"
+echo " ✅ Todos los checks de CI pasaron localmente"
+echo "════════════════════════════════════════════════"
+exit 0
