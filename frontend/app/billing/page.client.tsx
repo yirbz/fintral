@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { billingApi, BillingInvoice } from "@/lib/api/billing";
 import { Button } from "@/components/ui/button";
-import { Zap, PlusCircle, FileText, ArrowUpRight } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Zap, PlusCircle, FileText, Users, Package, Hash, CheckCircle2, Clock, Loader2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import { BillingMetrics } from "@/features/billing/billing-metrics";
@@ -205,7 +206,7 @@ export default function BillingDashboard() {
             variant="outline"
             className="w-full h-20 flex-col gap-1 border-border/40 hover:bg-muted/50"
           >
-            <span className="text-lg">👤</span>
+            <Users className="size-5 text-muted-foreground" />
             <span className="text-xs font-medium">Clientes</span>
           </Button>
         </Link>
@@ -214,7 +215,7 @@ export default function BillingDashboard() {
             variant="outline"
             className="w-full h-20 flex-col gap-1 border-border/40 hover:bg-muted/50"
           >
-            <span className="text-lg">📦</span>
+            <Package className="size-5 text-muted-foreground" />
             <span className="text-xs font-medium">Productos / Servicios</span>
           </Button>
         </Link>
@@ -223,7 +224,7 @@ export default function BillingDashboard() {
             variant="outline"
             className="w-full h-20 flex-col gap-1 border-border/40 hover:bg-muted/50"
           >
-            <span className="text-lg">🔢</span>
+            <Hash className="size-5 text-muted-foreground" />
             <span className="text-xs font-medium">Secuencias NCF</span>
           </Button>
         </Link>

@@ -31,7 +31,7 @@ class WebhookSender:
                     events = json.loads(wh.events or "[]")
                     if event_name in events or "*" in events:
                         subscribers.append(wh)
-                except:
+                except Exception:
                     continue
 
             if not subscribers:
