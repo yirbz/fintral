@@ -15,8 +15,8 @@ from app.database import SessionLocal
 # Ollama local development fallback values (not used globally anymore)
 OLLAMA_HOST = "http://localhost:11434"
 OLLAMA_MODEL = "gemma4:e2b-it-q4_K_M"
-from app.models import Setting, UserSetting
-from app.utils.dates import utc_now, utc_today
+from app.models import Setting, UserSetting  # noqa: E402
+from app.utils.dates import utc_now, utc_today  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -701,7 +701,7 @@ class LLMInvoiceProcessor:
                 except ValueError:
                     continue
             return None
-        except:
+        except Exception:
             return None
     
     def _validate_transaction_type(self, value):
@@ -721,7 +721,7 @@ class LLMInvoiceProcessor:
         try:
             conf = float(value)
             return max(0.0, min(1.0, conf))  # Asegurar que esté entre 0 y 1
-        except:
+        except Exception:
             return 0.5  # Valor por defecto
     
     def _create_error_response(self, error_msg):

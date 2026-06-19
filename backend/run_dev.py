@@ -17,7 +17,7 @@ _db_url_parts = [
 os.environ["DATABASE_URL"] = "".join(_db_url_parts)
 
 # Load other vars from .env
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # noqa: E402
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 # Ensure our URL takes precedence (the .env may have a placeholder)

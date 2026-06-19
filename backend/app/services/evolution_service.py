@@ -10,7 +10,7 @@ EVOLUTION_API_KEY = ""
 EVOLUTION_API_URL = ""
 EVOLUTION_INSTANCE_NAME = ""
 EVOLUTION_INSTANCE_TOKEN = ""
-from app.services.settings_service import SettingsService
+from app.services.settings_service import SettingsService  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
