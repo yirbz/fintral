@@ -208,6 +208,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: <LayoutDashboardIcon />,
     },
     {
+      title: "Facturas",
+      url: getLink("/invoices"),
+      icon: <FileTextIcon />,
+    },
+    {
       title: "Nueva Factura",
       url: getLink("/quick"),
       icon: <PlusCircleIcon />,

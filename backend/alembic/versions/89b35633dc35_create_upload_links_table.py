@@ -42,6 +42,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_upload_links_organization_id'), 'upload_links', ['organization_id'], unique=False)
     op.create_index(op.f('ix_upload_links_tenant_id'), 'upload_links', ['tenant_id'], unique=False)
     op.create_index(op.f('ix_upload_links_token'), 'upload_links', ['token'], unique=True)
+    # Idempotent drops — use IF EXISTS to avoid transaction abortion
     op.execute("ALTER TABLE invoices DROP CONSTRAINT IF EXISTS invoices_temporary_link_id_fkey")
     op.execute("ALTER TABLE invoices DROP COLUMN IF EXISTS temporary_link_id")
     op.execute("DROP INDEX IF EXISTS ix_temporary_links_created_by")
@@ -50,8 +51,8 @@ def upgrade() -> None:
     op.execute("DROP INDEX IF EXISTS ix_temporary_links_tenant_org")
     op.execute("DROP INDEX IF EXISTS ix_temporary_links_token")
     op.execute("DROP INDEX IF EXISTS ix_temporary_links_user_id")
-    op.execute("DROP TABLE IF EXISTS temporary_links")
-    op.execute("ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS currency VARCHAR(3) NOT NULL DEFAULT 'DOP'")
+    op.execute("DROP TABLE IF EXISTS temporary_links CASCADE")
+    op.add_column('ledger_entries', sa.Column('currency', sa.String(length=3), nullable=False))
     op.alter_column('ledger_entries', 'entry_type',
                existing_type=sa.VARCHAR(length=10),
                type_=sa.String(length=20),
