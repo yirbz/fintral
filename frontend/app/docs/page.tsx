@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { ArrowRight, BookOpen, Shield, FileText } from "lucide-react"
+import { ArrowRight, BookOpen, Shield, FileText, RotateCcw } from "lucide-react"
 
 export default function DocsPage() {
   return (
@@ -85,6 +85,18 @@ export default function DocsPage() {
           </p>
           <div className="flex items-center gap-1 text-[12px] font-medium text-[#0EA5E9] mt-4 group-hover:underline">
             Ver detalles de extensiones <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />
+          </div>
+        </Link>
+        <Link href="/docs/refund-policy" className="group p-5 rounded-2xl border border-[#e3e8ee] hover:border-[#0EA5E9] hover:shadow-brand transition-all bg-[#f6f9fc]/30">
+          <div className="flex items-center gap-3 mb-3">
+            <RotateCcw className="size-5 text-[#0EA5E9]" />
+            <h3 className="text-[16px] font-semibold text-[#0d253d]">Política de Reembolsos</h3>
+          </div>
+          <p className="text-[13px] text-[#64748d] leading-normal font-light">
+            Garantía de satisfacción de 14 días, condiciones de reembolso para suscripciones, addons y servicios profesionales. Transparencia total en la gestión de pagos y cancelaciones.
+          </p>
+          <div className="flex items-center gap-1 text-[12px] font-medium text-[#0EA5E9] mt-4 group-hover:underline">
+            Ver política de reembolsos <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />
           </div>
         </Link>
       </div>

@@ -102,12 +102,15 @@ class DgiiService implements IDgiiService {
   async searchByName(name: string): Promise<NameSearchResult[]> {
     if (!name || name.trim().length < 3) return [];
     try {
-      const origin = getOrigin();
-      const resp = await fetch(`${origin}/dgii-rnc/search?name=${encodeURIComponent(name.trim())}`, { cache: "no-store" });
+      const resp = await fetch(
+        `/api/dgii/search-name?name=${encodeURIComponent(name.trim())}`,
+        { cache: "no-store" }
+      );
       if (!resp.ok) return [];
       const data = await resp.json();
       return data.results || [];
-    } catch {
+    } catch (error) {
+      console.error("Error in DGII name search:", error);
       return [];
     }
   }
@@ -118,7 +121,8 @@ class DgiiService implements IDgiiService {
       const resp = await fetch(`${origin}/api/dgii/ciudadano?cedula=${encodeURIComponent(cedula)}`, { cache: "no-store" });
       if (!resp.ok) return null;
       return resp.json();
-    } catch {
+    } catch (error) {
+      console.error("Error consulting citizen:", error);
       return null;
     }
   }
