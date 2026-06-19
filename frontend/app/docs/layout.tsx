@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Shield, BookOpen, FileText, Lock } from "lucide-react"
+import { Shield, BookOpen, FileText, Lock, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Logo } from "@/components/ui/logo"
 import { cn } from "@/lib/utils"
@@ -24,7 +24,8 @@ const SECTIONS: DocSection[] = [
     items: [
       { href: "/docs", label: "Introducción", icon: BookOpen },
       { href: "/docs/terms-conditions", label: "Términos Generales", icon: Shield },
-      { href: "/docs/privacy", label: "Política de Privacidad", icon: Lock }
+      { href: "/docs/privacy", label: "Política de Privacidad", icon: Lock },
+      { href: "/docs/refund-policy", label: "Política de Reembolsos", icon: RotateCcw }
     ]
   },
   {
