@@ -16,9 +16,9 @@ from app.services.llm_providers import LLMProviderFactory
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 GEMINI_MODEL = AI_MODEL_NAME
-from app.database import SessionLocal
-from app.models import Setting, UserSetting
-from app.utils.dates import utc_now, utc_today
+from app.database import SessionLocal  # noqa: E402
+from app.models import Setting, UserSetting  # noqa: E402
+from app.utils.dates import utc_now, utc_today  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +118,7 @@ class OpenAIInvoiceProcessor:
             
         try:
             return openai.OpenAI(api_key=api_key)
-        except:
+        except Exception:
             return None
 
     def encode_image(self, image_path):
@@ -762,9 +762,9 @@ class OpenAIInvoiceProcessor:
                 except ValueError:
                     continue
             return None
-        except:
+        except Exception:
             return None
-    
+
     def _validate_transaction_type(self, value):
         """Valida el tipo de transacción"""
         if value is None or value == "null":
@@ -782,7 +782,7 @@ class OpenAIInvoiceProcessor:
         try:
             conf = float(value)
             return max(0.0, min(1.0, conf))  # Asegurar que esté entre 0 y 1
-        except:
+        except Exception:
             return 0.5  # Valor por defecto
     
     def _create_error_response(self, error_msg):

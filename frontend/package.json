@@ -5,9 +5,9 @@
   "packageManager": "pnpm@10.29.3",
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0 --port 3000",
-    "build": "next build --webpack",
+    "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 3000",
-    "lint": "next lint",
+    "lint": "eslint . --max-warnings=1000",
     "typecheck": "tsc --noEmit",
     "doctor": "npx react-doctor@latest"
   },

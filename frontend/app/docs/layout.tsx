@@ -110,8 +110,8 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
 
           {/* Desktop Navigation */}
           <nav className="hidden lg:block space-y-6">
-            {SECTIONS.map((section, idx) => (
-              <div key={idx} className="space-y-2">
+            {SECTIONS.map((section) => (
+              <div key={section.title} className="space-y-2">
                 <h4 className="text-[11px] font-semibold uppercase tracking-[0.15em] text-[#64748d] px-3">
                   {section.title}
                 </h4>

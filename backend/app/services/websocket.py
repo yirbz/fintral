@@ -155,10 +155,10 @@ class WebSocketManager:
             # Formatear cantidad
             try:
                 formatted_amount = f"{currency} {amount:,.2f}" if amount else "N/A"
-            except:
+            except Exception:
                 formatted_amount = f"{currency} {amount}" if amount else "N/A"
-            
-            # Emoji según tipo de transacción
+
+            await self.send_text
             type_emoji = "💰" if transaction_type == "income" else "💸" if transaction_type == "expense" else "📄"
             
             message = f"✅ Factura procesada - {vendor} | {formatted_amount} | {category} {type_emoji}"

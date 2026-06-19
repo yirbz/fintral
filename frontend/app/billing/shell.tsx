@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { OrgProvider } from "@/hooks/use-org";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
@@ -94,26 +95,28 @@ export function BillingShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <SidebarProvider
-      className="billing-theme"
-      style={
-        {
-          "--sidebar-width": "18rem",
-          "--header-height": "4rem",
-        } as React.CSSProperties
-      }
-    >
-      <SessionExpiredOverlay />
-      <AppSidebar variant="inset" />
-      <SidebarInset>
-        <SiteHeader />
-        <ConnectionStatus />
-        <div className="@container/main flex-1 py-4 md:py-6 has-mobile-nav">
-          {children}
-        </div>
-        <PwaInstallPrompt />
-      </SidebarInset>
-      <MobileNav variant="billing" />
-    </SidebarProvider>
+    <OrgProvider>
+      <SidebarProvider
+        className="billing-theme"
+        style={
+          {
+            "--sidebar-width": "18rem",
+            "--header-height": "4rem",
+          } as React.CSSProperties
+        }
+      >
+        <SessionExpiredOverlay />
+        <AppSidebar variant="inset" />
+        <SidebarInset>
+          <SiteHeader />
+          <ConnectionStatus />
+          <div className="@container/main flex-1 py-4 md:py-6 has-mobile-nav">
+            {children}
+          </div>
+          <PwaInstallPrompt />
+        </SidebarInset>
+        <MobileNav variant="billing" />
+      </SidebarProvider>
+    </OrgProvider>
   );
 }
