@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend — lint + typecheck + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (ESLint / Next)
+        run: pnpm lint
+
+      - name: Type check (TypeScript)
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+  backend:
+    name: Backend — lint + test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpq-dev tesseract-ocr tesseract-ocr-spa libzbar0
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: |
+          pip install ruff
+          ruff check --output-format=github .
+
+      - name: Run tests
+        env:
+          ADMIN_EMAIL: admin@test.com
+          ADMIN_PASSWORD: testpassword123
+          ADMIN_FULL_NAME: Admin Test
+          APP_JWT_SECRET_KEY: test-jwt-secret-ci
+          FINTRAL_DATA_DIR: /tmp/fintral_data
+          SUPABASE_URL: ""
+          SUPABASE_JWT_ISSUER: ""
+          SUPABASE_SERVICE_ROLE_KEY: ""
+          SUPABASE_STORAGE_BUCKET: ""
+          ENVIRONMENT: CI
+        run: |
+          mkdir -p /tmp/fintral_data/static /tmp/fintral_data/uploads
+          python -m pytest -x -v --tb=short 2>&1

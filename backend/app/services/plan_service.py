@@ -400,7 +400,7 @@ class PlanService:
             .filter(
                 MonthlyCharge.organization_id == org_id,
                 MonthlyCharge.cycle == prev_cycle,
-                MonthlyCharge.paid == False,
+                MonthlyCharge.paid == False,  # noqa: E712
             )
             .count()
         )
@@ -408,7 +408,7 @@ class PlanService:
 
     def get_statement(self, org_id, cycle: int = None) -> dict:
         """Get the monthly statement for a given cycle."""
-        from app.models import MonthlyCharge, PaymentProof
+        from app.models import MonthlyCharge
 
         if cycle is None:
             cycle = _current_cycle()
@@ -482,7 +482,7 @@ class PlanService:
             .filter(
                 MonthlyCharge.organization_id == org_id,
                 MonthlyCharge.cycle == cycle,
-                MonthlyCharge.paid == False,
+                MonthlyCharge.paid == False,  # noqa: E712
             )
             .all()
         )

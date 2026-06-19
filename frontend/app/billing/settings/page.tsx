@@ -296,13 +296,17 @@ function BillingSettingsPageInner() {
 
   // ── Helpers ──
   function getSetting(category: string, key: string): SettingValue {
-    if (!editable[category]) editable[category] = [];
-    let row = editable[category].find((s) => s.key === key);
-    if (!row) {
-      row = { key, value: "", type: "string", category, source: "user" };
-      editable[category].push(row);
-    }
-    return row;
+    setEditable((prev) => {
+      const cat = prev[category] ? [...prev[category]] : [];
+      let row = cat.find((s) => s.key === key);
+      if (!row) {
+        row = { key, value: "", type: "string", category, source: "user" };
+        cat.push(row);
+      }
+      return { ...prev, [category]: cat };
+    });
+    // Return a fallback — the actual value is in state
+    return { key, value: "", type: "string", category, source: "user" };
   }
 
   function updateSetting(category: string, key: string, value: string | number | boolean) {

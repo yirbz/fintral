@@ -4,10 +4,10 @@ from .requests import (
     ChatRequest,
     EvolutionWebhook,
     ExportRequest,
-    ForgotPasswordRequest,
+    ForgotPasswordRequest,  # noqa: F401
     ManualInvoiceCreate,
     RegisterRequest,
-    ResetPasswordRequest,
+    ResetPasswordRequest,  # noqa: F401
     SettingUpdate,
     VerifyCodeRequest,
     WebhookCreate,
