@@ -13,6 +13,7 @@ from app.config import ADMIN_EMAIL, ADMIN_PASSWORD, REMEMBER_ME_EXPIRE_DAYS, SUP
 from app.dependencies.auth import resolve_user_from_token
 from app.core.auth import create_access_token, verify_password
 from app.core.container import openai_processor
+from app.core.redis import get_redis_client
 from app.database import get_db
 from app.dependencies.tenant import TenantContext, optional_tenant, require_tenant
 from app.services.audit_logger import record as audit_record
@@ -233,6 +234,17 @@ async def resend_code(
     if not email:
         raise HTTPException(status_code=400, detail="Email requerido")
 
+    # ── Rate limit: 30s cooldown per email ──
+    r = get_redis_client()
+    cooldown_key = f"cooldown:resend_code:{email}"
+    if r:
+        ttl = r.ttl(cooldown_key)
+        if ttl > 0:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Debes esperar {ttl} segundos antes de solicitar otro código.",
+            )
+
     user = db.query(User).filter(User.email == email).first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
@@ -246,6 +258,10 @@ async def resend_code(
     user.verification_code = get_password_hash(code)
     db.commit()
 
+    # ── Set cooldown after successful resend ──
+    if r:
+        r.setex(cooldown_key, 30, "1")
+
     send_verification_email(email, user.full_name or "", code)
     return {"message": "Código reenviado."}
 
@@ -258,6 +274,17 @@ async def forgot_password(
     if not body.email:
         raise HTTPException(status_code=400, detail="Email requerido")
 
+    # ── Rate limit: 30s cooldown per email ──
+    r = get_redis_client()
+    cooldown_key = f"cooldown:forgot_password:{body.email}"
+    if r:
+        ttl = r.ttl(cooldown_key)
+        if ttl > 0:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Debes esperar {ttl} segundos antes de solicitar otro código.",
+            )
+
     user = db.query(User).filter(User.email == body.email).first()
     if not user:
         return {"message": "Si el email existe, recibirás un código de restablecimiento."}
@@ -268,6 +295,9 @@ async def forgot_password(
     code = _generate_verification_code()
     user.verification_code = get_password_hash(code)
     db.commit()
+
+    if r:
+        r.setex(cooldown_key, 30, "1")
 
     send_reset_password_email(body.email, user.full_name or "", code)
     return {"message": "Si el email existe, recibirás un código de restablecimiento."}
