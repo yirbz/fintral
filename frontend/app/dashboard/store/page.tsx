@@ -1,5 +1,5 @@
-import { StorePage } from "@/features/store/store-page";
+import { redirect } from "next/navigation";
 
-export default function Store() {
-  return <StorePage />;
+export default function StoreRedirect() {
+  redirect("/dashboard/tienda");
 }

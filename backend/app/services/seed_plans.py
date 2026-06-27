@@ -37,6 +37,7 @@ PLANS = [
         "description": "Para profesionales independientes, freelancers y negocios que desean automatizar su contabilidad con herramientas de IA.",
         "currency": "DOP",
         "price_monthly_cents": 99900,  # RD$ 999.00
+        "price_usd": 16.49,
         "extra_entity_price_cents": 0,  # DEPRECATED
         "extra_billing_entity_price_cents": 0,  # DEPRECATED
         "entity_slot_price_cents": 60000,  # RD$ 600 / extra entity slot
@@ -78,6 +79,7 @@ PLANS = [
         "description": "Para PyMEs en crecimiento que necesitan emitir facturas electrónicas (e-CF) válidas ante la DGII, con automatización fiscal completa.",
         "currency": "DOP",
         "price_monthly_cents": 299900,  # RD$ 2,999.00
+        "price_usd": 47.99,
         "extra_entity_price_cents": 0,  # DEPRECATED
         "extra_billing_entity_price_cents": 0,  # DEPRECATED
         "entity_slot_price_cents": 60000,
@@ -118,6 +120,7 @@ PLANS = [
         "description": "Para firmas de contabilidad, auditores y profesionales que gestionan múltiples clientes de forma centralizada con un dashboard multi-entidad.",
         "currency": "DOP",
         "price_monthly_cents": 799900,  # RD$ 7,999.00
+        "price_usd": 127.99,
         "extra_entity_price_cents": 0,  # DEPRECATED
         "extra_billing_entity_price_cents": 0,  # DEPRECATED
         "entity_slot_price_cents": 60000,
@@ -196,35 +199,63 @@ PLANS = [
 
 
 def seed_plans(db: Session = None):
-    """Insert plans if they don't already exist.
+    """Insert plans if they don't exist, or update them to sync prices and Paddle IDs.
 
     Args:
         db: Optional SQLAlchemy session. If not provided, creates its own.
     """
+    from app import config as settings
     own_session = db is None
     if own_session:
         db = SessionLocal()
     try:
-        existing = {p.name for p in db.query(SubscriptionPlan).all()}
         created = 0
+        updated = 0
         for data in PLANS:
-            if data["name"] in existing:
-                logger.info("⏭️  Plan '%s' already exists, skipping", data["name"])
-                continue
-            plan = SubscriptionPlan(**data)
-            db.add(plan)
-            created += 1
+            plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == data["name"]).first()
+            
+            # Resolve Paddle IDs from config
+            paddle_prod = None
+            paddle_price = None
+            if data["name"] == "inicial":
+                paddle_prod = settings.PADDLE_PRODUCT_INICIAL
+                paddle_price = settings.PADDLE_PRICE_INICIAL_MONTHLY
+            elif data["name"] == "profesional":
+                paddle_prod = settings.PADDLE_PRODUCT_PROFESIONAL
+                paddle_price = settings.PADDLE_PRICE_PROFESIONAL_MONTHLY
+            elif data["name"] == "despacho":
+                paddle_prod = settings.PADDLE_PRODUCT_DESPACHO
+                paddle_price = settings.PADDLE_PRICE_DESPACHO_MONTHLY
+
+            if plan:
+                # Update existing
+                for k, v in data.items():
+                    setattr(plan, k, v)
+                if paddle_prod:
+                    plan.paddle_product_id = paddle_prod
+                if paddle_price:
+                    plan.paddle_price_id_monthly = paddle_price
+                updated += 1
+            else:
+                # Create new
+                plan = SubscriptionPlan(**data)
+                plan.paddle_product_id = paddle_prod
+                plan.paddle_price_id_monthly = paddle_price
+                db.add(plan)
+                created += 1
 
         db.commit()
-        logger.info("✅ Seeded %d plans (total: %d)", created, len(existing) + created)
+        logger.info("✅ Seeded/Updated plans (created: %d, updated: %d)", created, updated)
 
         # Verify
         for p in db.query(SubscriptionPlan).order_by(SubscriptionPlan.sort_order).all():
             logger.info(
-                "  • %s — %s %.2f/mo | users=%s entities=%s user_slot_price=%s entity_slot_price=%s",
+                "  • %s — %s %.2f/mo | USD=%.2f | users=%s entities=%s user_slot_price=%s entity_slot_price=%s | paddle_price=%s",
                 p.display_name, p.currency, p.price_monthly_cents / 100,
+                float(p.price_usd) if p.price_usd is not None else 0.0,
                 p.max_users, p.max_entities,
                 p.user_slot_price_cents, p.entity_slot_price_cents,
+                p.paddle_price_id_monthly,
             )
 
     finally:

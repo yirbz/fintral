@@ -11,6 +11,7 @@ import { LogoLoader } from "@/components/logo-loader";
 import { Button } from "@/components/ui/button";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import SessionExpiredOverlay from "@/components/session-expired-overlay";
+import SubscriptionRequiredOverlay from "@/components/subscription-required-overlay";
 import { useSession } from "@/hooks/use-session";
 
 const LOAD_TIMEOUT = 15_000;
@@ -225,6 +226,7 @@ export function ShellLoader({ children }: { children: React.ReactNode }) {
     <RealtimeProvider>
       <OrgProvider>
         <SessionExpiredOverlay />
+        <SubscriptionRequiredOverlay />
         <SidebarProvider
           style={
             {

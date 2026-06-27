@@ -47,8 +47,6 @@ import {
   type AuditEvent,
   type HealthCheck,
   type AdminMrrResponse,
-  type AdminPayment,
-  type AdminPaymentsResponse,
   type LostSubscription,
   type ChurnRisk,
   type AdminChurnResponse,
@@ -2068,21 +2066,6 @@ function FinanzasTab() {
     queryKey: ["admin-sub-distribution"],
     queryFn: () => adminApi.getSubDistribution(),
   });
-
-  const [paymentStatus, setPaymentStatus] = useState<string>("all");
-  const [paymentsOffset, setPaymentsOffset] = useState(0);
-  const paymentsLimit = 10;
-
-  const { data: paymentsData, isLoading: loadingPayments } = useQuery({
-    queryKey: ["admin-payments", paymentStatus, paymentsOffset],
-    queryFn: () =>
-      adminApi.getPayments({
-        status: paymentStatus === "all" ? undefined : paymentStatus,
-        limit: paymentsLimit,
-        offset: paymentsOffset,
-      }),
-  });
-
   if (loadingMrr || loadingChurn || loadingSubDist) {
     return <div className="h-64 bg-muted rounded animate-pulse" />;
   }
@@ -2284,105 +2267,6 @@ function FinanzasTab() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Historial de Transacciones (Mio Payments) */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-          <CardTitle className="text-xs font-semibold">Historial de Transacciones (Pasarela Mio/GeoPagos)</CardTitle>
-          <div className="flex gap-2">
-            <Select value={paymentStatus} onValueChange={(val) => { setPaymentStatus(val); setPaymentsOffset(0); }}>
-              <SelectTrigger className="w-[120px] h-8 text-[11px]">
-                <SelectValue placeholder="Estado" />
-              </SelectTrigger>
-              <SelectContent className="text-[11px]">
-                <SelectItem value="all">Todos</SelectItem>
-                <SelectItem value="SUCCESS">Completados</SelectItem>
-                <SelectItem value="PENDING">Pendientes</SelectItem>
-                <SelectItem value="FAILED">Fallidos</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {loadingPayments ? (
-            <div className="h-32 bg-muted rounded animate-pulse" />
-          ) : paymentsData && paymentsData.payments.length > 0 ? (
-            <div className="space-y-3">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-[10px]">UUID Orden</TableHead>
-                    <TableHead className="text-[10px]">Organización</TableHead>
-                    <TableHead className="text-[10px]">Monto</TableHead>
-                    <TableHead className="text-[10px]">Estado</TableHead>
-                    <TableHead className="text-[10px]">Factura Asoc.</TableHead>
-                    <TableHead className="text-[10px]">Creado el</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {paymentsData.payments.map((p) => (
-                    <TableRow key={p.id} className="text-[11px]">
-                      <TableCell className="font-mono text-[10px] truncate max-w-[100px]">{p.mio_order_uuid}</TableCell>
-                      <TableCell>{p.organization_name || "N/A"}</TableCell>
-                      <TableCell className="font-semibold">
-                        {p.currency === "214" || p.currency === "DOP" ? "RD$" : "$"} {p.amount.toFixed(2)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          className="text-[9px] px-1 py-0"
-                          variant={
-                            p.status === "SUCCESS"
-                              ? "default"
-                              : p.status === "PENDING"
-                              ? "outline"
-                              : "destructive"
-                          }
-                        >
-                          {p.status === "SUCCESS" ? "Completado" : p.status === "PENDING" ? "Pendiente" : "Fallido"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {p.invoice_number ? (
-                          <span className="text-muted-foreground">{p.invoice_number} ({p.currency === "214" || p.currency === "DOP" ? "RD$" : "$"} {p.invoice_total.toFixed(2)})</span>
-                        ) : (
-                          <span className="text-muted-foreground italic">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>{p.created_at ? new Date(p.created_at).toLocaleDateString("es-DO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "N/A"}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {/* Pagination */}
-              <div className="flex justify-between items-center pt-2">
-                <span className="text-[10px] text-muted-foreground">Mostrando {paymentsData.payments.length} de {paymentsData.total}</span>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-[10px] px-2"
-                    disabled={paymentsOffset === 0}
-                    onClick={() => setPaymentsOffset(Math.max(0, paymentsOffset - paymentsLimit))}
-                  >
-                    Anterior
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-[10px] px-2"
-                    disabled={paymentsOffset + paymentsLimit >= paymentsData.total}
-                    onClick={() => setPaymentsOffset(paymentsOffset + paymentsLimit)}
-                  >
-                    Siguiente
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="text-xs text-muted-foreground py-8 text-center">No se encontraron pagos con los filtros seleccionados.</div>
-          )}
-        </CardContent>
-      </Card>
     </div>
   );
 }

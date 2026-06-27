@@ -17,6 +17,7 @@ from app.dependencies.tenant import TenantContext, require_tenant
 from app.models import Invoice, PendingUpload, SubscriptionPlan, PaymentProof
 from app.services.plan_service import PlanService
 from app.services.usage_tracker import _current_cycle
+from app.services.exchange_rate_service import get_bpd_usd_rate
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/plans", tags=["plans"])
@@ -34,6 +35,7 @@ class PlanSummary(BaseModel):
     display_name: str
     description: str | None
     price_monthly: float
+    price_usd: float | None = None
     limits: dict
     features: dict
     is_enterprise: bool
@@ -127,6 +129,7 @@ async def list_public_plans(ctx: TenantContext = Depends(require_tenant)):
             display_name=d["display_name"],
             description=d["description"],
             price_monthly=d["price_monthly"],
+            price_usd=d.get("price_usd"),
             limits=d["limits"],
             features=d["features"],
             is_enterprise=d["is_enterprise"],
@@ -134,6 +137,13 @@ async def list_public_plans(ctx: TenantContext = Depends(require_tenant)):
             soft_limit_enabled=d["soft_limit_enabled"],
         ))
     return result
+
+
+@router.get("/exchange-rate")
+async def get_current_exchange_rate():
+    """Retrieve the current USD/DOP exchange rate."""
+    rate = await get_bpd_usd_rate()
+    return {"rate": rate, "currency": "DOP"}
 
 
 @router.get("/my", response_model=FullUsageResponse)
@@ -155,6 +165,7 @@ async def my_plan_and_usage(ctx: TenantContext = Depends(require_tenant)):
             display_name=plan_data["display_name"],
             description=plan_data.get("description"),
             price_monthly=plan_data.get("price_monthly", 0),
+            price_usd=plan_data.get("price_usd"),
             limits=plan_data["limits"],
             features=plan_data["features"],
             is_enterprise=plan_data.get("is_enterprise", False),
@@ -443,10 +454,10 @@ async def calculate_cart(
     payload: CalculateCartRequest,
     ctx: TenantContext = Depends(require_tenant),
 ):
-    """Calculate total price for a cart of items."""
+    """Calculate total price for a cart of items in USD."""
     breakdowm: list[CartBreakdownItem] = []
     total = 0.0
-    currency = "DOP"
+    currency = "USD"
 
     months = max((item.months or 1) for item in payload.items) if payload.items else 1
     discount = DISCOUNT_TIERS.get(months, 0.0)
@@ -463,7 +474,11 @@ async def calculate_cart(
                 .first()
             )
             if plan:
-                unit_price = plan.price_monthly_cents / 100.0
+                usd_price = float(plan.price_usd) if plan.price_usd is not None else None
+                if usd_price is None:
+                    fallbacks = {"inicial": 16.49, "profesional": 47.99, "despacho": 127.99}
+                    usd_price = fallbacks.get(plan.name.lower(), plan.price_monthly_cents / 6000.0)
+                unit_price = usd_price
                 line_total = unit_price * item.quantity * months
                 label = item.label or f"Plan {plan.display_name}"
             else:
@@ -545,6 +560,8 @@ class PaymentProofResponse(BaseModel):
     plan_name: str
     amount: float
     currency: str
+    exchange_rate: float | None = None
+    usd_amount: float | None = None
     addons: str | None
     items: list[CartItemResponse] | None = None
     status: str
@@ -559,6 +576,8 @@ async def upload_payment_proof(
     plan_name: str = Form(...),
     amount: float = Form(...),
     currency: str = Form("DOP"),
+    exchange_rate: float | None = Form(None),
+    usd_amount: float | None = Form(None),
     notes: str | None = Form(None),
     items: str | None = Form(None),
     file: UploadFile = File(...),
@@ -594,6 +613,8 @@ async def upload_payment_proof(
         plan_name=plan_name,
         amount=amount,
         currency=currency,
+        exchange_rate=exchange_rate,
+        usd_amount=usd_amount,
         file_path="",  # placeholder, updated after upload
         notes=notes,
         items_json=json.dumps(parsed_items) if parsed_items else None,
@@ -806,3 +827,56 @@ async def get_payment_proof_file(
         media_type=content_type,
         headers={"Content-Disposition": f"inline; filename=comprobante{ext}"},
     )
+
+
+# ── Billing & MIO/Lago Checkout endpoints ──────────────────────────────
+
+class SubscribeRequest(BaseModel):
+    plan_name: str
+    payment_method: str = "card"
+
+class PrepaidEcfRequest(BaseModel):
+    block_type: str = "ecf_block_100"
+    payment_method: str = "card"
+
+@router.post("/checkout/subscribe")
+async def checkout_subscribe(
+    payload: SubscribeRequest,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """Subscribe an organization to a Hub subscription plan (Inicial, Profesional, Despacho)."""
+    from app.services.billing_checkout_service import BillingCheckoutService
+    checkout_svc = BillingCheckoutService(ctx.db)
+    try:
+        result = await checkout_svc.subscribe_organization(
+            org_id=str(ctx.org_id),
+            plan_name=payload.plan_name,
+            payment_method=payload.payment_method,
+        )
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        logger.exception("Error initiating plan checkout")
+        raise HTTPException(status_code=500, detail="Error interno al iniciar suscripción")
+
+@router.post("/checkout/prepaid-ecf")
+async def checkout_prepaid_ecf(
+    payload: PrepaidEcfRequest,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """Purchase prepaid e-CF block package for Fintral Factura (pay-as-you-go)."""
+    from app.services.billing_checkout_service import BillingCheckoutService
+    checkout_svc = BillingCheckoutService(ctx.db)
+    try:
+        result = await checkout_svc.purchase_prepaid_ecf(
+            org_id=str(ctx.org_id),
+            block_type=payload.block_type,
+            payment_method=payload.payment_method,
+        )
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        logger.exception("Error initiating prepaid e-CF block checkout")
+        raise HTTPException(status_code=500, detail="Error interno al procesar compra prepago")
