@@ -17,7 +17,6 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@khmyznikov/pwa-install": "^0.6.3",
-    "@paddle/paddle-js": "^1.6.4",
     "@radix-ui/react-avatar": "^1.1.11",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.1",

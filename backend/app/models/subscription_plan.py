@@ -23,9 +23,6 @@ class SubscriptionPlan(Base):
     price_dop = Column(Numeric(10, 2), nullable=True)           # DOP price for MIO/Lago checkout
     lago_plan_code = Column(String(100), nullable=True)         # Lago plan identifier
 
-    paddle_product_id = Column(String(64), nullable=True)
-    paddle_price_id_monthly = Column(String(64), nullable=True)
-    paddle_price_id_annual = Column(String(64), nullable=True)
     extra_entity_price_cents = Column(Integer, default=0)       # DEPRECATED — always 0
     extra_billing_entity_price_cents = Column(Integer, default=0)  # DEPRECATED — always 0
     entity_slot_price_cents = Column(Integer, default=0)        # RD$600 / extra entity slot beyond plan limit

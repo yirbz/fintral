@@ -50,9 +50,6 @@ export interface SubscriptionSummary {
   limits: Record<string, any>;
   addons: AddonsSummary;
   auto_renew_addons: boolean;
-  paddle_subscription_id?: string | null;
-  paddle_customer_id?: string | null;
-  paddle_collection_mode?: string | null;
 }
 
 export interface UsageSummary {

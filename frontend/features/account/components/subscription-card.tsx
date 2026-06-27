@@ -12,16 +12,12 @@ interface SubscriptionCardProps {
   plan: PlanSummary | null;
   subscription: SubscriptionSummary | null;
   orgId: string;
-  onManagePortal: () => void;
-  isPortalLoading: boolean;
 }
 
 export function SubscriptionCard({
   plan,
   subscription,
   orgId,
-  onManagePortal,
-  isPortalLoading,
 }: SubscriptionCardProps) {
   if (!subscription || !plan) {
     return (
@@ -62,7 +58,6 @@ export function SubscriptionCard({
     }
   };
 
-  const isAutomatic = subscription.paddle_collection_mode === "automatic";
   const nextBillingDate = subscription.billing_cycle_end;
 
   return (
@@ -123,7 +118,7 @@ export function SubscriptionCard({
                   Método de pago
                 </span>
                 <span className="text-sm font-medium text-brand-ink-secondary dark:text-slate-200">
-                  {isAutomatic ? "Tarjeta de crédito/débito" : "Transferencia bancaria"}
+                  Tarjeta de crédito/débito
                 </span>
               </div>
             </div>
@@ -143,28 +138,14 @@ export function SubscriptionCard({
             </Link>
           </Button>
 
-          {isAutomatic && (
-            <Button
-              onClick={onManagePortal}
-              disabled={isPortalLoading}
-              className="w-full sm:w-auto h-11 py-3 px-7 min-w-[120px] rounded-xl text-sm font-semibold bg-brand-ink text-white hover:bg-brand-ink-secondary dark:bg-slate-800 dark:hover:bg-slate-700 active:scale-[0.98] transition-all duration-100"
-            >
-              <CreditCard className="size-4 mr-2" />
-              <span>{isPortalLoading ? "Cargando portal..." : "Gestionar método de pago"}</span>
-              <ExternalLink className="size-3.5 ml-1.5 text-slate-400" />
-            </Button>
-          )}
-
-          {!isAutomatic && (
-            <Button
-              asChild
-              className="w-full sm:w-auto h-11 py-3 px-7 min-w-[120px] rounded-xl text-sm font-semibold bg-brand-primary text-white hover:bg-brand-primary-deep active:scale-[0.98] transition-all duration-100"
-            >
-              <Link href="/dashboard/cuenta/estado">
-                <span>Pagar estado de cuenta</span>
-              </Link>
-            </Button>
-          )}
+          <Button
+            asChild
+            className="w-full sm:w-auto h-11 py-3 px-7 min-w-[120px] rounded-xl text-sm font-semibold bg-brand-primary text-white hover:bg-brand-primary-deep active:scale-[0.98] transition-all duration-100"
+          >
+            <Link href="/dashboard/cuenta/estado">
+              <span>Pagar estado de cuenta</span>
+            </Link>
+          </Button>
         </div>
       </div>
     </div>

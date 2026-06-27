@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSubscription } from "@/hooks/use-subscription";
-import { useCustomerPortal } from "@/hooks/use-customer-portal";
 import {
   getPaymentProofs,
   PaymentProof,
@@ -88,7 +87,6 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
 
   // Queries
   const { plan, subscription, usage, isLoading: isSubLoading } = useSubscription();
-  const { openPortal, loading: isPortalLoading } = useCustomerPortal();
 
   const { data: proofs, isLoading: isProofsLoading } = useQuery<PaymentProof[]>({
     queryKey: ["payment-proofs-my", orgId],
@@ -104,12 +102,7 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
 
   const handleManagePortal = async () => {
     if (!orgId) return;
-    try {
-      setErrorMsg("");
-      await openPortal(orgId);
-    } catch (err) {
-      setErrorMsg("No pudimos abrir el portal de autogestión. Inténtalo más tarde.");
-    }
+    toast.error("Portal de gestión aún no disponible");
   };
 
   async function handlePayStatement(e: React.FormEvent) {
@@ -292,8 +285,6 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
                     plan={plan}
                     subscription={subscription}
                     orgId={orgId}
-                    onManagePortal={handleManagePortal}
-                    isPortalLoading={isPortalLoading}
                   />
                   
                   {subscription && (

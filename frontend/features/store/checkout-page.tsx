@@ -14,7 +14,6 @@ import { useCart } from "./cart-context";
 import { useSession } from "@/hooks/use-session";
 import { calculateCart, uploadPaymentProof, getBankDetails, getExchangeRate, type CartItem as ApiCartItem } from "@/lib/api/plans";
 import { PriceDisplay } from "@/components/ui/price-display";
-import { PaddleCheckoutButton } from "@/components/billing/paddle-checkout";
 import { cn } from "@/lib/utils";
 
 export function CheckoutPage() {
@@ -318,7 +317,7 @@ export function CheckoutPage() {
             <div className="space-y-1">
               <h4 className="text-xs font-semibold text-brand-ink dark:text-white">Pago 100% seguro</h4>
               <p className="text-[11px] text-brand-ink-mute dark:text-slate-400 leading-normal">
-                Todas las transacciones de tarjeta son encriptadas y procesadas por Paddle.com, nuestro socio de facturación oficial de conformidad con los estándares PCI-DSS.
+                Todas las transacciones de tarjeta son encriptadas y procesadas por MIO Payment Gateway (GeoPagos), cumpliendo con los estándares PCI-DSS.
               </p>
             </div>
           </div>

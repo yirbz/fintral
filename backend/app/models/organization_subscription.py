@@ -1,6 +1,6 @@
 """OrganizationSubscription — links an org to its active plan + addons."""
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, JSON
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 from uuid_utils import uuid7
 
@@ -24,12 +24,6 @@ class OrganizationSubscription(Base):
         # active | trialing | past_due | canceled | expired | suspended
     )
 
-    # ── Paddle Billing fields ────────────────────────────────────────
-    paddle_subscription_id = Column(String(64), nullable=True, index=True)
-    paddle_customer_id = Column(String(64), nullable=True, index=True)
-    paddle_price_id = Column(String(64), nullable=True)
-    paddle_collection_mode = Column(String(16), nullable=True)  # automatic | manual
-    paddle_scheduled_change = Column(JSON, nullable=True)
     current_billing_period_start = Column(DateTime(timezone=True), nullable=True)
     current_billing_period_end = Column(DateTime(timezone=True), nullable=True)
 
@@ -77,9 +71,6 @@ class OrganizationSubscription(Base):
             "plan_id": str(self.plan_id),
             "plan_name": self.plan.display_name if self.plan else None,
             "status": self.status,
-            "paddle_subscription_id": self.paddle_subscription_id,
-            "paddle_customer_id": self.paddle_customer_id,
-            "paddle_collection_mode": self.paddle_collection_mode,
             "lago_subscription_id": self.lago_subscription_id,
             "lago_customer_id": self.lago_customer_id,
             "lago_plan_code": self.lago_plan_code,

@@ -199,12 +199,11 @@ PLANS = [
 
 
 def seed_plans(db: Session = None):
-    """Insert plans if they don't exist, or update them to sync prices and Paddle IDs.
+    """Insert plans if they don't exist, or update them to sync prices.
 
     Args:
         db: Optional SQLAlchemy session. If not provided, creates its own.
     """
-    from app import config as settings
     own_session = db is None
     if own_session:
         db = SessionLocal()
@@ -213,34 +212,13 @@ def seed_plans(db: Session = None):
         updated = 0
         for data in PLANS:
             plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == data["name"]).first()
-            
-            # Resolve Paddle IDs from config
-            paddle_prod = None
-            paddle_price = None
-            if data["name"] == "inicial":
-                paddle_prod = settings.PADDLE_PRODUCT_INICIAL
-                paddle_price = settings.PADDLE_PRICE_INICIAL_MONTHLY
-            elif data["name"] == "profesional":
-                paddle_prod = settings.PADDLE_PRODUCT_PROFESIONAL
-                paddle_price = settings.PADDLE_PRICE_PROFESIONAL_MONTHLY
-            elif data["name"] == "despacho":
-                paddle_prod = settings.PADDLE_PRODUCT_DESPACHO
-                paddle_price = settings.PADDLE_PRICE_DESPACHO_MONTHLY
 
             if plan:
-                # Update existing
                 for k, v in data.items():
                     setattr(plan, k, v)
-                if paddle_prod:
-                    plan.paddle_product_id = paddle_prod
-                if paddle_price:
-                    plan.paddle_price_id_monthly = paddle_price
                 updated += 1
             else:
-                # Create new
                 plan = SubscriptionPlan(**data)
-                plan.paddle_product_id = paddle_prod
-                plan.paddle_price_id_monthly = paddle_price
                 db.add(plan)
                 created += 1
 
@@ -250,12 +228,11 @@ def seed_plans(db: Session = None):
         # Verify
         for p in db.query(SubscriptionPlan).order_by(SubscriptionPlan.sort_order).all():
             logger.info(
-                "  • %s — %s %.2f/mo | USD=%.2f | users=%s entities=%s user_slot_price=%s entity_slot_price=%s | paddle_price=%s",
+                "  • %s — %s %.2f/mo | USD=%.2f | users=%s entities=%s user_slot_price=%s entity_slot_price=%s",
                 p.display_name, p.currency, p.price_monthly_cents / 100,
                 float(p.price_usd) if p.price_usd is not None else 0.0,
                 p.max_users, p.max_entities,
                 p.user_slot_price_cents, p.entity_slot_price_cents,
-                p.paddle_price_id_monthly,
             )
 
     finally:
