@@ -105,7 +105,7 @@ class BillingCheckoutService:
         logger.info(f"Subscribing customer in Lago to plan: {plan_name}")
         try:
             # Plan code in Lago must match the subscription plan configuration code
-            lago_sub = await self.lago.create_subscription(
+            await self.lago.create_subscription(
                 customer_external_id=str(org.id),
                 plan_code=plan.lago_plan_code or plan_name,
                 external_id=sub_id,

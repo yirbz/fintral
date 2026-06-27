@@ -8,7 +8,6 @@ from typing import Any, Dict
 from sqlalchemy.orm import Session
 
 from app.models.billing_webhook_event import BillingWebhookEvent
-from app.models.organization_subscription import OrganizationSubscription
 from app.services.lago_service import LagoService
 from app.utils.dates import utc_now
 
@@ -79,14 +78,6 @@ class MioWebhookHandler:
         if not order_uuid:
             raise ValueError("No order UUID found in MIO webhook payload")
 
-        # Import dynamically to avoid circular import issues
-        from app.models.organization_subscription import OrganizationSubscription
-        # We need to query the order from our new table: 'mio_payment_orders'
-        # Since we haven't created the SQLAlchemy model class for MioPaymentOrder yet,
-        # we can execute a raw SQL query or check if we should create it.
-        # Let's write the MioPaymentOrder model class right after this file.
-        # For now, let's query via SQLAlchemy dynamic metadata or write the model first.
-        # Let's create the model first in app/models/mio_payment_order.py to keep SQLAlchemy clean.
         from app.models.mio_payment_order import MioPaymentOrder
 
         order = self.db.query(MioPaymentOrder).filter(MioPaymentOrder.order_uuid == order_uuid).first()

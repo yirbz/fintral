@@ -1,7 +1,7 @@
 """Unit tests for Lago + MIO billing refactor implementation."""
 
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import patch, MagicMock
 from uuid import uuid4
 from datetime import datetime
 
@@ -9,11 +9,10 @@ from app.models import (
     SubscriptionPlan,
     OrganizationSubscription,
     Organization,
-    BillingWebhookEvent,
     MioPaymentOrder
 )
-from app.services.lago_service import LagoService, LagoAPIError
-from app.services.mio_service import MioService, MioAPIError
+from app.services.lago_service import LagoService
+from app.services.mio_service import MioService
 from app.services.billing_checkout_service import BillingCheckoutService
 from app.services.lago_webhook_handler import LagoWebhookHandler
 from app.services.mio_webhook_handler import MioWebhookHandler

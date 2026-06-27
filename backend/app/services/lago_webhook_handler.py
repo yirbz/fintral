@@ -12,7 +12,6 @@ from app.models.billing_webhook_event import BillingWebhookEvent
 from app.models.mio_payment_order import MioPaymentOrder
 from app.models.organization import Organization
 from app.models.organization_subscription import OrganizationSubscription
-from app.models.subscription_plan import SubscriptionPlan
 from app.services.mio_service import MioService
 from app.utils.dates import utc_now
 
@@ -120,7 +119,7 @@ class LagoWebhookHandler:
                     fee_name = fee.get("item", {}).get("name") or fee.get("add_on_code") or "Servicio"
                     units = fee.get("units", 1)
                     item_names.append(f"{units}x {fee_name}")
-                description = f"Fintral: " + ", ".join(item_names)
+                description = "Fintral: " + ", ".join(item_names)
 
             # Create checkout order on MIO
             try:

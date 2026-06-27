@@ -856,7 +856,7 @@ async def checkout_subscribe(
         return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
+    except Exception:
         logger.exception("Error initiating plan checkout")
         raise HTTPException(status_code=500, detail="Error interno al iniciar suscripción")
 
@@ -877,6 +877,6 @@ async def checkout_prepaid_ecf(
         return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
+    except Exception:
         logger.exception("Error initiating prepaid e-CF block checkout")
         raise HTTPException(status_code=500, detail="Error interno al procesar compra prepago")
