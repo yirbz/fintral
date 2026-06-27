@@ -4,7 +4,7 @@ from app import config
 
 logger = logging.getLogger(__name__)
 
-def get_bpd_usd_rate() -> float:
+async def get_bpd_usd_rate() -> float:
     """Fetch the daily USD/DOP exchange rate from Banco Popular's API.
     
     If the API is down or returns invalid data, falls back to the configured
@@ -30,8 +30,8 @@ def get_bpd_usd_rate() -> float:
 
     try:
         logger.info("Fetching exchange rate from Banco Popular: %s", url)
-        with httpx.Client(timeout=5.0) as client:
-            response = client.get(url, headers=headers)
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(url, headers=headers)
             response.raise_for_status()
             data = response.json()
             logger.info("Banco Popular API response successfully retrieved: %s", data)

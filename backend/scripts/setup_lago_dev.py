@@ -73,12 +73,21 @@ def seed_lago():
     }
 
     # 1. Define Fintral Subscription Plans
+    # Prices MUST match seed_plans.py (the authoritative source):
+    #   Inicial      — RD$ 999/mo
+    #   Profesional   — RD$ 2,999/mo
+    #   Despacho      — RD$ 7,999/mo
+    #
+    # e-CF blocks:
+    #   Bloque 100   — RD$ 950
+    #   Bloque 500   — RD$ 2,000
+    #   Bloque 1000  — RD$ 3,500
     plans = [
         {
             "code": "inicial",
             "name": "Plan Inicial",
             "interval": "monthly",
-            "amount_cents": 100000,
+            "amount_cents": 99900,
             "amount_currency": "DOP",
             "pay_in_advance": True
         },
@@ -86,7 +95,7 @@ def seed_lago():
             "code": "profesional",
             "name": "Plan Profesional",
             "interval": "monthly",
-            "amount_cents": 280000,
+            "amount_cents": 299900,
             "amount_currency": "DOP",
             "pay_in_advance": True
         },
@@ -94,7 +103,7 @@ def seed_lago():
             "code": "despacho",
             "name": "Plan Despacho",
             "interval": "monthly",
-            "amount_cents": 600000,
+            "amount_cents": 799900,
             "amount_currency": "DOP",
             "pay_in_advance": True
         }
@@ -105,7 +114,7 @@ def seed_lago():
         {
             "code": "ecf_block_100",
             "name": "Bloque 100 ECF",
-            "amount_cents": 50000,
+            "amount_cents": 95000,
             "amount_currency": "DOP"
         },
         {

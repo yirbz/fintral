@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.organization import Organization
 from app.models.organization_subscription import OrganizationSubscription
 from app.models.subscription_plan import SubscriptionPlan
+from app import config as settings
 from app.services.lago_service import LagoService, LagoAPIError
 from app.services.mio_service import MioService
 from app.models.mio_payment_order import MioPaymentOrder
@@ -45,11 +46,11 @@ class BillingCheckoutService:
         price_dop = plan.price_dop
         if not price_dop:
             fallbacks = {
-                "inicial": 1000.00,
-                "profesional": 2800.00,
-                "despacho": 7500.00
+                "inicial": 999.00,
+                "profesional": 2999.00,
+                "despacho": 7999.00,
             }
-            price_dop = fallbacks.get(plan_name.lower(), 1000.00)
+            price_dop = fallbacks.get(plan_name.lower(), 999.00)
 
         price_cents = int(price_dop * 100)
 
@@ -81,8 +82,8 @@ class BillingCheckoutService:
 
         # Build subscription dates
         # One month from now
-        from datetime import datetime, timedelta
-        cycle_start = datetime.utcnow()
+        from datetime import timedelta
+        cycle_start = utc_now()
         cycle_end = cycle_start + timedelta(days=30)
 
         sub_id = f"sub_{str(org.id)[:8]}_{plan_name}"
@@ -115,7 +116,6 @@ class BillingCheckoutService:
 
         # If paying by card, create MIO payment order immediately for the first month
         if payment_method == "card" and price_cents > 0:
-            from app import config as settings
             webhook_url = settings.MIO_WEBHOOK_URL or "https://api.fintral.com/api/mio/webhook"
             success_url = settings.MIO_SUCCESS_REDIRECT or "https://app.fintral.com/billing/success"
             failed_url = settings.MIO_FAILED_REDIRECT or "https://app.fintral.com/billing/failed"
@@ -216,7 +216,6 @@ class BillingCheckoutService:
 
         # 3. Create checkout order on MIO if payment method is card
         if payment_method == "card":
-            from app import config as settings
             webhook_url = settings.MIO_WEBHOOK_URL or "https://api.fintral.com/api/mio/webhook"
             success_url = settings.MIO_SUCCESS_REDIRECT or "https://app.fintral.com/billing/success"
             failed_url = settings.MIO_FAILED_REDIRECT or "https://app.fintral.com/billing/failed"

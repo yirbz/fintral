@@ -211,6 +211,7 @@ LAGO_WEBHOOK_SECRET: str = os.getenv("LAGO_WEBHOOK_SECRET", "fintral-lago-webhoo
 # ===========================================================================
 MIO_CLIENT_ID: str = os.getenv("MIO_CLIENT_ID", "")
 MIO_CLIENT_SECRET: str = os.getenv("MIO_CLIENT_SECRET", "")
+MIO_WEBHOOK_SECRET: str = os.getenv("MIO_WEBHOOK_SECRET", "")
 MIO_ENVIRONMENT: str = os.getenv("MIO_ENVIRONMENT", "staging")  # staging | production
 MIO_API_BASE_URL: str = os.getenv("MIO_API_BASE_URL", "https://api-mpos-mio.stg.geopagos.io")
 MIO_AUTH_URL: str = os.getenv("MIO_AUTH_URL", "https://auth.stg.geopagos.io")

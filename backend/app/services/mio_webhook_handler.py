@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+
 from typing import Any, Dict
 from sqlalchemy.orm import Session
 
@@ -114,7 +114,7 @@ class MioWebhookHandler:
         if order.lago_invoice_id:
             try:
                 # Lago expects paid_at in ISO format (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ)
-                paid_at = datetime.utcnow().strftime("%Y-%m-%d")
+                paid_at = utc_now().strftime("%Y-%m-%d")
                 await self.lago.record_payment(
                     invoice_id=order.lago_invoice_id,
                     amount_cents=order.amount_cents,

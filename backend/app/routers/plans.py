@@ -142,7 +142,7 @@ async def list_public_plans(ctx: TenantContext = Depends(require_tenant)):
 @router.get("/exchange-rate")
 async def get_current_exchange_rate():
     """Retrieve the current USD/DOP exchange rate."""
-    rate = get_bpd_usd_rate()
+    rate = await get_bpd_usd_rate()
     return {"rate": rate, "currency": "DOP"}
 
 

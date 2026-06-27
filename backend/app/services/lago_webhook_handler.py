@@ -7,7 +7,9 @@ from datetime import datetime
 from typing import Any, Dict
 from sqlalchemy.orm import Session
 
+from app import config as settings
 from app.models.billing_webhook_event import BillingWebhookEvent
+from app.models.mio_payment_order import MioPaymentOrder
 from app.models.organization import Organization
 from app.models.organization_subscription import OrganizationSubscription
 from app.models.subscription_plan import SubscriptionPlan
@@ -104,9 +106,6 @@ class LagoWebhookHandler:
 
         # Only automate checkout creation if payment method is card
         if payment_method == "card" and total_cents > 0:
-            # Setup redirect URLs
-            # Webhook URL for MIO is our own endpoint: /api/mio/webhook
-            from app import config as settings
             webhook_url = settings.MIO_WEBHOOK_URL or "https://api.fintral.com/api/mio/webhook"
             success_url = settings.MIO_SUCCESS_REDIRECT or "https://app.fintral.com/billing/success"
             failed_url = settings.MIO_FAILED_REDIRECT or "https://app.fintral.com/billing/failed"
@@ -134,7 +133,6 @@ class LagoWebhookHandler:
                 )
 
                 # Persist order details in our database
-                from app.models.mio_payment_order import MioPaymentOrder
                 db_order = MioPaymentOrder(
                     order_uuid=mio_order["order_uuid"],
                     lago_invoice_id=lago_invoice_id,

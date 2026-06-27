@@ -1,10 +1,13 @@
 """MIO Webhook Router — handles webhook events dispatched by MIO payment gateway."""
 
+import hashlib
+import hmac
 import logging
 from typing import Any, Dict
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from app import config as settings
 from app.database import get_db
 from app.services.mio_webhook_handler import MioWebhookHandler
 
@@ -12,12 +15,42 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/mio", tags=["mio"])
 
 
+def verify_mio_signature(raw_body: bytes, signature: str, secret: str) -> bool:
+    """Verify MIO webhook signature using HMAC-SHA256.
+
+    MIO/GeoPagos signs webhooks with a shared secret.
+    Falls back to True if no secret configured (dev-safe).
+    """
+    if not secret:
+        return True
+    if not signature:
+        return False
+    expected = hmac.new(
+        secret.encode("utf-8"),
+        raw_body,
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
 @router.post("/webhook")
-async def mio_webhook(request: Request, db: Session = Depends(get_db)):
+async def mio_webhook(
+    request: Request,
+    x_signature: str | None = Header(None, alias="X-Signature"),
+    db: Session = Depends(get_db),
+):
     """Receive and process webhooks from MIO payment gateway.
 
     Parses transaction completion details and records them in Lago.
+    Verifies HMAC-SHA256 signature when MIO_WEBHOOK_SECRET is configured.
     """
+    raw_body = await request.body()
+
+    if settings.MIO_WEBHOOK_SECRET and not verify_mio_signature(
+        raw_body, x_signature or "", settings.MIO_WEBHOOK_SECRET
+    ):
+        logger.warning("MIO webhook signature verification failed")
+        raise HTTPException(status_code=401, detail="Invalid signature")
     try:
         payload = await request.json()
     except Exception:
