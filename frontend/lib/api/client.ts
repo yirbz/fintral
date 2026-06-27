@@ -75,6 +75,13 @@ export async function apiFetch<T>(
       throw new ApiError(errorMessage, response.status, errorPayload);
     }
 
+    if (response.status === 402 && !isOnPublicPage()) {
+      try {
+        window.dispatchEvent(new CustomEvent("billing:required", { detail: { path: input, message: errorMessage } }));
+      } catch { /* noop */ }
+      throw new ApiError(errorMessage, response.status, errorPayload);
+    }
+
     throw new ApiError(errorMessage, response.status, errorPayload);
   }
 

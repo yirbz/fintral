@@ -6,6 +6,7 @@ export interface PlanSummary {
   display_name: string;
   description: string | null;
   price_monthly: number;
+  price_usd?: number | null;
   limits: Record<string, any>;
   features: Record<string, boolean>;
   is_enterprise: boolean;
@@ -49,6 +50,9 @@ export interface SubscriptionSummary {
   limits: Record<string, any>;
   addons: AddonsSummary;
   auto_renew_addons: boolean;
+  paddle_subscription_id?: string | null;
+  paddle_customer_id?: string | null;
+  paddle_collection_mode?: string | null;
 }
 
 export interface UsageSummary {
@@ -71,6 +75,8 @@ export interface PaymentProof {
   id: string;
   amount: number;
   currency: string;
+  exchange_rate?: number | null;
+  usd_amount?: number | null;
   plan_name: string;
   addons: Record<string, number> | null;
   status: "pending" | "verified" | "rejected";
@@ -111,6 +117,14 @@ export interface UsageDailyResponse {
 
 export async function getUsageDaily() {
   return apiFetch<UsageDailyResponse>("/api/plans/usage-daily");
+}
+export interface ExchangeRateResponse {
+  rate: number;
+  currency: string;
+}
+
+export async function getExchangeRate() {
+  return apiFetch<ExchangeRateResponse>("/api/plans/exchange-rate");
 }
 
 export async function getPublicPlans() {

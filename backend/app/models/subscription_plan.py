@@ -1,6 +1,6 @@
 """SubscriptionPlan — defines available tier plans for Fintral."""
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Integer, Numeric, String, Text
 from uuid_utils import uuid7
 
 from app.database import Base, GUID
@@ -19,6 +19,13 @@ class SubscriptionPlan(Base):
     # ── Pricing ──────────────────────────────────────────────────────
     price_monthly_cents = Column(Integer, nullable=False)       # 2900 = $29.00
     currency = Column(String(3), default="USD")
+    price_usd = Column(Numeric(10, 2), nullable=True)           # USD price for Paddle checkout
+    price_dop = Column(Numeric(10, 2), nullable=True)           # DOP price for MIO/Lago checkout
+    lago_plan_code = Column(String(100), nullable=True)         # Lago plan identifier
+
+    paddle_product_id = Column(String(64), nullable=True)
+    paddle_price_id_monthly = Column(String(64), nullable=True)
+    paddle_price_id_annual = Column(String(64), nullable=True)
     extra_entity_price_cents = Column(Integer, default=0)       # DEPRECATED — always 0
     extra_billing_entity_price_cents = Column(Integer, default=0)  # DEPRECATED — always 0
     entity_slot_price_cents = Column(Integer, default=0)        # RD$600 / extra entity slot beyond plan limit
@@ -70,6 +77,17 @@ class SubscriptionPlan(Base):
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     def to_dict(self) -> dict:
+        usd_val = None
+        if self.price_usd is not None:
+            usd_val = float(self.price_usd)
+        else:
+            fallbacks = {
+                "inicial": 16.49,
+                "profesional": 47.99,
+                "despacho": 127.99,
+            }
+            usd_val = fallbacks.get(self.name.lower())
+
         return {
             "id": str(self.id),
             "name": self.name,
@@ -77,6 +95,9 @@ class SubscriptionPlan(Base):
             "description": self.description,
             "price_monthly": round(self.price_monthly_cents / 100, 2),
             "price_monthly_cents": self.price_monthly_cents,
+            "price_usd": usd_val,
+            "price_dop": float(self.price_dop) if self.price_dop is not None else None,
+            "lago_plan_code": self.lago_plan_code,
             "currency": self.currency,
             "extra_entity_price": 0,  # DEPRECATED — always 0
             "extra_billing_entity_price": 0,  # DEPRECATED — always 0

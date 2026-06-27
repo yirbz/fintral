@@ -101,11 +101,18 @@ cd "$ROOT_DIR"
 # ---------------------------------------------------------------------------
 # Step 3: Docker Compose (via Doppler)
 # ---------------------------------------------------------------------------
-echo -e "${YELLOW}[3/4] Launching app containers (backend + frontend + nginx + Redis)...${NC}"
+echo -e "${YELLOW}[3/4] Launching app containers (backend + frontend + nginx + Redis + Lago)...${NC}"
 echo -e "  ${BLUE}→${NC} Injecting secrets with Doppler..."
 
 doppler run --project fintral --config dev -- \
   docker compose -f docker-compose.dev.yml up -d --build
+
+# ---------------------------------------------------------------------------
+# Step 4: Auto-seed Lago Plans and Add-ons locally
+# ---------------------------------------------------------------------------
+echo -e "${YELLOW}[4/4] Seeding Lago plans and add-ons...${NC}"
+doppler run --project fintral --config dev -- \
+  backend/venv/bin/python backend/scripts/setup_lago_dev.py
 
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════╗${NC}"

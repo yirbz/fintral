@@ -38,6 +38,8 @@ import {
   PlusCircle as PlusCircleIcon,
   ArrowLeftRight as ArrowLeftRightIcon,
   Edit3 as Edit3Icon,
+  Store as StoreIcon,
+  Receipt as ReceiptIcon,
 } from "lucide-react"
 
 const data = {
@@ -81,14 +83,19 @@ const data = {
   ],
   navSecondary: [
     {
+      title: "Tienda",
+      url: "/dashboard/tienda",
+      icon: <StoreIcon />,
+    },
+    {
+      title: "Mi Cuenta",
+      url: "/dashboard/cuenta",
+      icon: <ReceiptIcon />,
+    },
+    {
       title: "Ajustes",
       url: "/dashboard/settings",
       icon: <Settings2Icon />,
-    },
-    {
-      title: "Estado de Cuenta",
-      url: "/dashboard/billing/statement",
-      icon: <FileTextIcon />,
     },
     {
       title: "Ayuda",
@@ -261,7 +268,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       )
 
   const documents = isBillingSubdomain ? billingDocuments : data.documents
-  const navSecondary = isBillingSubdomain ? [] : data.navSecondary
+  const navSecondary: any[] = []
 
   useEffect(() => {
     if (session.data?.user) {

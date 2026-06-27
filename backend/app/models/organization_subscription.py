@@ -1,6 +1,6 @@
 """OrganizationSubscription — links an org to its active plan + addons."""
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, JSON
 from sqlalchemy.orm import relationship
 from uuid_utils import uuid7
 
@@ -13,20 +13,38 @@ class OrganizationSubscription(Base):
     __tablename__ = "organization_subscriptions"
 
     id = Column(GUID, primary_key=True, default=uuid7)
-    organization_id = Column(GUID, ForeignKey("organizations.id"), nullable=False, index=True)
-    plan_id = Column(GUID, ForeignKey("subscription_plans.id"), nullable=False)
+    organization_id = Column(GUID, ForeignKey("organizations.id"), nullable=True, index=True)
+    plan_id = Column(GUID, ForeignKey("subscription_plans.id"), nullable=True)
 
     # ── Status ───────────────────────────────────────────────────────
     status = Column(
         String(32),
         nullable=False,
         default="trialing",
-        # active | trialing | past_due | canceled | expired
+        # active | trialing | past_due | canceled | expired | suspended
     )
 
+    # ── Paddle Billing fields ────────────────────────────────────────
+    paddle_subscription_id = Column(String(64), nullable=True, index=True)
+    paddle_customer_id = Column(String(64), nullable=True, index=True)
+    paddle_price_id = Column(String(64), nullable=True)
+    paddle_collection_mode = Column(String(16), nullable=True)  # automatic | manual
+    paddle_scheduled_change = Column(JSON, nullable=True)
+    current_billing_period_start = Column(DateTime(timezone=True), nullable=True)
+    current_billing_period_end = Column(DateTime(timezone=True), nullable=True)
+
+    # ── Lago Billing fields ──────────────────────────────────────────
+    lago_subscription_id = Column(String(64), nullable=True, index=True)
+    lago_customer_id = Column(String(64), nullable=True, index=True)
+    lago_plan_code = Column(String(100), nullable=True)
+    payment_method = Column(String(50), nullable=True)  # card | transfer
+
+    # ── MIO Payment fields ───────────────────────────────────────────
+    mio_customer_token = Column(String(255), nullable=True)  # card-on-file token
+
     # ── Billing cycle ────────────────────────────────────────────────
-    billing_cycle_start = Column(DateTime(timezone=True), nullable=False)
-    billing_cycle_end = Column(DateTime(timezone=True), nullable=False)
+    billing_cycle_start = Column(DateTime(timezone=True), nullable=True)
+    billing_cycle_end = Column(DateTime(timezone=True), nullable=True)
     trial_ends_at = Column(DateTime(timezone=True), nullable=True)
     canceled_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -59,6 +77,14 @@ class OrganizationSubscription(Base):
             "plan_id": str(self.plan_id),
             "plan_name": self.plan.display_name if self.plan else None,
             "status": self.status,
+            "paddle_subscription_id": self.paddle_subscription_id,
+            "paddle_customer_id": self.paddle_customer_id,
+            "paddle_collection_mode": self.paddle_collection_mode,
+            "lago_subscription_id": self.lago_subscription_id,
+            "lago_customer_id": self.lago_customer_id,
+            "lago_plan_code": self.lago_plan_code,
+            "payment_method": self.payment_method,
+            "mio_customer_token": self.mio_customer_token,
             "billing_cycle_start": self.billing_cycle_start.isoformat() if self.billing_cycle_start else None,
             "billing_cycle_end": self.billing_cycle_end.isoformat() if self.billing_cycle_end else None,
             "trial_ends_at": self.trial_ends_at.isoformat() if self.trial_ends_at else None,

@@ -181,11 +181,18 @@ export function AdminPaymentProofsPage() {
                     )}
                   </TableCell>
                   <TableCell>{proof.plan_name}</TableCell>
-                  <TableCell>
-                    {proof.amount.toLocaleString("es-DO", {
-                      style: "currency",
-                      currency: proof.currency || "DOP",
-                    })}
+                  <TableCell className="tabular-nums">
+                    <div>
+                      {proof.amount.toLocaleString("es-DO", {
+                        style: "currency",
+                        currency: proof.currency || "DOP",
+                      })}
+                    </div>
+                    {proof.usd_amount && (
+                      <div className="text-[10px] text-muted-foreground">
+                        (${proof.usd_amount.toFixed(2)} USD @ {proof.exchange_rate?.toFixed(4)})
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Badge variant={STATUS_MAP[proof.status]?.variant || "outline"}>
@@ -241,19 +248,40 @@ export function AdminPaymentProofsPage() {
                   <p className="font-medium">{selectedProof.plan_name}</p>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">Monto:</span>
-                  <p className="font-medium">
+                  <span className="text-muted-foreground">Monto Transferido (DOP):</span>
+                  <p className="font-medium tabular-nums">
                     {selectedProof.amount.toLocaleString("es-DO", {
                       style: "currency",
                       currency: selectedProof.currency || "DOP",
                     })}
                   </p>
                 </div>
+                {selectedProof.usd_amount && selectedProof.exchange_rate && (
+                  <>
+                    <div>
+                      <span className="text-muted-foreground">Monto Original (USD):</span>
+                      <p className="font-medium tabular-nums">
+                        {selectedProof.usd_amount.toLocaleString("en-US", {
+                          style: "currency",
+                          currency: "USD",
+                        })}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Tasa de Cambio (BPD):</span>
+                      <p className="font-medium tabular-nums">
+                        {selectedProof.exchange_rate.toFixed(4)}
+                      </p>
+                    </div>
+                  </>
+                )}
                 <div>
                   <span className="text-muted-foreground">Estado:</span>
-                  <Badge variant={STATUS_MAP[selectedProof.status]?.variant || "outline"}>
-                    {STATUS_MAP[selectedProof.status]?.label || selectedProof.status}
-                  </Badge>
+                  <div className="mt-0.5">
+                    <Badge variant={STATUS_MAP[selectedProof.status]?.variant || "outline"}>
+                      {STATUS_MAP[selectedProof.status]?.label || selectedProof.status}
+                    </Badge>
+                  </div>
                 </div>
               </div>
 

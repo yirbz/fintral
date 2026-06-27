@@ -157,6 +157,42 @@ async def require_tenant(
     if not org:
         raise HTTPException(status_code=403, detail="Organización no encontrada o inactiva")
 
+    # Differentiate Fintral Factura (billing module) vs Hub
+    path = request.url.path
+    is_bypass_path = (
+        path.startswith("/api/auth/") or
+        path.startswith("/api/plans/") or
+        path.startswith("/api/billing/") or
+        path.startswith("/api/organizations/user-orgs") or
+        path.startswith("/api/me")
+    )
+    hostname = request.headers.get("host") or ""
+    is_billing_subdomain = hostname.startswith("factura.")
+
+    if not is_bypass_path and not is_billing_subdomain:
+        from app.models.organization_subscription import OrganizationSubscription
+        from app.utils.dates import utc_now
+
+        sub = (
+            db.query(OrganizationSubscription)
+            .filter(OrganizationSubscription.organization_id == org.id)
+            .filter(OrganizationSubscription.status.in_(["active", "trialing"]))
+            .order_by(OrganizationSubscription.created_at.desc())
+            .first()
+        )
+
+        if sub and sub.status == "trialing":
+            if sub.trial_ends_at and sub.trial_ends_at < utc_now():
+                sub.status = "expired"
+                db.commit()
+                sub = None
+
+        if not sub:
+            raise HTTPException(
+                status_code=402,
+                detail="Suscripción requerida para acceder al Hub Contable."
+            )
+
     if org.is_deleted:
         is_write = request.method in ("POST", "PUT", "PATCH", "DELETE")
         is_allowed_write = (

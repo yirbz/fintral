@@ -201,6 +201,31 @@ def _provision_local_user(db: Session, email: str, full_name: str, phone: str, c
     db.add(org)
     db.flush()
 
+    # Provision 7-day trial subscription to 'inicial' plan
+    from app.models.subscription_plan import SubscriptionPlan
+    from app.models.organization_subscription import OrganizationSubscription
+    from datetime import timedelta
+
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "inicial").first()
+    if not plan:
+        plan = db.query(SubscriptionPlan).first()
+
+    if plan:
+        trial_ends = utc_now() + timedelta(days=7)
+        sub_id = f"sub_{str(org.id)[:8]}_inicial_trial"
+        sub_obj = OrganizationSubscription(
+            organization_id=org.id,
+            plan_id=plan.id,
+            status="trialing",
+            trial_ends_at=trial_ends,
+            billing_cycle_start=utc_now(),
+            billing_cycle_end=utc_now() + timedelta(days=30),
+            lago_plan_code=plan.lago_plan_code or "inicial",
+            lago_subscription_id=sub_id,
+        )
+        db.add(sub_obj)
+        db.flush()
+
     user = User(
         email=email,
         full_name=full_name,

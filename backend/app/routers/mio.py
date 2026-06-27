@@ -1,89 +1,65 @@
+"""MIO Webhook Router — handles webhook events dispatched by MIO payment gateway."""
+
 import logging
-from typing import Optional, List
-from pydantic import BaseModel
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Any, Dict
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies.tenant import TenantContext, require_tenant
-from app.services import MioService, SettingsService
+from app.services.mio_webhook_handler import MioWebhookHandler
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
-settings_service = SettingsService()
-mio_service = MioService(settings_service=settings_service)
+router = APIRouter(prefix="/api/mio", tags=["mio"])
 
 
-class OrderItemSchema(BaseModel):
-    id: Optional[int] = None
-    name: str
-    amount: float
-    quantity: Optional[int] = 1
+@router.post("/webhook")
+async def mio_webhook(request: Request, db: Session = Depends(get_db)):
+    """Receive and process webhooks from MIO payment gateway.
 
+    Parses transaction completion details and records them in Lago.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        logger.error("Failed to parse JSON body from MIO webhook")
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
-class CreateOrderRequest(BaseModel):
-    amount: float
-    currency: Optional[str] = "DOP"
-    invoice_id: Optional[str] = None
-    items: Optional[List[OrderItemSchema]] = None
-    redirect_urls: Optional[dict] = None
-    webhook_url: Optional[str] = None
-    expire_minutes: Optional[int] = 14400
+    logger.info(f"Received MIO webhook payload: {payload}")
 
-
-@router.post("/api/mio/token")
-async def get_mio_token(ctx: TenantContext = Depends(require_tenant)):
-    return mio_service.get_token(ctx.db, ctx.org_id)
-
-
-@router.post("/api/mio/token/refresh")
-async def refresh_mio_token(ctx: TenantContext = Depends(require_tenant)):
-    return mio_service.get_token(ctx.db, ctx.org_id, force_refresh=True)
-
-
-@router.post("/api/mio/create-order")
-async def create_mio_order(body: CreateOrderRequest, ctx: TenantContext = Depends(require_tenant)):
-    invoice_uuid = None
-    if body.invoice_id:
-        from uuid import UUID
-        try:
-            invoice_uuid = UUID(body.invoice_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="invoice_id no es un UUID válido")
-
-    items_list = None
-    if body.items:
-        items_list = [item.dict() for item in body.items]
-
-    res = mio_service.create_order(
-        db=ctx.db,
-        tenant_id=ctx.tenant_id,
-        org_id=ctx.org_id,
-        amount=body.amount,
-        currency=body.currency,
-        invoice_id=invoice_uuid,
-        items=items_list,
-        redirect_urls=body.redirect_urls,
-        webhook_url=body.webhook_url,
-        expire_minutes=body.expire_minutes
+    # Extract transaction event type
+    # Typical GeoPagos payload event name is 'TRANSACTION_COMPLETED' in payload.get('event')
+    event_type = payload.get("event") or "TRANSACTION_COMPLETED"
+    
+    # Extract unique transaction ID for idempotency check
+    # Can use the checkout order UUID, reference number, or payment ID
+    payment_data = payload.get("payment", {}) or payload.get("data", {}).get("attributes", {}).get("payment", {})
+    event_id = (
+        payment_data.get("reference_number") or
+        payment_data.get("id") or
+        payload.get("order_uuid") or
+        payload.get("uuid") or
+        payload.get("id")
     )
-    if res.get("status") == "error":
-        raise HTTPException(status_code=400, detail=res.get("message"))
-    return res
+    
+    if not event_id:
+        logger.error("MIO webhook payload missing unique reference transaction ID")
+        raise HTTPException(status_code=400, detail="Missing transaction reference ID")
 
+    # Stringify ID
+    event_id = f"mio_{event_id}"
 
-@router.get("/api/mio/order-status/{order_uuid}")
-async def get_mio_order_status(order_uuid: str, ctx: TenantContext = Depends(require_tenant)):
-    res = mio_service.get_order_status(ctx.db, ctx.org_id, order_uuid)
-    if res.get("status") == "error":
-        raise HTTPException(status_code=400, detail=res.get("message"))
-    return res
-
-
-@router.post("/api/mio/webhook")
-async def mio_webhook(payload: dict, db: Session = Depends(get_db)):
-    logger.info("Received MIO Webhook: %s", payload)
-    res = mio_service.process_webhook(db, payload)
-    if res.get("status") == "error":
-        raise HTTPException(status_code=400, detail=res.get("message"))
-    return res
+    # Process webhook event
+    handler = MioWebhookHandler(db)
+    try:
+        await handler.process(
+            event_type=event_type,
+            event_id=event_id,
+            payload=payload,
+        )
+        return {"status": "success", "message": "Webhook processed successfully"}
+    except Exception as e:
+        logger.error(f"Error handling MIO webhook: {e}")
+        # Return 200/202 to avoid retries if we can't find the order, or 400 depending on case
+        # For MIO, returning 200 is safer to avoid endless retries on invalid payloads,
+        # but we raise 400 for structural invalid errors.
+        raise HTTPException(status_code=400, detail=str(e))

@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
+from app import config as settings
 from app.core.redis import redis_client
 from app.core.reference_data import get_cached_domain, invalidate_domain_cache
 from app.database import get_db
@@ -1413,34 +1414,10 @@ async def admin_finance_payments(
     db: Session = Depends(get_db),
     ctx: TenantContext = Depends(require_admin),
 ):
-    from app.models.mio_payment import MioPayment
-
-    q = db.query(MioPayment)
-    if status:
-        q = q.filter(MioPayment.status == status)
-    if organization_id:
-        q = q.filter(MioPayment.organization_id == organization_id)
-
-    total = q.count()
-    payments = q.order_by(MioPayment.created_at.desc()).offset(offset).limit(limit).all()
-
-    result = []
-    for p in payments:
-        p_dict = p.to_dict()
-        p_dict["organization_name"] = p.organization.name if p.organization else None
-        if p.invoice:
-            p_dict["invoice_number"] = p.invoice.invoice_number
-            p_dict["invoice_date"] = p.invoice.invoice_date.isoformat() if p.invoice.invoice_date else None
-            p_dict["invoice_total"] = float(p.invoice.total_amount) if p.invoice.total_amount else 0.0
-        else:
-            p_dict["invoice_number"] = None
-            p_dict["invoice_date"] = None
-            p_dict["invoice_total"] = 0.0
-        result.append(p_dict)
-
+    # DEPRECATED: MIO has been deprecated and deleted
     return {
-        "payments": result,
-        "total": total,
+        "payments": [],
+        "total": 0,
         "limit": limit,
         "offset": offset,
     }
@@ -1752,6 +1729,8 @@ class AdminPaymentProofItem(BaseModel):
     plan_name: str
     amount: float
     currency: str
+    exchange_rate: float | None = None
+    usd_amount: float | None = None
     addons: str | None
     items: list[AdminCartItemResponse] | None = None
     status: str
@@ -1802,6 +1781,8 @@ async def list_admin_payment_proofs(
             plan_name=d["plan_name"],
             amount=d["amount"],
             currency=d["currency"],
+            exchange_rate=d.get("exchange_rate"),
+            usd_amount=d.get("usd_amount"),
             addons=d["addons"],
             items=items_list,
             status=d["status"],
@@ -1885,8 +1866,29 @@ async def admin_verify_payment(
     proof.verified_at = utc_now()
     db.flush()
 
-    # ── Auto-provision cart items when verified ──────────────────────
     provision_errors = []
+
+    # ── Lago: crear suscripción al verificar transferencia ──────────
+    if body.action == "verified" and proof.organization_id:
+        try:
+            from app.services.billing_checkout_service import BillingCheckoutService
+            plan_slug = proof.plan_name.strip().lower() if proof.plan_name else ""
+            if plan_slug in ["inicial", "profesional", "despacho"]:
+                checkout_svc = BillingCheckoutService(db)
+                await checkout_svc.subscribe_organization(
+                    org_id=str(proof.organization_id),
+                    plan_name=plan_slug,
+                    payment_method="transfer"
+                )
+                logger.info(
+                    "Created Lago manual subscription for org %s",
+                    proof.organization_id,
+                )
+        except Exception as e:
+            logger.exception("Failed to create Lago manual subscription for proof %s", proof.id)
+            provision_errors.append(f"lago: {e}")
+
+    # ── Auto-provision cart items when verified ──────────────────────
     if body.action == "verified" and proof.items_json:
         try:
             items = json.loads(proof.items_json)

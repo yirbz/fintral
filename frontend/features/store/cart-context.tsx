@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useReducer, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useReducer, useCallback, useEffect, type ReactNode } from "react";
 
 export interface CartItemState {
   id: string; // unique per cart entry
@@ -17,6 +17,7 @@ type CartAction =
   | { type: "ADD_ITEM"; payload: CartItemState }
   | { type: "REMOVE_ITEM"; payload: { id: string } }
   | { type: "UPDATE_QUANTITY"; payload: { id: string; quantity: number } }
+  | { type: "INIT_ITEMS"; payload: CartItemState[] }
   | { type: "CLEAR" };
 
 interface CartState {
@@ -25,6 +26,8 @@ interface CartState {
 
 function cartReducer(state: CartState, action: CartAction): CartState {
   switch (action.type) {
+    case "INIT_ITEMS":
+      return { items: action.payload };
     case "ADD_ITEM": {
       const existingIdx = state.items.findIndex(
         (i) =>
@@ -76,6 +79,30 @@ function nextId() {
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(cartReducer, { items: [] });
+
+  // Load cart from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("fintral_cart");
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            dispatch({ type: "INIT_ITEMS", payload: parsed });
+          }
+        } catch (e) {
+          console.error("Error loading cart from localStorage", e);
+        }
+      }
+    }
+  }, []);
+
+  // Save cart to localStorage when items update
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("fintral_cart", JSON.stringify(state.items));
+    }
+  }, [state.items]);
 
   const addItem = useCallback((item: Omit<CartItemState, "id">) => {
     dispatch({ type: "ADD_ITEM", payload: { ...item, id: nextId() } });
