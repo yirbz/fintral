@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from supabase import create_client, Client
 
 from app.config import IS_DEVELOPMENT, ORG_COUNTRY, ORG_NAME, ORG_TAX_ID, REMEMBER_ME_EXPIRE_DAYS, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+from app.utils.dates import utc_now
 from app.core.auth import create_access_token, decode_access_token, get_password_hash, verify_password
 from app.dependencies.tenancy import slugify
 from app.models import Organization, Tenant, User, UserOrganization

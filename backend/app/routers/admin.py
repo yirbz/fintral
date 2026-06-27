@@ -13,7 +13,6 @@ from pydantic import BaseModel
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
-from app import config as settings
 from app.core.redis import redis_client
 from app.core.reference_data import get_cached_domain, invalidate_domain_cache
 from app.database import get_db
