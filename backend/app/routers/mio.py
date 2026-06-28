@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import logging
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from app import config as settings
@@ -95,3 +96,90 @@ async def mio_webhook(
         # For MIO, returning 200 is safer to avoid endless retries on invalid payloads,
         # but we raise 400 for structural invalid errors.
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/mock-checkout", response_class=HTMLResponse)
+async def mock_checkout(order_uuid: str):
+    html_content = f"""
+    <html>
+        <head>
+            <title>MIO Mock Checkout</title>
+            <style>
+                body {{
+                    font-family: Arial, sans-serif;
+                    background-color: #f4f5f7;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                }}
+                .card {{
+                    background: white;
+                    padding: 40px;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                    text-align: center;
+                    max-width: 400px;
+                    width: 100%;
+                }}
+                h2 {{ color: #533afd; margin-bottom: 20px; }}
+                p {{ color: #666; margin-bottom: 30px; }}
+                button {{
+                    background-color: #533afd;
+                    color: white;
+                    border: none;
+                    padding: 12px 24px;
+                    font-size: 16px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    width: 100%;
+                    margin-bottom: 10px;
+                    font-weight: bold;
+                }}
+                button.fail {{
+                    background-color: #ef4444;
+                }}
+            </style>
+            <script>
+                async function simulatePayment(success) {{
+                    const url = '/api/mio/webhook';
+                    const payload = {{
+                        "event": success ? "TRANSACTION_COMPLETED" : "TRANSACTION_FAILED",
+                        "order_uuid": "{order_uuid}",
+                        "payment": {{
+                            "id": "pay_mock_" + Math.random().toString(36).substring(7),
+                            "authorization_code": "auth_" + Math.floor(100000 + Math.random() * 900000),
+                            "reference_number": "ref_" + Math.floor(10000000 + Math.random() * 90000000)
+                        }}
+                    }};
+                    try {{
+                        const resp = await fetch(url, {{
+                            method: 'POST',
+                            headers: {{ 'Content-Type': 'application/json' }},
+                            body: JSON.stringify(payload)
+                        }});
+                        if (resp.ok) {{
+                            alert(success ? "Pago simulado con éxito!" : "Pago simulado como fallido.");
+                            window.location.href = success ? "https://app.fintral.com/billing/success" : "https://app.fintral.com/billing/failed";
+                        }} else {{
+                            alert("Error al simular el webhook: " + await resp.text());
+                        }}
+                    }} catch (e) {{
+                        alert("Error de conexión: " + e);
+                    }}
+                }}
+            </script>
+        </head>
+        <body>
+            <div class="card">
+                <h2>Pasarela de Pago MIO (Simulada)</h2>
+                <p>Estás pagando tu suscripción de Fintral Hub.</p>
+                <p><strong>ID de Orden:</strong> {order_uuid}</p>
+                <button onclick="simulatePayment(true)">Simular Pago Exitoso</button>
+                <button class="fail" onclick="simulatePayment(false)">Simular Pago Fallido</button>
+            </div>
+        </body>
+    </html>
+    """
+    return html_content

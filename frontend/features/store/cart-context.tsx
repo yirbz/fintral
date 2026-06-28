@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useReducer, useCallback, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useReducer, useCallback, useEffect, useState, type ReactNode } from "react";
 
 export interface CartItemState {
   id: string; // unique per cart entry
@@ -79,6 +79,7 @@ function nextId() {
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(cartReducer, { items: [] });
+  const [isLoaded, setIsLoaded] = useState(false);
 
   // Load cart from localStorage on mount
   useEffect(() => {
@@ -94,15 +95,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
           console.error("Error loading cart from localStorage", e);
         }
       }
+      setIsLoaded(true);
     }
   }, []);
 
   // Save cart to localStorage when items update
   useEffect(() => {
-    if (typeof window !== "undefined") {
+    if (isLoaded && typeof window !== "undefined") {
       localStorage.setItem("fintral_cart", JSON.stringify(state.items));
     }
-  }, [state.items]);
+  }, [state.items, isLoaded]);
 
   const addItem = useCallback((item: Omit<CartItemState, "id">) => {
     dispatch({ type: "ADD_ITEM", payload: { ...item, id: nextId() } });

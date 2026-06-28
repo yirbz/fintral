@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from app.models.organization import Organization
 from app.models.organization_subscription import OrganizationSubscription
 from app.models.subscription_plan import SubscriptionPlan
+from app.models.user import User
+from app.models.user_subscription import UserSubscription
 from app import config as settings
 from app.services.lago_service import LagoService, LagoAPIError
 from app.services.mio_service import MioService
@@ -220,9 +222,13 @@ class BillingCheckoutService:
             success_url = settings.MIO_SUCCESS_REDIRECT or "https://app.fintral.com/billing/success"
             failed_url = settings.MIO_FAILED_REDIRECT or "https://app.fintral.com/billing/failed"
 
-            logger.info(f"Creating MIO checkout order for one-off invoice {lago_invoice_id}")
+            # Add 5% card processing fee to MIO order amount
+            fee_cents = int(price_cents * 0.05)
+            total_cents = price_cents + fee_cents
+
+            logger.info(f"Creating MIO checkout order for one-off invoice {lago_invoice_id} with 5% fee")
             mio_order = await self.mio.create_order(
-                amount_cents=price_cents,
+                amount_cents=total_cents,
                 description=f"Fintral Factura: {units_count} Comprobantes Electrónicos (e-CF)",
                 webhook_url=webhook_url,
                 success_url=success_url,
@@ -234,7 +240,7 @@ class BillingCheckoutService:
                 order_uuid=mio_order["order_uuid"],
                 lago_invoice_id=lago_invoice_id,
                 organization_id=org.id,
-                amount_cents=price_cents,
+                amount_cents=total_cents,
                 status="PENDING",
                 checkout_url=mio_order["checkout_url"],
             )
@@ -254,3 +260,135 @@ class BillingCheckoutService:
             "payment_method": "transfer",
             "amount": price_dop,
         }
+
+    async def initiate_user_subscription_checkout(
+        self,
+        user_id: str,
+        plan_name: str,
+    ) -> Dict[str, Any]:
+        """Create a pending MIO checkout order for a user's subscription."""
+        user = self.db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise ValueError("Usuario no encontrado")
+
+        plan = self.db.query(SubscriptionPlan).filter(SubscriptionPlan.name == plan_name).first()
+        if not plan:
+            raise ValueError(f"Plan '{plan_name}' no encontrado")
+
+        price_dop = plan.price_dop
+        if not price_dop:
+            fallbacks = {
+                "inicial": 999.00,
+                "profesional": 2999.00,
+                "despacho": 7999.00,
+            }
+            price_dop = fallbacks.get(plan_name.lower(), 999.00)
+
+        price_cents = int(price_dop * 100)
+        
+        # Add 5% card processing fee to MIO order amount
+        fee_cents = int(price_cents * 0.05)
+        total_cents = price_cents + fee_cents
+
+        # Create order in MIO
+        webhook_url = settings.MIO_WEBHOOK_URL or "https://api.fintral.com/api/mio/webhook"
+        success_url = settings.MIO_SUCCESS_REDIRECT or "https://app.fintral.com/billing/success"
+        failed_url = settings.MIO_FAILED_REDIRECT or "https://app.fintral.com/billing/failed"
+
+        logger.info(f"Creating MIO checkout order for user subscription: {plan_name} with 5% fee")
+        mio_order = await self.mio.create_order(
+            amount_cents=total_cents,
+            description=f"Fintral Hub: Plan {plan.display_name} - Suscripción",
+            webhook_url=webhook_url,
+            success_url=success_url,
+            failed_url=failed_url,
+        )
+
+        db_order = MioPaymentOrder(
+            order_uuid=mio_order["order_uuid"],
+            user_id=user.id,
+            plan_id=plan.id,
+            amount_cents=total_cents,
+            status="PENDING",
+            checkout_url=mio_order["checkout_url"],
+        )
+        self.db.add(db_order)
+        self.db.commit()
+
+        return {
+            "payment_method": "card",
+            "checkout_url": mio_order["checkout_url"],
+            "order_uuid": mio_order["order_uuid"],
+        }
+
+    async def provision_user_subscription(
+        self,
+        user_id: str,
+        plan_name: str,
+        payment_method: str,
+    ) -> UserSubscription:
+        """Create or activate a UserSubscription in the DB and register the user in Lago."""
+        user = self.db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise ValueError("Usuario no encontrado")
+
+        plan = self.db.query(SubscriptionPlan).filter(SubscriptionPlan.name == plan_name).first()
+        if not plan:
+            raise ValueError(f"Plan '{plan_name}' no encontrado")
+
+        # 1. Register/Update customer in Lago
+        logger.info(f"Upserting customer in Lago for user: {user.email} ({user.id})")
+        lago_customer = await self.lago.create_or_update_customer(
+            external_id=str(user.id),
+            name=user.full_name or user.email,
+            email=user.email,
+            rnc=None,
+        )
+
+        lago_customer_id = lago_customer.get("customer", {}).get("lago_id")
+
+        # 2. Cancel any previous active subscriptions to avoid overlap
+        existing_subs = (
+            self.db.query(UserSubscription)
+            .filter(
+                UserSubscription.user_id == user.id,
+                UserSubscription.status.in_(["active", "trialing"])
+            )
+            .all()
+        )
+        for s in existing_subs:
+            s.status = "canceled"
+            s.canceled_at = utc_now()
+
+        # 3. Create active subscription in Lago
+        sub_id = f"sub_{str(user.id)[:8]}_{plan_name}"
+        logger.info(f"Subscribing user in Lago to plan: {plan_name}")
+        try:
+            await self.lago.create_subscription(
+                customer_external_id=str(user.id),
+                plan_code=plan.lago_plan_code or plan_name,
+                external_id=sub_id,
+            )
+        except LagoAPIError as exc:
+            logger.error(f"Lago subscription creation failed: {exc.response_body}")
+            raise ValueError(f"Error al crear suscripción en Lago: {exc}")
+
+        # 4. Create UserSubscription record in Fintral DB
+        from datetime import timedelta
+        cycle_start = utc_now()
+        cycle_end = cycle_start + timedelta(days=30)
+
+        sub_obj = UserSubscription(
+            user_id=user.id,
+            plan_id=plan.id,
+            status="active",
+            payment_method=payment_method,
+            lago_customer_id=lago_customer_id,
+            lago_plan_code=plan.lago_plan_code or plan_name,
+            lago_subscription_id=sub_id,
+            billing_cycle_start=cycle_start,
+            billing_cycle_end=cycle_end,
+        )
+        self.db.add(sub_obj)
+        self.db.commit()
+        return sub_obj

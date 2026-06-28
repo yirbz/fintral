@@ -14,7 +14,6 @@ interface PlanCardProps {
   onAddToCart: () => void;
   inCart: boolean;
   commitMonths: number;
-  exchangeRate: number;
 }
 
 export function PlanCard({
@@ -23,7 +22,6 @@ export function PlanCard({
   onAddToCart,
   inCart,
   commitMonths,
-  exchangeRate,
 }: PlanCardProps) {
   const isCurrent = currentPlan?.id === plan.id;
   const isFeatured = plan.name.toLowerCase() === "profesional";
@@ -35,9 +33,8 @@ export function PlanCard({
         .map(([k]) => k.replace(/_/g, " "))
     : [];
 
-  const rawMonthlyPriceUsd = plan.price_usd || (plan.price_monthly / 60.0);
-  const activeMonthlyPriceUsd = discountedPrice(rawMonthlyPriceUsd, commitMonths);
-  const activeMonthlyPriceDop = activeMonthlyPriceUsd * exchangeRate;
+  const rawMonthlyPrice = plan.price_monthly;
+  const activeMonthlyPriceDop = discountedPrice(rawMonthlyPrice, commitMonths);
   const activeTotalPriceDop = activeMonthlyPriceDop * commitMonths;
 
   // Check if this plan is an upgrade compared to current plan
@@ -99,10 +96,8 @@ export function PlanCard({
           ) : (
             <PriceDisplay
               amountDop={activeMonthlyPriceDop}
-              amountUsd={activeMonthlyPriceUsd}
               period="mes"
               size="lg"
-              showUsd={!plan.is_enterprise}
               className={isFeatured ? "text-white" : ""}
               amountClassName={isFeatured ? "text-white" : undefined}
             />

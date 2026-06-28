@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Calculator,
   CreditCard,
@@ -74,13 +74,15 @@ const REFERENCE_REQUIRED_TYPES = new Set([33, 34]);
 
 interface DetailedInvoiceWizardProps {
   onSuccess?: (result: EmitResult) => void;
+  sourceInvoiceId?: string;
+  sourceAction?: string;
 }
 
 function fmt(n: number) {
   return n.toLocaleString("es-DO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function DetailedInvoiceWizard({ onSuccess }: DetailedInvoiceWizardProps) {
+export function DetailedInvoiceWizard({ onSuccess, sourceInvoiceId, sourceAction }: DetailedInvoiceWizardProps) {
   const [ecfType, setEcfType] = useState<number | null>(null);
   const [incomeType, setIncomeType] = useState("01");
   const [paymentType, setPaymentType] = useState(1);
@@ -107,6 +109,64 @@ export function DetailedInvoiceWizard({ onSuccess }: DetailedInvoiceWizardProps)
   const [modificationCode, setModificationCode] = useState<number | undefined>(3);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const isCorrectionFlow = !!(sourceInvoiceId && sourceAction);
+
+  const { data: sourceInvoice, isLoading: isSourceLoading } = useQuery({
+    queryKey: ["billing-invoice", sourceInvoiceId],
+    queryFn: () => billingApi.getInvoice(sourceInvoiceId!),
+    enabled: isCorrectionFlow,
+  });
+
+  const [initialized, setInitialized] = useState(false);
+  useEffect(() => {
+    if (!sourceInvoice || initialized) return;
+    setInitialized(true);
+
+    if (sourceAction === "credit_note") {
+      setEcfType(34);
+      setModificationCode(3);
+    } else if (sourceAction === "debit_note") {
+      setEcfType(33);
+      setModificationCode(3);
+    }
+
+    if (sourceInvoice.invoice_number) {
+      setReferenceEcf(sourceInvoice.invoice_number);
+    }
+    if (sourceInvoice.invoice_date) {
+      setReferenceDate(sourceInvoice.invoice_date);
+    }
+
+    const rawData = sourceInvoice.raw_extracted_data
+      ? (JSON.parse(sourceInvoice.raw_extracted_data) as Record<string, string>)
+      : null;
+
+    const buyerName = rawData?.buyer_name || "";
+    const buyerAddress = rawData?.buyer_address || "";
+    const buyerRnc = sourceInvoice.rnc_comprador || "";
+
+    setCustomer({
+      name: buyerName,
+      rnc: buyerRnc,
+      address: buyerAddress || undefined,
+    });
+
+    if (sourceInvoice.line_items && sourceInvoice.line_items.length > 0) {
+      setItems(
+        sourceInvoice.line_items
+          .filter((li: any) => li.name)
+          .map((li: any) => ({
+            description: li.name,
+            quantity: li.quantity,
+            unit_price: li.unit_price,
+            discount_rate: li.discount_rate ?? 0,
+            tax_rate: li.tax_rate ?? 18,
+            good_service_indicator: 1,
+          }))
+      );
+    }
+  }, [sourceInvoice, sourceAction, initialized]);
 
   const isConsumerFinal = ecfType !== null && CONSUMIDOR_FINAL_TYPES.has(ecfType);
   const isExemptType = ecfType !== null && EXEMPT_TYPES.has(ecfType);
@@ -317,6 +377,15 @@ export function DetailedInvoiceWizard({ onSuccess }: DetailedInvoiceWizardProps)
     <div className="h-full flex flex-col lg:flex-row gap-0 lg:gap-6">
       {/* ── Form Column ── */}
       <div className="flex-1 min-h-0 overflow-y-auto space-y-5 pb-6 pr-0 lg:pr-2">
+        {isCorrectionFlow && isSourceLoading && (
+          <div className="space-y-5 animate-pulse mb-5">
+            <div className="h-10 bg-muted rounded-lg w-48" />
+            <div className="h-[180px] bg-muted rounded-lg" />
+            <div className="h-[180px] bg-muted rounded-lg" />
+            <div className="h-[100px] bg-muted rounded-lg" />
+            <div className="h-[100px] bg-muted rounded-lg" />
+          </div>
+        )}
         {/* Section: Tipo de comprobante */}
         <Section icon={FileText} title="Tipo de comprobante">
           <NcfSelector value={ecfType} onChange={setEcfType} />

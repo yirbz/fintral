@@ -101,11 +101,14 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      lago-api:
+        condition: service_healthy
     volumes:
       - ./backend:/app
       - /app/__pycache__/
       - uploads_data:/app/uploads
       - static_data:/app/static
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "${LOCAL_BACKEND_PORT:-${BACKEND_PORT:-8000}}:${LOCAL_BACKEND_PORT:-${BACKEND_PORT:-8000}}"
     extra_hosts:
@@ -204,6 +207,12 @@ services:
       LAGO_ORG_USER_EMAIL: admin@fintral.com
       LAGO_ORG_USER_PASSWORD: ${LAGO_ADMIN_PASSWORD:-admin123}
       LAGO_DISABLE_PDF_GENERATION: "true"
+    healthcheck:
+      test: curl --fail http://localhost:3000/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
     depends_on:
       lago-db:
         condition: service_healthy

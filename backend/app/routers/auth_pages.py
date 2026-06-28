@@ -428,6 +428,73 @@ async def get_current_session(ctx: TenantContext = Depends(require_tenant)):
     }
 
 
+@router.get("/api/me/subscription")
+async def get_user_subscription(ctx: TenantContext = Depends(require_tenant)):
+    """Return the current user's Fintral Hub subscription status."""
+    from app.models.user_subscription import UserSubscription
+
+    sub = (
+        ctx.db.query(UserSubscription)
+        .filter(UserSubscription.user_id == ctx.user.id)
+        .order_by(UserSubscription.created_at.desc())
+        .first()
+    )
+    if not sub:
+        return {"subscription": None, "has_active_subscription": False}
+
+    trial_remaining = 0
+    if sub.trial_ends_at:
+        from datetime import timezone
+        remaining = (sub.trial_ends_at - sub.trial_ends_at.now(timezone.utc)).days
+        trial_remaining = max(0, remaining)
+
+    card_info = None
+    from app.models.user_card_token import UserCardToken
+    card = (
+        ctx.db.query(UserCardToken)
+        .filter(UserCardToken.user_id == ctx.user.id, UserCardToken.is_active.is_(True))
+        .first()
+    )
+    if card:
+        card_info = {
+            "brand": card.card_brand,
+            "last4": card.last_four,
+            "expiry_month": card.expiry_month,
+            "expiry_year": card.expiry_year,
+        }
+
+    grace_hours = None
+    if sub.status == "past_due":
+        from datetime import timezone, timedelta
+        from app.utils.dates import utc_now
+        grace_period = timedelta(days=3)
+        time_since_failed = utc_now() - sub.updated_at
+        if time_since_failed <= grace_period:
+            grace_hours = max(0, int((grace_period - time_since_failed).total_seconds() / 3600))
+
+    return {
+        "subscription": {
+            "id": str(sub.id),
+            "status": sub.status,
+            "plan_code": sub.lago_plan_code,
+            "plan_name": sub.plan.display_name if sub.plan else None,
+            "payment_method": sub.payment_method,
+            "auto_renew": sub.auto_renew,
+            "trial_ends_at": sub.trial_ends_at.isoformat() if sub.trial_ends_at else None,
+            "trial_remaining_days": trial_remaining,
+            "billing_cycle_start": sub.billing_cycle_start.isoformat() if sub.billing_cycle_start else None,
+            "billing_cycle_end": sub.billing_cycle_end.isoformat() if sub.billing_cycle_end else None,
+            "canceled_at": sub.canceled_at.isoformat() if sub.canceled_at else None,
+            "lago_subscription_id": sub.lago_subscription_id,
+            "lago_customer_id": sub.lago_customer_id,
+            "created_at": sub.created_at.isoformat() if sub.created_at else None,
+            "card_info": card_info,
+            "grace_hours": grace_hours,
+        },
+        "has_active_subscription": sub.status in ("active", "trialing", "past_due"),
+    }
+
+
 @router.post("/api/chat/finance")
 async def chat_finance(
     request: ChatRequest,

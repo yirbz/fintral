@@ -1868,23 +1868,23 @@ async def admin_verify_payment(
     provision_errors = []
 
     # ── Lago: crear suscripción al verificar transferencia ──────────
-    if body.action == "verified" and proof.organization_id:
+    if body.action == "verified" and proof.user_id:
         try:
             from app.services.billing_checkout_service import BillingCheckoutService
             plan_slug = proof.plan_name.strip().lower() if proof.plan_name else ""
             if plan_slug in ["inicial", "profesional", "despacho"]:
                 checkout_svc = BillingCheckoutService(db)
-                await checkout_svc.subscribe_organization(
-                    org_id=str(proof.organization_id),
+                await checkout_svc.provision_user_subscription(
+                    user_id=str(proof.user_id),
                     plan_name=plan_slug,
                     payment_method="transfer"
                 )
                 logger.info(
-                    "Created Lago manual subscription for org %s",
-                    proof.organization_id,
+                    "Created Lago manual user subscription for user %s",
+                    proof.user_id,
                 )
         except Exception as e:
-            logger.exception("Failed to create Lago manual subscription for proof %s", proof.id)
+            logger.exception("Failed to create Lago manual user subscription for proof %s", proof.id)
             provision_errors.append(f"lago: {e}")
 
     # ── Auto-provision cart items when verified ──────────────────────

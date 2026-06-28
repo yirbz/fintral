@@ -14,7 +14,6 @@ interface PlanGridProps {
   cartPlanNames: (string | undefined)[];
   commitMonths: number;
   onAddToCart: (plan: PlanSummary) => void;
-  exchangeRate: number;
 }
 
 export function PlanGrid({
@@ -25,7 +24,6 @@ export function PlanGrid({
   cartPlanNames,
   commitMonths,
   onAddToCart,
-  exchangeRate,
 }: PlanGridProps) {
   const [shouldAnimate, setShouldAnimate] = useState(false);
 
@@ -111,7 +109,6 @@ export function PlanGrid({
               onAddToCart={() => onAddToCart(plan)}
               inCart={inCart}
               commitMonths={commitMonths}
-              exchangeRate={exchangeRate}
             />
           </div>
         );

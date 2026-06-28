@@ -9,8 +9,7 @@ export interface AddonItem {
   type: "ecf_blocks" | "ai" | "storage" | "entity_slot" | "user_slot" | string;
   label: string;
   description: string;
-  priceUsd: number;
-  priceDop: number;
+  priceDopCents: number;
   isPrepay: boolean;
   quantityLabel?: string;
   currentCount?: number;
@@ -58,12 +57,9 @@ export function AddonCard({
         </p>
 
         {/* Pricing */}
-        <div className="pt-1.5 flex flex-col gap-0.5">
+        <div className="pt-1.5">
           <span className="text-lg font-light text-brand-ink dark:text-white tabular-nums">
-            ${addon.priceUsd.toFixed(2)} USD
-          </span>
-          <span className="text-xs text-brand-ink-mute dark:text-slate-400 font-normal">
-            Equivale a ~RD$ {Math.round(addon.priceDop).toLocaleString("es-DO")}{addon.isPrepay ? "" : "/mes"}
+            RD$ {(addon.priceDopCents / 100).toLocaleString("es-DO", { minimumFractionDigits: 0 })}{addon.isPrepay ? "" : <span className="text-sm font-normal text-brand-ink-mute dark:text-slate-400">/mes</span>}
           </span>
         </div>
 

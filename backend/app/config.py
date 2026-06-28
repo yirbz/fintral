@@ -29,6 +29,7 @@ IS_DEVELOPMENT: bool = ENVIRONMENT == "DEVELOPMENT"
 # ===========================================================================
 # TCP port the backend HTTP server binds to (uvicorn)
 BACKEND_PORT: int = int(os.getenv("PORT", os.getenv("BACKEND_PORT", "8000")))
+PROXY_PORT: str = os.getenv("PROXY_PORT", "8080")
 
 APP_JWT_SECRET_KEY: str = os.getenv("APP_JWT_SECRET_KEY", "")
 
@@ -205,6 +206,7 @@ PADDLE_PRICE_DESPACHO_MONTHLY: str = os.getenv("PADDLE_PRICE_DESPACHO_MONTHLY", 
 LAGO_API_URL: str = os.getenv("LAGO_API_URL", "http://lago-api:3000")
 LAGO_API_KEY: str = os.getenv("LAGO_API_KEY", "fintral-lago-key-dev")
 LAGO_WEBHOOK_SECRET: str = os.getenv("LAGO_WEBHOOK_SECRET", "fintral-lago-webhook-secret-dev")
+LAGO_DATABASE_URL: str = os.getenv("LAGO_DATABASE_URL", "")
 
 # ===========================================================================
 # MIO Payment Gateway (Dominican Republic card processing)

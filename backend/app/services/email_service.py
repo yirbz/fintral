@@ -709,8 +709,16 @@ def send_admin_alert_email(email: str, title: str, message: str, severity: str, 
         return False
 
 
-def send_purchase_invoice_email(customer_email: str, customer_name: str, items: list[dict], total: float, currency: str = "DOP") -> bool:
-    """Send purchase invoice to customer after admin approves a payment proof."""
+def send_purchase_invoice_email(
+    customer_email: str,
+    customer_name: str,
+    items: list[dict],
+    total: float,
+    currency: str = "DOP",
+    payment_method: str = "transfer",
+    fee_amount: float = 0.0,
+) -> bool:
+    """Send purchase invoice to customer after payment confirmation."""
     if not RESEND_API_KEY:
         logger.warning("RESEND_API_KEY not set — skipping purchase invoice email to %s", customer_email)
         return False
@@ -719,8 +727,11 @@ def send_purchase_invoice_email(customer_email: str, customer_name: str, items: 
 
     invoice_number = f"FIN-{datetime.utcnow().strftime('%Y%m')}-{hash(customer_email) % 10000:04d}"
     invoice_date = datetime.utcnow().strftime("%d/%m/%Y")
-    subtotal = total / 1.18
-    itbis = total - subtotal
+    
+    # Calculate subtotal based on items
+    subtotal = sum(item.get("total", 0.0) for item in items)
+    if subtotal <= 0.0:
+        subtotal = total - fee_amount
 
     items_html = "".join(
         f"""<tr>
@@ -731,13 +742,46 @@ def send_purchase_invoice_email(customer_email: str, customer_name: str, items: 
         for item in items
     )
 
+    if payment_method == "card":
+        payment_method_html = """
+        <p style="margin:0 0 4px;color:#6b7280;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px">Método de pago</p>
+        <p style="margin:0;color:#111827;font-size:14px;font-weight:600">Tarjeta de Crédito / Débito (MIO)</p>
+        <p style="margin:0;color:#6b7280;font-size:13px">Transacción en línea procesada de forma segura.</p>
+        """
+    else:
+        payment_method_html = f"""
+        <p style="margin:0 0 4px;color:#6b7280;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px">Método de pago</p>
+        <p style="margin:0;color:#111827;font-size:14px;font-weight:600">Transferencia Bancaria</p>
+        <p style="margin:0;color:#6b7280;font-size:13px">{BANK_NAME}<br>Titular: {BANK_ACCOUNT_HOLDER}<br>Cuenta: {BANK_ACCOUNT_NUMBER}</p>
+        """
+
+    totals_rows_html = f"""
+    <tr>
+      <td style="padding:8px 12px;color:#6b7280;font-size:13px">Subtotal</td>
+      <td style="padding:8px 12px;color:#374151;font-size:13px;text-align:right;font-family:monospace">{currency} {subtotal:.2f}</td>
+    </tr>
+    """
+    if fee_amount > 0.0:
+        totals_rows_html += f"""
+        <tr>
+          <td style="padding:8px 12px;color:#6b7280;font-size:13px">Comisión de Procesamiento (5%)</td>
+          <td style="padding:8px 12px;color:#374151;font-size:13px;text-align:right;font-family:monospace">{currency} {fee_amount:.2f}</td>
+        </tr>
+        """
+    totals_rows_html += f"""
+    <tr style="background:#f5f3ff">
+      <td style="padding:12px;color:#533afd;font-size:15px;font-weight:700;border-radius:6px 0 0 6px">Total</td>
+      <td style="padding:12px;color:#533afd;font-size:15px;font-weight:700;text-align:right;font-family:monospace;border-radius:0 6px 6px 0">{currency} {total:.2f}</td>
+    </tr>
+    """
+
     html = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
-    @@media only screen and (max-width:600px) {{
+    @media only screen and (max-width:600px) {{
       .invoice-table {{ width:100% !important; }}
       .invoice-inner {{ padding:24px 20px !important; }}
       .header-section {{ padding:32px 20px 0 !important; }}
@@ -778,9 +822,9 @@ def send_purchase_invoice_email(customer_email: str, customer_name: str, items: 
               </p>
             </td>
             <td valign="top" width="50%" align="right">
-              <h1 style="margin:0;color:#111827;font-size:28px;font-weight:700;letter-spacing:-0.5px">FACTURA</h1>
+              <h1 style="margin:0;color:#111827;font-size:28px;font-weight:700;letter-spacing:-0.5px">RECIBO</h1>
               <p style="margin:4px 0 0;color:#6b7280;font-size:12px;line-height:1.5">
-                <strong>No.</strong> {invoice_number}<br>
+                <strong>No. Referencia:</strong> {invoice_number}<br>
                 <strong>Fecha:</strong> {invoice_date}<br>
                 <strong>Vencimiento:</strong> {invoice_date}
               </p>
@@ -804,9 +848,7 @@ def send_purchase_invoice_email(customer_email: str, customer_name: str, items: 
               <p style="margin:0;color:#6b7280;font-size:13px">{customer_email}</p>
             </td>
             <td valign="top" width="50%">
-              <p style="margin:0 0 4px;color:#6b7280;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px">Método de pago</p>
-              <p style="margin:0;color:#111827;font-size:13px;font-weight:600">Transferencia Bancaria</p>
-              <p style="margin:0;color:#6b7280;font-size:12px">{BANK_NAME}<br>Titular: {BANK_ACCOUNT_HOLDER}<br>Cuenta: {BANK_ACCOUNT_NUMBER}</p>
+              {payment_method_html}
             </td>
           </tr>
         </table>
@@ -836,21 +878,10 @@ def send_purchase_invoice_email(customer_email: str, customer_name: str, items: 
       <td style="padding:0 40px">
         <table width="100%" cellpadding="0" cellspacing="0">
           <tr>
-            <td width="60%"></td>
-            <td width="40%">
+            <td width="50%"></td>
+            <td width="50%">
               <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
-                <tr>
-                  <td style="padding:8px 12px;color:#6b7280;font-size:13px">Subtotal</td>
-                  <td style="padding:8px 12px;color:#374151;font-size:13px;text-align:right;font-family:monospace">{currency} {subtotal:.2f}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 12px;color:#6b7280;font-size:13px">ITBIS (18%)</td>
-                  <td style="padding:8px 12px;color:#374151;font-size:13px;text-align:right;font-family:monospace">{currency} {itbis:.2f}</td>
-                </tr>
-                <tr style="background:#f5f3ff">
-                  <td style="padding:12px;color:#533afd;font-size:15px;font-weight:700;border-radius:6px 0 0 6px">Total</td>
-                  <td style="padding:12px;color:#533afd;font-size:15px;font-weight:700;text-align:right;font-family:monospace;border-radius:0 6px 6px 0">{currency} {total:.2f}</td>
-                </tr>
+                {totals_rows_html}
               </table>
             </td>
           </tr>
@@ -909,5 +940,288 @@ def send_purchase_invoice_email(customer_email: str, customer_name: str, items: 
         return True
     except Exception as e:
         logger.warning("Failed to send purchase invoice email to %s: %s", customer_email, e)
+        return False
+
+
+def send_dunning_email(
+    customer_email: str,
+    customer_name: str,
+    amount_dop: float,
+    reason: str = "Pago declinado por el banco emisor.",
+) -> bool:
+    """Send payment failure email notification to customer (Dunning notice)."""
+    if not RESEND_API_KEY:
+        logger.warning("RESEND_API_KEY not set — skipping dunning email to %s", customer_email)
+        return False
+
+    resend.api_key = RESEND_API_KEY
+
+    html = f"""<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:15px;line-height:1.5">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px">
+<tr><td align="center">
+  <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;max-width:100%">
+    <!-- header -->
+    <tr style="background:#dc2626;color:#ffffff">
+      <td style="padding:24px;text-align:center">
+        <h1 style="margin:0;font-size:20px;font-weight:600">Alerta de Pago Declinado</h1>
+      </td>
+    </tr>
+    <!-- body -->
+    <tr>
+      <td style="padding:32px 40px" align="left">
+        <p style="margin:0 0 16px;color:#111827">Hola <strong>{customer_name or "usuario"}</strong>,</p>
+        <p style="color:#374151;margin:0 0 16px">No pudimos procesar la renovación de tu suscripción de <strong>Fintral Hub</strong> por valor de <strong>RD$ {amount_dop:.2f}</strong>.</p>
+        <p style="color:#374151;margin:0 0 16px"><strong>Motivo:</strong> {reason}</p>
+        
+        <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:16px;margin:24px 0">
+          <p style="margin:0;color:#991b1b;font-size:14px">
+            <strong>¿Qué sucede ahora?</strong><br>
+            Reintentaremos el cobro automáticamente en 24 horas. Para evitar la suspensión de tu cuenta y seguir operando sin interrupción, por favor ingresa y actualiza tu tarjeta en la sección de configuración.
+          </p>
+        </div>
+
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0">
+          <tr><td align="center">
+            <a href="https://app.fintral.com/dashboard/cuenta" style="background:#533afd;color:#ffffff;padding:12px 24px;text-decoration:none;font-weight:600;border-radius:8px;display:inline-block">Actualizar Método de Pago</a>
+          </td></tr>
+        </table>
+      </td>
+    </tr>
+    <!-- footer -->
+    <tr>
+      <td style="padding:24px 40px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center">
+        <p style="margin:0;color:#9ca3af;font-size:11px">Fintral SRL &bull; Santo Domingo, República Dominicana</p>
+      </td>
+    </tr>
+  </table>
+</td></tr>
+</table>
+</body>
+</html>"""
+
+    try:
+        response = resend.Emails.send({
+            "from": BILLING_EMAIL_FROM,
+            "reply_to": "billing@fintral.app",
+            "to": [customer_email],
+            "subject": "Acción Requerida: Pago de suscripción declinado — Fintral",
+            "html": html,
+        })
+        logger.info("Dunning email sent to %s — id=%s", customer_email, response.get("id"))
+        return True
+    except Exception as e:
+        logger.warning("Failed to send dunning email to %s: %s", customer_email, e)
+        return False
+
+
+def send_payment_link_email(
+    customer_email: str,
+    customer_name: str,
+    amount_dop: float,
+    checkout_url: str,
+) -> bool:
+    """Send payment checkout link to customer when recurring payment token is missing."""
+    if not RESEND_API_KEY:
+        logger.warning("RESEND_API_KEY not set — skipping payment link email to %s", customer_email)
+        return False
+
+    resend.api_key = RESEND_API_KEY
+
+    html = f"""<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:15px;line-height:1.5">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px">
+<tr><td align="center">
+  <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;max-width:100%">
+    <!-- header -->
+    <tr style="background:#533afd;color:#ffffff">
+      <td style="padding:24px;text-align:center">
+        <h1 style="margin:0;font-size:20px;font-weight:600">Renovación de Suscripción Fintral</h1>
+      </td>
+    </tr>
+    <!-- body -->
+    <tr>
+      <td style="padding:32px 40px" align="left">
+        <p style="margin:0 0 16px;color:#111827">Hola <strong>{customer_name or "usuario"}</strong>,</p>
+        <p style="color:#374151;margin:0 0 16px">Es hora de renovar tu suscripción de <strong>Fintral Hub</strong> por valor de <strong>RD$ {amount_dop:.2f}</strong>.</p>
+        <p style="color:#374151;margin:0 0 16px">Para continuar disfrutando de todas nuestras herramientas, procesa el pago de forma segura a través del siguiente enlace:</p>
+        
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:32px 0">
+          <tr><td align="center">
+            <a href="{checkout_url}" style="background:#0ea5e9;color:#ffffff;padding:14px 28px;text-decoration:none;font-weight:600;border-radius:8px;display:inline-block">Pagar Suscripción Ahora</a>
+          </td></tr>
+        </table>
+        
+        <p style="color:#6b7280;font-size:12px">Si tienes problemas con el botón, copia y pega este enlace en tu navegador:<br><a href="{checkout_url}" style="color:#0ea5e9">{checkout_url}</a></p>
+      </td>
+    </tr>
+    <!-- footer -->
+    <tr>
+      <td style="padding:24px 40px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center">
+        <p style="margin:0;color:#9ca3af;font-size:11px">Fintral SRL &bull; Santo Domingo, República Dominicana</p>
+      </td>
+    </tr>
+  </table>
+</td></tr>
+</table>
+</body>
+</html>"""
+
+    try:
+        response = resend.Emails.send({
+            "from": BILLING_EMAIL_FROM,
+            "reply_to": "billing@fintral.app",
+            "to": [customer_email],
+            "subject": "Completa el pago de tu suscripción — Fintral",
+            "html": html,
+        })
+        logger.info("Payment link email sent to %s — id=%s", customer_email, response.get("id"))
+        return True
+    except Exception as e:
+        logger.warning("Failed to send payment link email to %s: %s", customer_email, e)
+        return False
+
+
+def send_renewal_reminder_email(
+    customer_email: str,
+    customer_name: str,
+    plan_name: str,
+    amount_dop: float,
+    next_billing_date: str,
+) -> bool:
+    """Send renewal reminder email 3 days before the next billing date."""
+    if not RESEND_API_KEY:
+        logger.warning("RESEND_API_KEY not set — skipping renewal reminder to %s", customer_email)
+        return False
+
+    resend.api_key = RESEND_API_KEY
+
+    html = f"""<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:15px;line-height:1.5">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px">
+<tr><td align="center">
+  <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;max-width:100%">
+    <tr style="background:#0ea5e9;color:#ffffff">
+      <td style="padding:24px;text-align:center">
+        <h1 style="margin:0;font-size:20px;font-weight:600">Próxima Renovación de Fintral Hub</h1>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:32px 40px" align="left">
+        <p style="margin:0 0 16px;color:#111827">Hola <strong>{customer_name or "usuario"}</strong>,</p>
+        <p style="color:#374151;margin:0 0 16px">Te recordamos que tu suscripción a <strong>{plan_name}</strong> se renovará el <strong>{next_billing_date}</strong>.</p>
+        <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:16px;margin:24px 0">
+          <table width="100%" cellpadding="4" cellspacing="0">
+            <tr><td style="color:#374151;font-size:14px">Plan</td><td align="right" style="font-weight:600">{plan_name}</td></tr>
+            <tr><td style="color:#374151;font-size:14px">Monto</td><td align="right" style="font-weight:600">RD$ {amount_dop:.2f}</td></tr>
+            <tr><td style="color:#374151;font-size:14px">Próximo cobro</td><td align="right" style="font-weight:600">{next_billing_date}</td></tr>
+          </table>
+        </div>
+        <p style="color:#6b7280;font-size:13px">* Se aplica un cargo adicional del 5% por procesamiento de tarjeta en pagos con tarjeta de crédito/débito.</p>
+        <p style="color:#6b7280;font-size:13px">Si deseas actualizar tu método de pago, ingresa a tu panel de configuración.</p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0">
+          <tr><td align="center">
+            <a href="https://app.fintral.com/dashboard/cuenta" style="background:#0ea5e9;color:#ffffff;padding:12px 24px;text-decoration:none;font-weight:600;border-radius:8px;display:inline-block">Ir a Mi Cuenta</a>
+          </td></tr>
+        </table>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:24px 40px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center">
+        <p style="margin:0;color:#9ca3af;font-size:11px">Fintral SRL &bull; Santo Domingo, República Dominicana</p>
+      </td>
+    </tr>
+  </table>
+</td></tr>
+</table>
+</body>
+</html>"""
+
+    try:
+        response = resend.Emails.send({
+            "from": BILLING_EMAIL_FROM,
+            "reply_to": "billing@fintral.app",
+            "to": [customer_email],
+            "subject": "Tu suscripción Fintral se renovará pronto",
+            "html": html,
+        })
+        logger.info("Renewal reminder sent to %s — id=%s", customer_email, response.get("id"))
+        return True
+    except Exception as e:
+        logger.warning("Failed to send renewal reminder to %s: %s", customer_email, e)
+        return False
+
+
+def send_account_suspension_email(
+    customer_email: str,
+    customer_name: str,
+    amount_dop: float,
+) -> bool:
+    """Send account suspension notification when grace period has expired."""
+    if not RESEND_API_KEY:
+        logger.warning("RESEND_API_KEY not set — skipping suspension email to %s", customer_email)
+        return False
+
+    resend.api_key = RESEND_API_KEY
+
+    html = f"""<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:15px;line-height:1.5">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px">
+<tr><td align="center">
+  <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;max-width:100%">
+    <tr style="background:#dc2626;color:#ffffff">
+      <td style="padding:24px;text-align:center">
+        <h1 style="margin:0;font-size:20px;font-weight:600">Cuenta Suspendida Temporalmente</h1>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:32px 40px" align="left">
+        <p style="margin:0 0 16px;color:#111827">Hola <strong>{customer_name or "usuario"}</strong>,</p>
+        <p style="color:#374151;margin:0 0 16px">Han transcurrido más de 3 días desde que intentamos procesar el pago de <strong>RD$ {amount_dop:.2f}</strong> y no hemos recibido el pago.</p>
+        <p style="color:#374151;margin:0 0 16px">Como resultado, el acceso al <strong>Hub de Contabilidad de Fintral</strong> ha sido suspendido temporalmente.</p>
+        <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:16px;margin:24px 0">
+          <p style="margin:0;color:#991b1b;font-size:14px">
+            <strong>¿Cómo recuperar el acceso?</strong><br>
+            Para reactivar tu cuenta, liquida los pagos pendientes desde tu panel de control. Una vez realizado, el acceso se restaurará automáticamente.
+          </p>
+        </div>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0">
+          <tr><td align="center">
+            <a href="https://app.fintral.com/plans" style="background:#533afd;color:#ffffff;padding:12px 24px;text-decoration:none;font-weight:600;border-radius:8px;display:inline-block">Reactivar Suscripción</a>
+          </td></tr>
+        </table>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:24px 40px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center">
+        <p style="margin:0;color:#9ca3af;font-size:11px">Fintral SRL &bull; Santo Domingo, República Dominicana</p>
+      </td>
+    </tr>
+  </table>
+</td></tr>
+</table>
+</body>
+</html>"""
+
+    try:
+        response = resend.Emails.send({
+            "from": BILLING_EMAIL_FROM,
+            "reply_to": "billing@fintral.app",
+            "to": [customer_email],
+            "subject": "Tu acceso a Fintral Hub ha sido suspendido",
+            "html": html,
+        })
+        logger.info("Suspension email sent to %s — id=%s", customer_email, response.get("id"))
+        return True
+    except Exception as e:
+        logger.warning("Failed to send suspension email to %s: %s", customer_email, e)
         return False
 
