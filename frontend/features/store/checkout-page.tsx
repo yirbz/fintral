@@ -12,9 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { useCart } from "./cart-context";
 import { useSession } from "@/hooks/use-session";
-import { calculateCart, uploadPaymentProof, getBankDetails, getExchangeRate, type CartItem as ApiCartItem } from "@/lib/api/plans";
-import { PriceDisplay } from "@/components/ui/price-display";
-import { PaddleCheckoutButton } from "@/components/billing/paddle-checkout";
+import { calculateCart, uploadPaymentProof, getBankDetails, type CartItem as ApiCartItem } from "@/lib/api/plans";
 import { cn } from "@/lib/utils";
 
 export function CheckoutPage() {
@@ -51,20 +49,13 @@ export function CheckoutPage() {
     enabled: !isEmpty,
   });
 
-  const { data: rateData } = useQuery({
-    queryKey: ["exchange-rate"],
-    queryFn: getExchangeRate,
-    staleTime: 1000 * 60 * 60 * 12,
-  });
-  const exchangeRate = rateData?.rate ?? 59.0;
-
-  const usdTotal = cartCalc?.total ?? 0;
-  const dopTotal = usdTotal * exchangeRate;
-  const total = usdTotal; // baseline total is USD
-  const currency = "USD";
+  const total = cartCalc?.total ?? 0;
+  const currency = "DOP";
   const months = cartCalc?.months ?? 1;
   const discount = cartCalc?.discount ?? 0;
   const monthlyTotal = cartCalc?.monthly_total ?? 0;
+  const feeAmount = paymentMethod === "card" ? total * 0.05 : 0;
+  const finalTotal = total + feeAmount;
 
   const planChangeItem = items.find((i) => i.type === "plan_change");
   const hasPlanChange = !!planChangeItem;
@@ -121,7 +112,6 @@ export function CheckoutPage() {
 
       const data = await res.json();
       if (data.checkout_url) {
-        clearCart();
         window.location.href = data.checkout_url;
       } else {
         throw new Error("No se recibió la URL de pago de MIO");
@@ -156,10 +146,8 @@ export function CheckoutPage() {
         "plan_name",
         items.find((i) => i.type === "plan_change")?.plan_name || "Personalizado"
       );
-      formData.append("amount", String(dopTotal));
+      formData.append("amount", String(total));
       formData.append("currency", "DOP");
-      formData.append("exchange_rate", String(exchangeRate));
-      formData.append("usd_amount", String(usdTotal));
       formData.append("notes", notes);
       formData.append("items", JSON.stringify(items));
       formData.append("file", file);
@@ -300,12 +288,27 @@ export function CheckoutPage() {
                   </div>
                 )}
 
-                <Separator className="bg-brand-hairline dark:bg-slate-800/60" />
-
-                <div className="space-y-1.5">
-                  <div className="flex justify-between items-baseline">
+                <div className="space-y-2 pt-2">
+                  <div className="flex justify-between items-center text-xs text-brand-ink-mute dark:text-slate-400">
+                    <span>Subtotal</span>
+                    <span className="font-mono tabular-nums">
+                      {total.toLocaleString("es-DO", { style: "currency", currency: "DOP" })}
+                    </span>
+                  </div>
+                  {paymentMethod === "card" && (
+                    <div className="flex justify-between items-center text-xs text-brand-ink-mute dark:text-slate-400">
+                      <span>Comisión de tarjeta (5%)</span>
+                      <span className="font-mono text-amber-600 dark:text-amber-400 tabular-nums">
+                        {feeAmount.toLocaleString("es-DO", { style: "currency", currency: "DOP" })}
+                      </span>
+                    </div>
+                  )}
+                  <Separator className="bg-brand-hairline dark:bg-slate-800/60 my-1" />
+                  <div className="flex justify-between items-baseline pt-1">
                     <span className="text-sm font-semibold text-brand-ink dark:text-white">Total a pagar</span>
-                    <PriceDisplay amountDop={dopTotal} amountUsd={usdTotal} size="lg" className="items-end" />
+                    <span className="text-lg font-semibold font-mono text-brand-primary dark:text-sky-400 tabular-nums">
+                      {finalTotal.toLocaleString("es-DO", { style: "currency", currency: "DOP" })}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -368,10 +371,7 @@ export function CheckoutPage() {
 
                     <div className="space-y-1">
                       <p className="text-2xl font-light font-mono text-brand-ink dark:text-white tracking-tight">
-                        {dopTotal.toLocaleString("es-DO", { style: "currency", currency: "DOP" })}
-                      </p>
-                      <p className="text-[11px] text-brand-ink-mute dark:text-slate-400">
-                        Equivale a ~${usdTotal.toFixed(2)} USD
+                        {finalTotal.toLocaleString("es-DO", { style: "currency", currency: "DOP" })}
                       </p>
                     </div>
 
@@ -397,10 +397,10 @@ export function CheckoutPage() {
 
               {/* TRANSFER PAYMENT TAB */}
               <TabsContent value="transfer" className="space-y-4 outline-none border-0 p-0 m-0">
-                <TransferForm
-                  bankDetails={bankDetails}
-                  total={dopTotal}
-                  currency="DOP"
+                  <TransferForm
+                    bankDetails={bankDetails}
+                    total={total}
+                    currency="DOP"
                   uploading={uploading}
                   file={file}
                   setFile={setFile}
@@ -422,7 +422,7 @@ export function CheckoutPage() {
 
               <TransferForm
                 bankDetails={bankDetails}
-                total={dopTotal}
+                total={total}
                 currency="DOP"
                 uploading={uploading}
                 file={file}

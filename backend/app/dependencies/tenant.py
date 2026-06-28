@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Optional
 from uuid import UUID, uuid4
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request, Response
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -30,6 +30,7 @@ class TenantContext:
     organization: Organization
     role: str  # owner / admin / member / viewer
     permissions: list[str] | None = None  # explicit permission overrides; None = use role defaults
+    grace_hours: int | None = None
 
 
 @dataclass
@@ -44,6 +45,7 @@ class FallbackOrganization:
 
 async def require_tenant(
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> TenantContext:
     """
@@ -169,15 +171,17 @@ async def require_tenant(
     hostname = request.headers.get("host") or ""
     is_billing_subdomain = hostname.startswith("factura.")
 
+    grace_hours = None
+
     if not is_bypass_path and not is_billing_subdomain:
-        from app.models.organization_subscription import OrganizationSubscription
+        from app.models.user_subscription import UserSubscription
         from app.utils.dates import utc_now
 
         sub = (
-            db.query(OrganizationSubscription)
-            .filter(OrganizationSubscription.organization_id == org.id)
-            .filter(OrganizationSubscription.status.in_(["active", "trialing"]))
-            .order_by(OrganizationSubscription.created_at.desc())
+            db.query(UserSubscription)
+            .filter(UserSubscription.user_id == user.id)
+            .filter(UserSubscription.status.in_(["active", "trialing", "past_due"]))
+            .order_by(UserSubscription.created_at.desc())
             .first()
         )
 
@@ -187,11 +191,24 @@ async def require_tenant(
                 db.commit()
                 sub = None
 
+        if sub and sub.status == "past_due":
+            from datetime import timedelta
+            grace_period = timedelta(days=3)
+            time_since_failed = utc_now() - sub.updated_at
+            
+            if time_since_failed > grace_period:
+                sub = None
+            else:
+                grace_hours = max(0, int((grace_period - time_since_failed).total_seconds() / 3600))
+
         if not sub:
             raise HTTPException(
                 status_code=402,
                 detail="Suscripción requerida para acceder al Hub Contable."
             )
+
+    if grace_hours is not None:
+        response.headers["X-Subscription-Grace-Remaining"] = str(grace_hours)
 
     if org.is_deleted:
         is_write = request.method in ("POST", "PUT", "PATCH", "DELETE")
@@ -218,6 +235,7 @@ async def require_tenant(
         organization=org,
         role=user_org.role,
         permissions=permissions,
+        grace_hours=grace_hours,
     )
 
 

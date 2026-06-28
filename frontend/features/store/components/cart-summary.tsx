@@ -18,7 +18,6 @@ export function CartSummary({
   discount,
   monthlyTotal,
 }: CartSummaryProps) {
-  // Format currency helper
   const formatAmount = (val: number, curr: string) => {
     return val.toLocaleString("es-DO", {
       style: "currency",
@@ -26,8 +25,6 @@ export function CartSummary({
       minimumFractionDigits: val % 1 === 0 ? 0 : 2,
     });
   };
-
-  const usdEquivalent = total / 60; // Approximate exchange rate fallback
 
   return (
     <div className="space-y-3.5 bg-brand-canvas-soft/30 dark:bg-slate-900/30 p-4.5 rounded-xl border border-brand-hairline dark:border-slate-800/80">
@@ -72,14 +69,6 @@ export function CartSummary({
           </span>
         </div>
         
-        {/* USD equivalent card info */}
-        <div className="text-[10px] text-right text-brand-ink-mute dark:text-slate-400 font-normal">
-          Equivale a ~{usdEquivalent.toLocaleString("en-US", {
-            style: "currency",
-            currency: "USD",
-            minimumFractionDigits: 2,
-          })} USD con tarjeta
-        </div>
       </div>
     </div>
   );

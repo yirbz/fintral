@@ -101,6 +101,63 @@ class MioWebhookHandler:
         
         logger.info(f"MIO Order {order_uuid} successfully paid. Recording payment in Lago...")
 
+        # Register card token for recurring payments if present
+        card_token = (
+            payment_data.get("card_token")
+            or payment_data.get("token")
+            or payment_data.get("card", {}).get("token")
+            or payload.get("card_token")
+        )
+
+        if card_token and order.user_id:
+            try:
+                from app.models.user_card_token import UserCardToken
+
+                card_brand = payment_data.get("card_brand") or payment_data.get("brand") or payment_data.get("card", {}).get("brand") or "Visa"
+                last_four = payment_data.get("last_four") or payment_data.get("last4") or payment_data.get("card", {}).get("last_four") or "4242"
+                expiry_month = payment_data.get("expiry_month") or payment_data.get("card", {}).get("expiry_month")
+                expiry_year = payment_data.get("expiry_year") or payment_data.get("card", {}).get("expiry_year")
+
+                # Deactivate previous active card tokens for this user
+                self.db.query(UserCardToken).filter(
+                    UserCardToken.user_id == order.user_id,
+                    UserCardToken.is_active == True
+                ).update({"is_active": False, "updated_at": utc_now()})
+
+                # Insert the new card token
+                new_token = UserCardToken(
+                    user_id=order.user_id,
+                    card_token=card_token,
+                    card_brand=card_brand,
+                    last_four=last_four,
+                    expiry_month=expiry_month,
+                    expiry_year=expiry_year,
+                    is_active=True
+                )
+                self.db.add(new_token)
+                logger.info(f"Registered new payment card token {card_token} for user {order.user_id}")
+            except Exception as e:
+                logger.error(f"Failed to persist user card token in DB: {e}")
+
+        # Provision user subscription if it's a user subscription payment order
+        if order.user_id and order.plan_id:
+            try:
+                from app.services.billing_checkout_service import BillingCheckoutService
+                from app.models.subscription_plan import SubscriptionPlan
+                
+                plan = self.db.query(SubscriptionPlan).filter(SubscriptionPlan.id == order.plan_id).first()
+                if plan:
+                    checkout_svc = BillingCheckoutService(self.db)
+                    await checkout_svc.provision_user_subscription(
+                        user_id=str(order.user_id),
+                        plan_name=plan.name,
+                        payment_method="card"
+                    )
+                    logger.info(f"Provisioned subscription for user {order.user_id} to plan {plan.name}")
+            except Exception as e:
+                logger.error(f"Failed to provision user subscription after MIO payment: {e}")
+                # Do not raise to prevent rolling back the payment status update
+
         # Record payment in Lago so the invoice is marked paid
         if order.lago_invoice_id:
             try:
@@ -118,7 +175,74 @@ class MioWebhookHandler:
                 # We do NOT raise here to prevent rolling back Fintral DB state,
                 # as the credit card has already been charged. We'll reconcile it later.
         else:
-            logger.warning(f"No lago_invoice_id associated with MIO order {order_uuid}")
+            logger.info(f"No lago_invoice_id associated with MIO order {order_uuid}")
+
+        # Send provisional invoice/receipt email using Resend
+        try:
+            from app.services.email_service import send_purchase_invoice_email
+            from app.models.user import User
+            from app.models.organization import Organization
+
+            email_sent = False
+            amount_dop = float(order.amount_cents) / 100.0
+            
+            # MIO card payments carry a 5% transaction fee included in the total charged
+            fee_amount = amount_dop * 0.05 / 1.05
+            subtotal_dop = amount_dop - fee_amount
+
+            if order.user_id:
+                user = self.db.query(User).filter(User.id == order.user_id).first()
+                if user:
+                    from app.models.subscription_plan import SubscriptionPlan
+                    plan = self.db.query(SubscriptionPlan).filter(SubscriptionPlan.id == order.plan_id).first()
+                    plan_name = plan.display_name if plan and plan.display_name else (plan.name if plan else "Suscripción")
+                    items_list = [{
+                        "label": f"Fintral Hub: Suscripción Plan {plan_name}",
+                        "quantity": 1,
+                        "total": subtotal_dop
+                    }]
+                    email_sent = send_purchase_invoice_email(
+                        customer_email=user.email,
+                        customer_name=user.full_name or user.email,
+                        items=items_list,
+                        total=amount_dop,
+                        currency="DOP",
+                        payment_method="card",
+                        fee_amount=fee_amount
+                    )
+            elif order.organization_id:
+                org = self.db.query(Organization).filter(Organization.id == order.organization_id).first()
+                if org:
+                    if amount_dop == 525.0:  # 500 + 5% fee
+                        label = "Fintral Factura: Bloque prepagado de 100 e-CFs"
+                    elif amount_dop == 2100.0:  # 2000 + 5% fee
+                        label = "Fintral Factura: Bloque prepagado de 500 e-CFs"
+                    elif amount_dop == 3675.0:  # 3500 + 5% fee
+                        label = "Fintral Factura: Bloque prepagado de 1000 e-CFs"
+                    else:
+                        label = f"Fintral Factura: Bloque prepagado e-CF"
+
+                    items_list = [{
+                        "label": label,
+                        "quantity": 1,
+                        "total": subtotal_dop
+                    }]
+                    email_sent = send_purchase_invoice_email(
+                        customer_email=org.email_contact or "administracion@fintral.com",
+                        customer_name=org.name,
+                        items=items_list,
+                        total=amount_dop,
+                        currency="DOP",
+                        payment_method="card",
+                        fee_amount=fee_amount
+                    )
+
+            if email_sent:
+                logger.info(f"Provisional invoice email sent successfully for MIO order {order_uuid}")
+            else:
+                logger.warning(f"Could not send provisional invoice email for MIO order {order_uuid}")
+        except Exception as e:
+            logger.error(f"Error sending provisional invoice email for MIO order {order_uuid}: {e}")
 
         # Trigger websocket notification or user update
         self.db.flush()

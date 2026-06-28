@@ -1,5 +1,7 @@
 """Unit tests for Lago + MIO billing refactor implementation."""
 
+import hashlib
+import hmac
 import pytest
 from unittest.mock import patch, MagicMock
 from uuid import uuid4
@@ -9,13 +11,17 @@ from app.models import (
     SubscriptionPlan,
     OrganizationSubscription,
     Organization,
-    MioPaymentOrder
+    MioPaymentOrder,
+    BillingWebhookEvent,
 )
 from app.services.lago_service import LagoService
 from app.services.mio_service import MioService
 from app.services.billing_checkout_service import BillingCheckoutService
 from app.services.lago_webhook_handler import LagoWebhookHandler
 from app.services.mio_webhook_handler import MioWebhookHandler
+from app.services.email_service import send_purchase_invoice_email
+from app.routers.lago import verify_lago_signature
+from app.routers.mio import verify_mio_signature
 
 
 @pytest.fixture
@@ -246,7 +252,7 @@ class TestBillingCheckoutService:
         ).first()
         assert order is not None
         assert order.lago_invoice_id == "lago-inv-999"
-        assert order.amount_cents == 50000
+        assert order.amount_cents == 52500
 
 
 class TestWebhookHandlers:
@@ -338,3 +344,2104 @@ class TestWebhookHandlers:
         # Assert subscription is set to active
         db_session.refresh(sub)
         assert sub.status == "active"
+
+
+class TestSignatureVerification:
+    """Tests HMAC-SHA256 signature verification for Lago and MIO webhooks."""
+
+    def test_verify_lago_signature_valid(self):
+        secret = "test-lago-secret"
+        body = b'{"webhook_type":"invoice.paid","invoice":{"lago_id":"inv-1"}}'
+        expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        assert verify_lago_signature(body, expected, secret) is True
+
+    def test_verify_lago_signature_invalid(self):
+        secret = "test-lago-secret"
+        body = b'{"webhook_type":"invoice.paid"}'
+        assert verify_lago_signature(body, "bad-signature", secret) is False
+
+    def test_verify_lago_signature_no_secret(self):
+        body = b'{"webhook_type":"invoice.paid"}'
+        assert verify_lago_signature(body, "", "") is True
+
+    def test_verify_lago_signature_no_signature(self):
+        secret = "test-lago-secret"
+        body = b'{"webhook_type":"invoice.paid"}'
+        assert verify_lago_signature(body, "", secret) is False
+
+    def test_verify_mio_signature_valid(self):
+        secret = "test-mio-secret"
+        body = b'{"event":"TRANSACTION_COMPLETED","order_uuid":"ord-1"}'
+        expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        assert verify_mio_signature(body, expected, secret) is True
+
+    def test_verify_mio_signature_invalid(self):
+        secret = "test-mio-secret"
+        body = b'{"event":"TRANSACTION_COMPLETED"}'
+        assert verify_mio_signature(body, "bad", secret) is False
+
+    def test_verify_mio_signature_no_secret(self):
+        body = b'{"event":"TRANSACTION_COMPLETED"}'
+        assert verify_mio_signature(body, "any", "") is True
+
+
+class TestLagoServiceExtended:
+    """Extended tests for LagoService beyond basic CRUD."""
+
+    @pytest.mark.anyio
+    @patch("httpx.AsyncClient.request")
+    async def test_upgrade_subscription(self, mock_request):
+        mock_response = MagicMock()
+        mock_response.is_error = False
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"subscription": {"lago_id": "sub-upgraded", "plan_code": "profesional"}}
+        mock_request.return_value = mock_response
+
+        svc = LagoService()
+        result = await svc.upgrade_subscription(
+            customer_external_id="org-123",
+            new_plan_code="profesional",
+            subscription_external_id="sub-abc",
+        )
+
+        assert result["subscription"]["plan_code"] == "profesional"
+        args, kwargs = mock_request.call_args
+        assert kwargs["json"]["subscription"]["plan_code"] == "profesional"
+        assert kwargs["method"] == "POST"
+
+    @pytest.mark.anyio
+    @patch("httpx.AsyncClient.request")
+    async def test_cancel_subscription(self, mock_request):
+        mock_response = MagicMock()
+        mock_response.is_error = False
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"subscription": {"lago_id": "sub-abc", "status": "terminated"}}
+        mock_request.return_value = mock_response
+
+        svc = LagoService()
+        result = await svc.cancel_subscription(external_id="sub-abc")
+
+        assert result["subscription"]["status"] == "terminated"
+        args, kwargs = mock_request.call_args
+        assert kwargs["method"] == "DELETE"
+
+    @pytest.mark.anyio
+    @patch("httpx.AsyncClient.request")
+    async def test_create_one_off_invoice(self, mock_request):
+        mock_response = MagicMock()
+        mock_response.is_error = False
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"invoice": {"lago_id": "inv-once", "total_amount_cents": 50000}}
+        mock_request.return_value = mock_response
+
+        svc = LagoService()
+        fees = [{"add_on_code": "ecf_block_100", "units": 1, "unit_amount_cents": 50000}]
+        result = await svc.create_one_off_invoice(
+            customer_external_id="org-123",
+            fees=fees,
+        )
+
+        assert result["invoice"]["lago_id"] == "inv-once"
+        args, kwargs = mock_request.call_args
+        assert kwargs["json"]["invoice"]["fees"][0]["add_on_code"] == "ecf_block_100"
+
+    @pytest.mark.anyio
+    @patch("httpx.AsyncClient.request")
+    async def test_record_payment(self, mock_request):
+        mock_response = MagicMock()
+        mock_response.is_error = False
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"payment": {"lago_id": "pay-1"}}
+        mock_request.return_value = mock_response
+
+        svc = LagoService()
+        result = await svc.record_payment(
+            invoice_id="lago-inv-1",
+            amount_cents=100000,
+            reference="ref-123",
+            paid_at="2026-06-01",
+        )
+
+        assert result["payment"]["lago_id"] == "pay-1"
+        args, kwargs = mock_request.call_args
+        assert kwargs["json"]["payment"]["reference"] == "ref-123"
+
+    @pytest.mark.anyio
+    @patch("httpx.AsyncClient.request")
+    async def test_get_invoice(self, mock_request):
+        mock_response = MagicMock()
+        mock_response.is_error = False
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"invoice": {"lago_id": "lago-inv-1", "total_amount_cents": 50000}}
+        mock_request.return_value = mock_response
+
+        svc = LagoService()
+        result = await svc.get_invoice(lago_id="lago-inv-1")
+
+        assert result["invoice"]["total_amount_cents"] == 50000
+        args, kwargs = mock_request.call_args
+        assert "invoices/lago-inv-1" in kwargs["url"]
+
+    @pytest.mark.anyio
+    @patch("httpx.AsyncClient.request")
+    async def test_lago_api_error_on_4xx(self, mock_request):
+        mock_response = MagicMock()
+        mock_response.is_error = True
+        mock_response.status_code = 422
+        mock_response.reason_phrase = "Unprocessable Entity"
+        mock_response.text = '{"error": {"detail": ["validation failed"]}}'
+        mock_request.return_value = mock_response
+
+        from app.services.lago_service import LagoAPIError
+
+        svc = LagoService()
+        with pytest.raises(LagoAPIError) as excinfo:
+            await svc.create_subscription(
+                customer_external_id="org-123",
+                plan_code="inicial",
+                external_id="sub-abc",
+            )
+        assert excinfo.value.status_code == 422
+
+    @pytest.mark.anyio
+    @patch("httpx.AsyncClient.request")
+    async def test_create_customer_without_rnc(self, mock_request):
+        mock_response = MagicMock()
+        mock_response.is_error = False
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"customer": {"lago_id": "lago-cust-no-rnc"}}
+        mock_request.return_value = mock_response
+
+        svc = LagoService()
+        result = await svc.create_or_update_customer(
+            external_id="org-no-rnc",
+            name="No RNC Org",
+            email="test@fintral.com",
+        )
+
+        assert result["customer"]["lago_id"] == "lago-cust-no-rnc"
+        args, kwargs = mock_request.call_args
+        # Should NOT contain legal_number when rnc is None
+        assert "legal_number" not in kwargs["json"]["customer"]
+
+
+class TestMioServiceExtended:
+    """Extended tests for MioService."""
+
+    @pytest.mark.anyio
+    @patch("httpx.AsyncClient.post")
+    @patch("httpx.AsyncClient.request")
+    async def test_get_order_status(self, mock_request, mock_post):
+        auth_resp = MagicMock()
+        auth_resp.is_error = False
+        auth_resp.status_code = 200
+        auth_resp.json.return_value = {"access_token": "jwt-token", "expires_in": 3600}
+        mock_post.return_value = auth_resp
+
+        order_resp = MagicMock()
+        order_resp.is_error = False
+        order_resp.status_code = 200
+        order_resp.json.return_value = {
+            "data": {
+                "attributes": {
+                    "uuid": "mio-order-status-1",
+                    "status": "SUCCESS",
+                    "payment": {
+                        "id": "pay-1",
+                        "authorization_code": "auth-1",
+                        "reference_number": "ref-1",
+                    }
+                }
+            }
+        }
+        mock_request.return_value = order_resp
+
+        svc = MioService()
+        result = await svc.get_order_status(order_uuid="mio-order-status-1")
+
+        assert result["status"] == "SUCCESS"
+        assert result["reference_number"] == "ref-1"
+
+    @pytest.mark.anyio
+    @patch("httpx.AsyncClient.post")
+    async def test_token_caching(self, mock_post):
+        """Second call should reuse cached token (no auth call)."""
+        auth_resp = MagicMock()
+        auth_resp.is_error = False
+        auth_resp.status_code = 200
+        auth_resp.json.return_value = {"access_token": "jwt-token", "expires_in": 3600}
+        mock_post.return_value = auth_resp
+
+        MioService._access_token = None
+        MioService._token_expires_at = 0.0
+
+        svc = MioService()
+        token1 = await svc._get_token()
+        token2 = await svc._get_token()
+
+        assert token1 == token2 == "jwt-token"
+        # Only one auth call because of caching
+        assert mock_post.call_count == 1
+
+    @pytest.mark.anyio
+    @patch("httpx.AsyncClient.request")
+    @patch("httpx.AsyncClient.post")
+    async def test_auth_failure_raises_error(self, mock_post, mock_request):
+        auth_resp = MagicMock()
+        auth_resp.is_error = True
+        auth_resp.status_code = 401
+        auth_resp.reason_phrase = "Unauthorized"
+        auth_resp.text = '{"error": "invalid_client"}'
+        mock_post.return_value = auth_resp
+
+        from app.services.mio_service import MioAPIError
+
+        MioService._access_token = None
+        MioService._token_expires_at = 0.0
+
+        svc = MioService()
+        with pytest.raises(MioAPIError) as excinfo:
+            await svc.create_order(
+                amount_cents=50000,
+                description="Test",
+                webhook_url="https://example.com/webhook",
+                success_url="https://example.com/success",
+                failed_url="https://example.com/failed",
+            )
+        assert excinfo.value.status_code == 401
+
+    # --- charge_token tests ---
+
+    @pytest.mark.anyio
+    async def test_charge_token_success(self):
+        """charge_token returns SUCCESS with payment details from a valid MIO response."""
+        MioService._access_token = "test-token"
+        MioService._token_expires_at = 9999999999.0
+
+        svc = MioService()
+        with patch.object(svc, "_request") as mock_req:
+            mock_req.return_value = {
+                "data": {
+                    "attributes": {
+                        "status": "SUCCESS",
+                        "payment": {
+                            "id": "pay-123",
+                            "authorization_code": "auth-abc",
+                            "reference_number": "ref-xyz",
+                        },
+                    }
+                }
+            }
+
+            result = await svc.charge_token(
+                amount_cents=294000,
+                card_token="tok_test",
+                description="Fintral: Plan Profesional",
+            )
+
+        assert result["status"] == "SUCCESS"
+        assert result["payment_id"] == "pay-123"
+        assert result["authorization_code"] == "auth-abc"
+        assert result["reference_number"] == "ref-xyz"
+
+        # Verify payload was built correctly
+        call_args = mock_req.call_args
+        assert call_args[0][0] == "POST"
+        assert call_args[0][1] == "api/v2/charges"
+        payload = call_args[1]["json_data"]
+        assert payload["data"]["attributes"]["amount"] == 294000
+        assert payload["data"]["attributes"]["currency"] == "214"
+        assert payload["data"]["attributes"]["token"] == "tok_test"
+        assert payload["data"]["attributes"]["description"] == "Fintral: Plan Profesional"
+
+    @pytest.mark.anyio
+    async def test_charge_token_declined(self):
+        """charge_token returns FAILED status without crashing when MIO declines."""
+        MioService._access_token = "test-token"
+        MioService._token_expires_at = 9999999999.0
+
+        svc = MioService()
+        with patch.object(svc, "_request") as mock_req:
+            mock_req.return_value = {
+                "data": {"attributes": {"status": "FAILED", "payment": {}}}
+            }
+
+            result = await svc.charge_token(
+                amount_cents=50000,
+                card_token="tok_decline",
+                description="Test",
+            )
+
+        assert result["status"] == "FAILED"
+        assert result["payment_id"] is None
+
+    @pytest.mark.anyio
+    async def test_charge_token_unexpected_response(self):
+        """charge_token does not crash when MIO returns unexpected data shape."""
+        MioService._access_token = "test-token"
+        MioService._token_expires_at = 9999999999.0
+
+        svc = MioService()
+        with patch.object(svc, "_request") as mock_req:
+            mock_req.return_value = {}  # no data.attributes at all
+
+            result = await svc.charge_token(
+                amount_cents=10000,
+                card_token="tok_weird",
+                description="Weird response",
+            )
+
+        assert result["status"] is None
+        assert result["payment_id"] is None
+
+    @pytest.mark.anyio
+    async def test_charge_token_description_truncated(self):
+        """Descriptions longer than 100 chars are truncated."""
+        MioService._access_token = "test-token"
+        MioService._token_expires_at = 9999999999.0
+
+        long_desc = "X" * 200
+        svc = MioService()
+        with patch.object(svc, "_request") as mock_req:
+            mock_req.return_value = {
+                "data": {"attributes": {"status": "SUCCESS", "payment": {}}}
+            }
+
+            await svc.charge_token(
+                amount_cents=1000, card_token="tok_trunc", description=long_desc
+            )
+
+        payload = mock_req.call_args[1]["json_data"]
+        assert len(payload["data"]["attributes"]["description"]) == 100
+
+    @pytest.mark.anyio
+    async def test_charge_token_mock_mode(self):
+        """Mock mode (access_token = mock-dev-access-token) returns a valid SUCCESS."""
+        MioService._access_token = "mock-dev-access-token"
+        MioService._token_expires_at = 9999999999.0
+
+        svc = MioService()
+        result = await svc.charge_token(
+            amount_cents=294000,
+            card_token="tok_mock",
+            description="Mock charge",
+        )
+
+        assert result["status"] == "SUCCESS"
+        assert result["payment_id"] is not None
+        assert result["authorization_code"] is not None
+        assert result["reference_number"] is not None
+
+
+class TestBillingCheckoutServiceExtended:
+    """Extended checkout orchestration tests."""
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_service.LagoService.create_or_update_customer")
+    @patch("app.services.lago_service.LagoService.create_subscription")
+    async def test_subscribe_organization_transfer(self, mock_lago_sub, mock_lago_cust, db_session, test_org):
+        mock_lago_cust.return_value = {"customer": {"lago_id": "lago-cust-transfer"}}
+        mock_lago_sub.return_value = {"subscription": {"lago_id": "lago-sub-transfer"}}
+
+        checkout_svc = BillingCheckoutService(db_session)
+        result = await checkout_svc.subscribe_organization(
+            org_id=str(test_org.id),
+            plan_name="inicial",
+            payment_method="transfer"
+        )
+
+        assert result["payment_method"] == "transfer"
+        assert result["status"] == "active"
+        # No checkout_url for transfer orders
+        assert "checkout_url" not in result
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_service.LagoService.create_or_update_customer")
+    @patch("app.services.lago_service.LagoService.create_subscription")
+    @patch("app.services.mio_service.MioService.create_order")
+    async def test_subscribe_organization_cancels_old_subs(
+        self, mock_mio, mock_lago_sub, mock_lago_cust, db_session, test_org
+    ):
+        mock_lago_cust.return_value = {"customer": {"lago_id": "lago-cust-new"}}
+        mock_lago_sub.return_value = {"subscription": {"lago_id": "lago-sub-new"}}
+        mock_mio.return_value = {
+            "order_uuid": "mio-order-new",
+            "status": "PENDING",
+            "checkout_url": "https://checkout.mio/pay-new",
+        }
+
+        plan = db_session.query(SubscriptionPlan).filter(SubscriptionPlan.name == "inicial").first()
+
+        # Create an existing active subscription
+        old_sub = OrganizationSubscription(
+            organization_id=test_org.id,
+            plan_id=plan.id,
+            status="active",
+            payment_method="card",
+        )
+        db_session.add(old_sub)
+        db_session.commit()
+
+        checkout_svc = BillingCheckoutService(db_session)
+        await checkout_svc.subscribe_organization(
+            org_id=str(test_org.id),
+            plan_name="profesional",
+            payment_method="card",
+        )
+
+        # Old sub should be canceled
+        db_session.refresh(old_sub)
+        assert old_sub.status == "canceled"
+        assert old_sub.canceled_at is not None
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_service.LagoService.create_or_update_customer")
+    @patch("app.services.lago_service.LagoService.create_one_off_invoice")
+    async def test_purchase_prepaid_ecf_transfer(self, mock_lago_inv, mock_lago_cust, db_session, test_org):
+        mock_lago_cust.return_value = {"customer": {"lago_id": "lago-cust-ecf"}}
+        mock_lago_inv.return_value = {"invoice": {"lago_id": "lago-inv-ecf", "total_amount_cents": 50000}}
+
+        checkout_svc = BillingCheckoutService(db_session)
+        result = await checkout_svc.purchase_prepaid_ecf(
+            org_id=str(test_org.id),
+            block_type="ecf_block_100",
+            payment_method="transfer",
+        )
+
+        assert result["payment_method"] == "transfer"
+        assert result["lago_invoice_id"] == "lago-inv-ecf"
+        assert "checkout_url" not in result
+
+    @pytest.mark.anyio
+    async def test_subscribe_organization_missing_org(self, db_session):
+        checkout_svc = BillingCheckoutService(db_session)
+        with pytest.raises(ValueError, match="Organización no encontrada"):
+            await checkout_svc.subscribe_organization(
+                org_id=str(uuid4()),
+                plan_name="inicial",
+            )
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_service.LagoService.create_or_update_customer")
+    async def test_purchase_ecf_invalid_block_type(self, mock_lago_cust, db_session, test_org):
+        mock_lago_cust.return_value = {"customer": {"lago_id": "lago-cust-1"}}
+
+        checkout_svc = BillingCheckoutService(db_session)
+        with pytest.raises(ValueError, match="Tipo de bloque e-CF desconocido"):
+            await checkout_svc.purchase_prepaid_ecf(
+                org_id=str(test_org.id),
+                block_type="ecf_block_invalid",
+            )
+
+
+class TestLagoWebhookHandlerExtended:
+    """Extended webhook lifecycle tests for Lago."""
+
+    @pytest.mark.anyio
+    @patch("app.services.mio_service.MioService.create_order")
+    async def test_invoice_created_creates_mio_order_for_card(
+        self, mock_mio, db_session, test_org
+    ):
+        mock_mio.return_value = {
+            "order_uuid": "mio-order-inv-created",
+            "status": "PENDING",
+            "checkout_url": "https://checkout.mio/pay-inv",
+        }
+
+        plan = db_session.query(SubscriptionPlan).first()
+        sub = OrganizationSubscription(
+            organization_id=test_org.id,
+            plan_id=plan.id,
+            status="trialing",
+            payment_method="card",
+            lago_subscription_id="lago-sub-inv-created",
+        )
+        db_session.add(sub)
+        db_session.commit()
+
+        payload = {
+            "webhook_type": "invoice.created",
+            "invoice": {
+                "lago_id": "lago-inv-created",
+                "total_amount_cents": 280000,
+                "customer": {"external_id": str(test_org.id)},
+                "fees": [{"add_on_code": None, "units": 1, "item": {"name": "Profesional Plan"}}],
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="invoice.created",
+            event_id="lago_evt_inv_created",
+            payload=payload,
+        )
+
+        assert event.processed is True
+        mock_mio.assert_called_once()
+
+        order = db_session.query(MioPaymentOrder).filter(
+            MioPaymentOrder.lago_invoice_id == "lago-inv-created"
+        ).first()
+        assert order is not None
+        assert order.status == "PENDING"
+
+    @pytest.mark.anyio
+    async def test_invoice_created_skips_mio_for_transfer(self, db_session, test_org):
+        plan = db_session.query(SubscriptionPlan).first()
+        sub = OrganizationSubscription(
+            organization_id=test_org.id,
+            plan_id=plan.id,
+            status="active",
+            payment_method="transfer",
+            lago_subscription_id="lago-sub-transfer-inv",
+        )
+        db_session.add(sub)
+        db_session.commit()
+
+        payload = {
+            "webhook_type": "invoice.created",
+            "invoice": {
+                "lago_id": "lago-inv-transfer",
+                "total_amount_cents": 100000,
+                "customer": {"external_id": str(test_org.id)},
+                "fees": [],
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="invoice.created",
+            event_id="lago_evt_inv_transfer",
+            payload=payload,
+        )
+
+        assert event.processed is True
+
+        order = db_session.query(MioPaymentOrder).filter(
+            MioPaymentOrder.lago_invoice_id == "lago-inv-transfer"
+        ).first()
+        assert order is None
+
+    @pytest.mark.anyio
+    async def test_subscription_started_updates_local_sub(self, db_session, test_org):
+        plan = db_session.query(SubscriptionPlan).first()
+        sub_external_id = "lago-sub-started-ext-1"
+        sub = OrganizationSubscription(
+            organization_id=test_org.id,
+            plan_id=plan.id,
+            status="trialing",
+            lago_subscription_id=sub_external_id,
+        )
+        db_session.add(sub)
+        db_session.commit()
+
+        payload = {
+            "webhook_type": "subscription.started",
+            "subscription": {
+                "lago_id": "lago-sub-started-1",
+                "external_id": sub_external_id,
+                "customer_id": "lago-cust-1",
+                "plan_code": "inicial",
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        await handler.process(
+            event_type="subscription.started",
+            event_id="lago_evt_sub_started",
+            payload=payload,
+        )
+
+        db_session.refresh(sub)
+        assert sub.status == "active"
+        assert sub.lago_customer_id == "lago-cust-1"
+        assert sub.lago_plan_code == "inicial"
+
+    @pytest.mark.anyio
+    async def test_subscription_terminated_cancels_local_sub(self, db_session, test_org):
+        plan = db_session.query(SubscriptionPlan).first()
+        sub_external_id = "lago-sub-term-1"
+        sub = OrganizationSubscription(
+            organization_id=test_org.id,
+            plan_id=plan.id,
+            status="active",
+            lago_subscription_id=sub_external_id,
+        )
+        db_session.add(sub)
+        db_session.commit()
+
+        payload = {
+            "webhook_type": "subscription.terminated",
+            "subscription": {
+                "lago_id": "lago-sub-term-1",
+                "external_id": sub_external_id,
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        await handler.process(
+            event_type="subscription.terminated",
+            event_id="lago_evt_sub_terminated",
+            payload=payload,
+        )
+
+        db_session.refresh(sub)
+        assert sub.status == "canceled"
+        assert sub.canceled_at is not None
+
+    @pytest.mark.anyio
+    async def test_lago_webhook_idempotent(self, db_session, test_org):
+        """Same event_id should skip processing entirely."""
+        plan = db_session.query(SubscriptionPlan).first()
+        sub = OrganizationSubscription(
+            organization_id=test_org.id,
+            plan_id=plan.id,
+            status="active",
+            payment_method="transfer",
+            lago_subscription_id="lago-sub-idempotent",
+        )
+        db_session.add(sub)
+        db_session.commit()
+
+        event_id = "lago_evt_idempotent_1"
+        payload = {
+            "webhook_type": "subscription.terminated",
+            "subscription": {
+                "lago_id": "lago-sub-idempotent",
+                "external_id": "lago-sub-idempotent",
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        # First call processes
+        event1 = await handler.process(
+            event_type="subscription.terminated",
+            event_id=event_id,
+            payload=payload,
+        )
+
+        # Second call should return the existing event
+        event2 = await handler.process(
+            event_type="subscription.terminated",
+            event_id=event_id,
+            payload=payload,
+        )
+
+        assert event1.id == event2.id
+        assert event2.processed is True
+        # Only one event in DB
+        count = db_session.query(BillingWebhookEvent).filter(
+            BillingWebhookEvent.event_id == event_id
+        ).count()
+        assert count == 1
+
+    @pytest.mark.anyio
+    async def test_invoice_paid_with_multiple_ecf_blocks(self, db_session, test_org):
+        plan = db_session.query(SubscriptionPlan).first()
+        sub = OrganizationSubscription(
+            organization_id=test_org.id,
+            plan_id=plan.id,
+            status="trialing",
+            lago_subscription_id="lago-sub-ecf-multi",
+        )
+        db_session.add(sub)
+        db_session.commit()
+
+        initial_balance = test_org.e_cf_balance  # 10
+
+        payload = {
+            "webhook_type": "invoice.paid",
+            "invoice": {
+                "lago_id": "lago-inv-ecf-multi",
+                "customer": {"external_id": str(test_org.id)},
+                "total_amount_cents": 600000,
+                "fees": [
+                    {"add_on_code": "ecf_block_100", "units": 2},
+                    {"add_on_code": "ecf_block_500", "units": 1},
+                ]
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        await handler.process(
+            event_type="invoice.paid",
+            event_id="lago_evt_ecf_multi",
+            payload=payload,
+        )
+
+        # 10 + (2*100) + (1*500) = 710
+        db_session.refresh(test_org)
+        assert test_org.e_cf_balance == initial_balance + 200 + 500
+
+    @pytest.mark.anyio
+    async def test_invoice_paid_handles_legacy_ecf_block_code(self, db_session, test_org):
+        plan = db_session.query(SubscriptionPlan).first()
+        sub = OrganizationSubscription(
+            organization_id=test_org.id,
+            plan_id=plan.id,
+            status="trialing",
+            lago_subscription_id="lago-sub-legacy",
+        )
+        db_session.add(sub)
+        db_session.commit()
+
+        payload = {
+            "webhook_type": "invoice.paid",
+            "invoice": {
+                "lago_id": "lago-inv-legacy",
+                "customer": {"external_id": str(test_org.id)},
+                "total_amount_cents": 25000,
+                "fees": [
+                    {"add_on_code": "ecf_block_250", "units": 3},
+                ]
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        await handler.process(
+            event_type="invoice.paid",
+            event_id="lago_evt_legacy",
+            payload=payload,
+        )
+
+        db_session.refresh(test_org)
+        # 10 + (250*3) = 760
+        assert test_org.e_cf_balance == 760
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_webhook_handler.MioService.charge_token")
+    async def test_invoice_created_token_charge_declined_sets_past_due(
+        self, mock_charge_token, db_session, test_org
+    ):
+        """When a direct token charge is declined, the user subscription transitions to past_due."""
+        from app.core.auth import get_password_hash
+        from app.models.subscription_plan import SubscriptionPlan
+        from app.models.user import User
+        from app.models.user_subscription import UserSubscription
+        from app.models.user_card_token import UserCardToken
+
+        plan = db_session.query(SubscriptionPlan).first()
+
+        # Create a test user in the in-memory db
+        user = User(
+            id=uuid4(),
+            tenant_id=test_org.tenant_id,
+            email="token-charge-decline@test.local",
+            hashed_password=get_password_hash("TestPass123!"),
+            full_name="Token Charge Test",
+            is_active=True,
+        )
+        db_session.add(user)
+        db_session.commit()
+
+        # Create an active user subscription
+        sub = UserSubscription(
+            user_id=user.id,
+            plan_id=plan.id,
+            status="active",
+            payment_method="card",
+            auto_renew=True,
+            lago_subscription_id="lago-sub-token-decline",
+            lago_customer_id="lago-cust-token-decline",
+        )
+        db_session.add(sub)
+
+        # Create an active card token for the user
+        token = UserCardToken(
+            user_id=user.id,
+            card_token="tok_test_declined",
+            card_brand="Visa",
+            last_four="1234",
+            is_active=True,
+        )
+        db_session.add(token)
+        db_session.commit()
+
+        # Mock charge_token to return declined status
+        mock_charge_token.return_value = {"status": "DECLINED", "payment_id": None}
+
+        payload = {
+            "webhook_type": "invoice.created",
+            "invoice": {
+                "lago_id": "lago-inv-token-decline",
+                "total_amount_cents": 280000,
+                "customer": {"external_id": str(user.id)},
+                "fees": [{"add_on_code": None, "units": 1, "item": {"name": "Plan Profesional"}}],
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="invoice.created",
+            event_id="lago_evt_token_decline",
+            payload=payload,
+        )
+
+        assert event.processed is True
+        mock_charge_token.assert_called_once()
+
+        db_session.refresh(sub)
+        assert sub.status == "past_due"
+
+    # --- Token charge SUCCESS path ---
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_webhook_handler.MioService.charge_token")
+    @patch("app.services.lago_webhook_handler.LagoService.record_payment")
+    async def test_token_charge_success_activates_subscription(
+        self, mock_record_payment, mock_charge_token, db_session, test_org
+    ):
+        """Full SUCCESS path: token charge -> MioPaymentOrder -> Lago record_payment -> sub active."""
+        from app.core.auth import get_password_hash
+        from app.models.user import User
+        from app.models.user_subscription import UserSubscription
+        from app.models.user_card_token import UserCardToken
+
+        plan = db_session.query(SubscriptionPlan).filter(SubscriptionPlan.name == "profesional").first()
+
+        user = User(
+            id=uuid4(),
+            tenant_id=test_org.tenant_id,
+            email="token-success@test.local",
+            hashed_password=get_password_hash("TestPass123!"),
+            full_name="Token Success",
+            is_active=True,
+        )
+        db_session.add(user)
+        db_session.commit()
+
+        sub = UserSubscription(
+            user_id=user.id,
+            plan_id=plan.id,
+            status="active",
+            payment_method="card",
+            auto_renew=True,
+            lago_subscription_id="lago-sub-tok-succ",
+            lago_customer_id="lago-cust-tok-succ",
+        )
+        db_session.add(sub)
+
+        token = UserCardToken(
+            user_id=user.id,
+            card_token="tok_success",
+            card_brand="Visa",
+            last_four="1111",
+            is_active=True,
+        )
+        db_session.add(token)
+        db_session.commit()
+
+        mock_charge_token.return_value = {
+            "status": "SUCCESS",
+            "payment_id": "pay-tok-succ",
+            "authorization_code": "auth-tok-succ",
+            "reference_number": "ref-tok-succ",
+        }
+        mock_record_payment.return_value = {"payment": {"lago_id": "pay-lago-succ"}}
+
+        payload = {
+            "webhook_type": "invoice.created",
+            "invoice": {
+                "lago_id": "lago-inv-tok-succ",
+                "total_amount_cents": 280000,
+                "customer": {"external_id": str(user.id)},
+                "fees": [{"add_on_code": None, "units": 1, "item": {"name": "Plan Profesional"}}],
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="invoice.created",
+            event_id="lago_evt_tok_succ",
+            payload=payload,
+        )
+
+        assert event.processed is True
+
+        # charge_token called with 5% fee
+        mock_charge_token.assert_called_once()
+        assert mock_charge_token.call_args[1]["amount_cents"] == 294000
+
+        # record_payment called with original amount (no fee)
+        mock_record_payment.assert_called_once()
+        pay_kwargs = mock_record_payment.call_args[1]
+        assert pay_kwargs["amount_cents"] == 280000
+        assert pay_kwargs["invoice_id"] == "lago-inv-tok-succ"
+
+        # MioPaymentOrder created as SUCCESS
+        order = db_session.query(MioPaymentOrder).filter(
+            MioPaymentOrder.lago_invoice_id == "lago-inv-tok-succ"
+        ).first()
+        assert order is not None
+        assert order.status == "SUCCESS"
+        assert order.amount_cents == 294000
+        assert order.payment_id == "pay-tok-succ"
+
+        db_session.refresh(sub)
+        assert sub.status == "active"
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_webhook_handler.MioService.charge_token")
+    @patch("app.services.lago_webhook_handler.LagoService.record_payment")
+    async def test_token_charge_success_no_subscription(
+        self, mock_record_payment, mock_charge_token, db_session, test_org
+    ):
+        """Token charge succeeds even when the user has no explicit subscription record."""
+        from app.core.auth import get_password_hash
+        from app.models.user import User
+        from app.models.user_card_token import UserCardToken
+
+        plan = db_session.query(SubscriptionPlan).filter(SubscriptionPlan.name == "profesional").first()
+
+        user = User(
+            id=uuid4(),
+            tenant_id=test_org.tenant_id,
+            email="token-no-sub@test.local",
+            hashed_password=get_password_hash("TestPass123!"),
+            full_name="Token No Sub",
+            is_active=True,
+        )
+        db_session.add(user)
+        db_session.commit()
+
+        token = UserCardToken(
+            user_id=user.id,
+            card_token="tok_no_sub",
+            card_brand="Visa",
+            last_four="2222",
+            is_active=True,
+        )
+        db_session.add(token)
+        db_session.commit()
+
+        mock_charge_token.return_value = {
+            "status": "SUCCESS",
+            "payment_id": "pay-no-sub",
+            "authorization_code": "auth-no-sub",
+            "reference_number": "ref-no-sub",
+        }
+        mock_record_payment.return_value = {"payment": {"lago_id": "pay-lago-no-sub"}}
+
+        payload = {
+            "webhook_type": "invoice.created",
+            "invoice": {
+                "lago_id": "lago-inv-no-sub",
+                "total_amount_cents": 280000,
+                "customer": {"external_id": str(user.id)},
+                "fees": [],
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="invoice.created",
+            event_id="lago_evt_no_sub",
+            payload=payload,
+        )
+
+        assert event.processed is True
+        mock_charge_token.assert_called_once()
+        mock_record_payment.assert_called_once()
+
+        order = db_session.query(MioPaymentOrder).filter(
+            MioPaymentOrder.lago_invoice_id == "lago-inv-no-sub"
+        ).first()
+        assert order is not None
+        assert order.status == "SUCCESS"
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_webhook_handler.MioService.charge_token")
+    @patch("app.services.lago_webhook_handler.LagoService.record_payment")
+    @patch("app.services.email_service.send_purchase_invoice_email")
+    async def test_token_charge_success_email_fails_sub_still_active(
+        self, mock_email, mock_record_payment, mock_charge_token, db_session, test_org
+    ):
+        """Email failure does NOT rollback the token charge or subscription activation."""
+        from app.core.auth import get_password_hash
+        from app.models.user import User
+        from app.models.user_subscription import UserSubscription
+        from app.models.user_card_token import UserCardToken
+
+        plan = db_session.query(SubscriptionPlan).filter(SubscriptionPlan.name == "profesional").first()
+
+        user = User(
+            id=uuid4(),
+            tenant_id=test_org.tenant_id,
+            email="token-email-fail@test.local",
+            hashed_password=get_password_hash("TestPass123!"),
+            full_name="Token Email Fail",
+            is_active=True,
+        )
+        db_session.add(user)
+        db_session.commit()
+
+        sub = UserSubscription(
+            user_id=user.id,
+            plan_id=plan.id,
+            status="active",
+            payment_method="card",
+            auto_renew=True,
+            lago_subscription_id="lago-sub-email-fail",
+            lago_customer_id="lago-cust-email-fail",
+        )
+        db_session.add(sub)
+
+        token = UserCardToken(
+            user_id=user.id,
+            card_token="tok_email_fail",
+            card_brand="Visa",
+            last_four="3333",
+            is_active=True,
+        )
+        db_session.add(token)
+        db_session.commit()
+
+        mock_charge_token.return_value = {
+            "status": "SUCCESS",
+            "payment_id": "pay-email-fail",
+            "authorization_code": "auth-email-fail",
+            "reference_number": "ref-email-fail",
+        }
+        mock_record_payment.return_value = {"payment": {"lago_id": "pay-lago-email-fail"}}
+        mock_email.side_effect = Exception("Resend unavailability")
+
+        payload = {
+            "webhook_type": "invoice.created",
+            "invoice": {
+                "lago_id": "lago-inv-email-fail",
+                "total_amount_cents": 100000,
+                "customer": {"external_id": str(user.id)},
+                "fees": [],
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="invoice.created",
+            event_id="lago_evt_email_fail",
+            payload=payload,
+        )
+
+        assert event.processed is True
+        mock_charge_token.assert_called_once()
+        mock_record_payment.assert_called_once()
+
+        order = db_session.query(MioPaymentOrder).filter(
+            MioPaymentOrder.lago_invoice_id == "lago-inv-email-fail"
+        ).first()
+        assert order is not None
+        assert order.status == "SUCCESS"
+
+        db_session.refresh(sub)
+        assert sub.status == "active"
+
+    # --- Token charge edge cases ---
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_webhook_handler.MioService.charge_token")
+    async def test_token_charge_exception_sets_past_due(
+        self, mock_charge_token, db_session, test_org
+    ):
+        """When charge_token() raises an exception, sub becomes past_due (not a crash)."""
+        from app.core.auth import get_password_hash
+        from app.models.user import User
+        from app.models.user_subscription import UserSubscription
+        from app.models.user_card_token import UserCardToken
+
+        plan = db_session.query(SubscriptionPlan).filter(SubscriptionPlan.name == "profesional").first()
+
+        user = User(
+            id=uuid4(),
+            tenant_id=test_org.tenant_id,
+            email="token-exception@test.local",
+            hashed_password=get_password_hash("TestPass123!"),
+            full_name="Token Exception",
+            is_active=True,
+        )
+        db_session.add(user)
+        db_session.commit()
+
+        sub = UserSubscription(
+            user_id=user.id,
+            plan_id=plan.id,
+            status="active",
+            payment_method="card",
+            auto_renew=True,
+            lago_subscription_id="lago-sub-tok-exc",
+            lago_customer_id="lago-cust-tok-exc",
+        )
+        db_session.add(sub)
+
+        token = UserCardToken(
+            user_id=user.id,
+            card_token="tok_exception",
+            card_brand="Visa",
+            last_four="4444",
+            is_active=True,
+        )
+        db_session.add(token)
+        db_session.commit()
+
+        mock_charge_token.side_effect = Exception("MIO gateway timeout")
+
+        payload = {
+            "webhook_type": "invoice.created",
+            "invoice": {
+                "lago_id": "lago-inv-tok-exc",
+                "total_amount_cents": 280000,
+                "customer": {"external_id": str(user.id)},
+                "fees": [{"add_on_code": None, "units": 1, "item": {"name": "Plan Profesional"}}],
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="invoice.created",
+            event_id="lago_evt_tok_exc",
+            payload=payload,
+        )
+
+        assert event.processed is True
+        mock_charge_token.assert_called_once()
+        db_session.refresh(sub)
+        assert sub.status == "past_due"
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_webhook_handler.MioService.charge_token")
+    @patch("app.services.lago_webhook_handler.MioService.create_order")
+    async def test_token_inactive_falls_to_hosted_checkout(
+        self, mock_create_order, mock_charge_token, db_session, test_org
+    ):
+        """Token exists but is_active=False -> hosted checkout instead of direct charge."""
+        from app.core.auth import get_password_hash
+        from app.models.user import User
+        from app.models.user_subscription import UserSubscription
+        from app.models.user_card_token import UserCardToken
+
+        plan = db_session.query(SubscriptionPlan).filter(SubscriptionPlan.name == "profesional").first()
+
+        user = User(
+            id=uuid4(),
+            tenant_id=test_org.tenant_id,
+            email="token-inactive@test.local",
+            hashed_password=get_password_hash("TestPass123!"),
+            full_name="Token Inactive",
+            is_active=True,
+        )
+        db_session.add(user)
+        db_session.commit()
+
+        sub = UserSubscription(
+            user_id=user.id,
+            plan_id=plan.id,
+            status="active",
+            payment_method="card",
+            auto_renew=True,
+            lago_subscription_id="lago-sub-tok-inactive",
+            lago_customer_id="lago-cust-tok-inactive",
+        )
+        db_session.add(sub)
+
+        # Token exists but is NOT active
+        token = UserCardToken(
+            user_id=user.id,
+            card_token="tok_inactive",
+            card_brand="Visa",
+            last_four="5555",
+            is_active=False,
+        )
+        db_session.add(token)
+        db_session.commit()
+
+        mock_create_order.return_value = {
+            "order_uuid": "mio-order-inactive-token",
+            "status": "PENDING",
+            "checkout_url": "https://checkout.mio/pay-inactive",
+        }
+
+        payload = {
+            "webhook_type": "invoice.created",
+            "invoice": {
+                "lago_id": "lago-inv-tok-inactive",
+                "total_amount_cents": 280000,
+                "customer": {"external_id": str(user.id)},
+                "fees": [{"add_on_code": None, "units": 1, "item": {"name": "Plan Profesional"}}],
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="invoice.created",
+            event_id="lago_evt_tok_inactive",
+            payload=payload,
+        )
+
+        assert event.processed is True
+        # charge_token should NOT be called — no active token
+        mock_charge_token.assert_not_called()
+        # Should fallback to hosted checkout
+        mock_create_order.assert_called_once()
+
+        order = db_session.query(MioPaymentOrder).filter(
+            MioPaymentOrder.lago_invoice_id == "lago-inv-tok-inactive"
+        ).first()
+        assert order is not None
+        assert order.status == "PENDING"
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_webhook_handler.MioService.charge_token")
+    async def test_token_multiple_uses_active_only(
+        self, mock_charge_token, db_session, test_org
+    ):
+        """When 2 tokens exist (1 active, 1 inactive), the active one is charged."""
+        from app.core.auth import get_password_hash
+        from app.models.user import User
+        from app.models.user_subscription import UserSubscription
+        from app.models.user_card_token import UserCardToken
+
+        plan = db_session.query(SubscriptionPlan).filter(SubscriptionPlan.name == "profesional").first()
+
+        user = User(
+            id=uuid4(),
+            tenant_id=test_org.tenant_id,
+            email="token-multi@test.local",
+            hashed_password=get_password_hash("TestPass123!"),
+            full_name="Token Multi",
+            is_active=True,
+        )
+        db_session.add(user)
+        db_session.commit()
+
+        sub = UserSubscription(
+            user_id=user.id,
+            plan_id=plan.id,
+            status="active",
+            payment_method="card",
+            auto_renew=True,
+            lago_subscription_id="lago-sub-tok-multi",
+            lago_customer_id="lago-cust-tok-multi",
+        )
+        db_session.add(sub)
+
+        # Inactive token
+        db_session.add(UserCardToken(
+            user_id=user.id, card_token="tok_old", card_brand="MC", last_four="0000", is_active=False,
+        ))
+        # Active token
+        db_session.add(UserCardToken(
+            user_id=user.id, card_token="tok_new", card_brand="Visa", last_four="9999", is_active=True,
+        ))
+        db_session.commit()
+
+        mock_charge_token.return_value = {"status": "SUCCESS", "payment_id": "pay-multi"}
+
+        payload = {
+            "webhook_type": "invoice.created",
+            "invoice": {
+                "lago_id": "lago-inv-tok-multi",
+                "total_amount_cents": 100000,
+                "customer": {"external_id": str(user.id)},
+                "fees": [],
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="invoice.created",
+            event_id="lago_evt_tok_multi",
+            payload=payload,
+        )
+
+        assert event.processed is True
+        mock_charge_token.assert_called_once()
+        # Should use the ACTIVE token
+        assert mock_charge_token.call_args[1]["card_token"] == "tok_new"
+
+    # --- User without token → hosted checkout ---
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_webhook_handler.MioService.create_order")
+    @patch("app.services.email_service.send_payment_link_email")
+    async def test_user_no_token_creates_hosted_checkout(
+        self, mock_email, mock_create_order, db_session, test_org
+    ):
+        """User without an active card token gets a hosted checkout order + payment link email."""
+        from app.core.auth import get_password_hash
+        from app.models.user import User
+        from app.models.user_subscription import UserSubscription
+
+        plan = db_session.query(SubscriptionPlan).filter(SubscriptionPlan.name == "profesional").first()
+
+        user = User(
+            id=uuid4(),
+            tenant_id=test_org.tenant_id,
+            email="no-token@test.local",
+            hashed_password=get_password_hash("TestPass123!"),
+            full_name="No Token User",
+            is_active=True,
+        )
+        db_session.add(user)
+        db_session.commit()
+
+        sub = UserSubscription(
+            user_id=user.id,
+            plan_id=plan.id,
+            status="active",
+            payment_method="card",
+            auto_renew=True,
+            lago_subscription_id="lago-sub-no-tok",
+            lago_customer_id="lago-cust-no-tok",
+        )
+        db_session.add(sub)
+        db_session.commit()
+
+        mock_create_order.return_value = {
+            "order_uuid": "mio-order-no-tok",
+            "status": "PENDING",
+            "checkout_url": "https://checkout.mio/no-tok",
+        }
+
+        payload = {
+            "webhook_type": "invoice.created",
+            "invoice": {
+                "lago_id": "lago-inv-no-tok",
+                "total_amount_cents": 280000,
+                "customer": {"external_id": str(user.id)},
+                "fees": [{"add_on_code": None, "units": 1, "item": {"name": "Plan Profesional"}}],
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="invoice.created",
+            event_id="lago_evt_no_tok",
+            payload=payload,
+        )
+
+        assert event.processed is True
+
+        # create_order called with 5% fee
+        mock_create_order.assert_called_once()
+        assert mock_create_order.call_args[1]["amount_cents"] == 294000
+
+        # Payment link email sent
+        mock_email.assert_called_once()
+        assert mock_email.call_args[1]["customer_email"] == "no-token@test.local"
+
+        # Order persisted
+        order = db_session.query(MioPaymentOrder).filter(
+            MioPaymentOrder.lago_invoice_id == "lago-inv-no-tok"
+        ).first()
+        assert order is not None
+        assert order.status == "PENDING"
+        assert order.user_id == user.id
+        assert order.amount_cents == 294000
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_webhook_handler.MioService.create_order")
+    async def test_user_no_token_mio_fails_still_processed(
+        self, mock_create_order, db_session, test_org
+    ):
+        """When MIO create_order fails, the webhook event is still processed (no crash)."""
+        from app.core.auth import get_password_hash
+        from app.models.user import User
+        from app.models.user_subscription import UserSubscription
+
+        plan = db_session.query(SubscriptionPlan).filter(SubscriptionPlan.name == "profesional").first()
+
+        user = User(
+            id=uuid4(),
+            tenant_id=test_org.tenant_id,
+            email="mio-fail@test.local",
+            hashed_password=get_password_hash("TestPass123!"),
+            full_name="MIO Fail",
+            is_active=True,
+        )
+        db_session.add(user)
+
+        db_session.add(UserSubscription(
+            user_id=user.id,
+            plan_id=plan.id,
+            status="active",
+            payment_method="card",
+            auto_renew=True,
+            lago_subscription_id="lago-sub-mio-fail",
+            lago_customer_id="lago-cust-mio-fail",
+        ))
+        db_session.commit()
+
+        mock_create_order.side_effect = Exception("MIO connection error")
+
+        payload = {
+            "webhook_type": "invoice.created",
+            "invoice": {
+                "lago_id": "lago-inv-mio-fail",
+                "total_amount_cents": 100000,
+                "customer": {"external_id": str(user.id)},
+                "fees": [],
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="invoice.created",
+            event_id="lago_evt_mio_fail",
+            payload=payload,
+        )
+
+        # Event is processed even though MIO order failed
+        assert event.processed is True
+        mock_create_order.assert_called_once()
+        # No order should be persisted
+        order = db_session.query(MioPaymentOrder).filter(
+            MioPaymentOrder.lago_invoice_id == "lago-inv-mio-fail"
+        ).first()
+        assert order is None
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_webhook_handler.MioService.create_order")
+    async def test_user_no_token_no_subscription_still_works(
+        self, mock_create_order, db_session, test_org
+    ):
+        """User without a UserSubscription record still gets a hosted checkout (defaults to card)."""
+        from app.core.auth import get_password_hash
+        from app.models.user import User
+
+        user = User(
+            id=uuid4(),
+            tenant_id=test_org.tenant_id,
+            email="no-subscription@test.local",
+            hashed_password=get_password_hash("TestPass123!"),
+            full_name="No Sub",
+            is_active=True,
+        )
+        db_session.add(user)
+        db_session.commit()
+
+        mock_create_order.return_value = {
+            "order_uuid": "mio-order-no-sub",
+            "status": "PENDING",
+            "checkout_url": "https://checkout.mio/no-sub",
+        }
+
+        payload = {
+            "webhook_type": "invoice.created",
+            "invoice": {
+                "lago_id": "lago-inv-no-sub-rec",
+                "total_amount_cents": 50000,
+                "customer": {"external_id": str(user.id)},
+                "fees": [],
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="invoice.created",
+            event_id="lago_evt_no_sub_rec",
+            payload=payload,
+        )
+
+        assert event.processed is True
+        mock_create_order.assert_called_once()
+        order = db_session.query(MioPaymentOrder).filter(
+            MioPaymentOrder.lago_invoice_id == "lago-inv-no-sub-rec"
+        ).first()
+        assert order is not None
+        assert order.status == "PENDING"
+        # plan_id should be None since there's no subscription
+        assert order.plan_id is None
+
+    # --- invoice.paid for users ---
+
+    @pytest.mark.anyio
+    async def test_invoice_paid_user_subscription_activated(self, db_session, test_org):
+        """invoice.paid for a user sets their UserSubscription to active."""
+        from app.core.auth import get_password_hash
+        from app.models.user import User
+        from app.models.user_subscription import UserSubscription
+
+        plan = db_session.query(SubscriptionPlan).first()
+
+        user = User(
+            id=uuid4(),
+            tenant_id=test_org.tenant_id,
+            email="invoice-paid-user@test.local",
+            hashed_password=get_password_hash("TestPass123!"),
+            full_name="Invoice Paid User",
+            is_active=True,
+        )
+        db_session.add(user)
+        db_session.commit()
+
+        sub = UserSubscription(
+            user_id=user.id,
+            plan_id=plan.id,
+            status="trialing",
+            payment_method="card",
+            auto_renew=True,
+            lago_subscription_id="lago-sub-paid-user",
+            lago_customer_id="lago-cust-paid-user",
+        )
+        db_session.add(sub)
+        db_session.commit()
+
+        payload = {
+            "webhook_type": "invoice.paid",
+            "invoice": {
+                "lago_id": "lago-inv-paid-user",
+                "customer": {"external_id": str(user.id)},
+                "total_amount_cents": 280000,
+                "fees": [],
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="invoice.paid",
+            event_id="lago_evt_paid_user",
+            payload=payload,
+        )
+
+        assert event.processed is True
+        db_session.refresh(sub)
+        assert sub.status == "active"
+
+    @pytest.mark.anyio
+    async def test_invoice_paid_user_no_subscription(self, db_session, test_org):
+        """invoice.paid for a user with no subscription does not crash."""
+        from app.core.auth import get_password_hash
+        from app.models.user import User
+
+        user = User(
+            id=uuid4(),
+            tenant_id=test_org.tenant_id,
+            email="paid-no-sub@test.local",
+            hashed_password=get_password_hash("TestPass123!"),
+            full_name="Paid No Sub",
+            is_active=True,
+        )
+        db_session.add(user)
+        db_session.commit()
+
+        payload = {
+            "webhook_type": "invoice.paid",
+            "invoice": {
+                "lago_id": "lago-inv-paid-no-sub",
+                "customer": {"external_id": str(user.id)},
+                "total_amount_cents": 50000,
+                "fees": [],
+            }
+        }
+
+        handler = LagoWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="invoice.paid",
+            event_id="lago_evt_paid_no_sub",
+            payload=payload,
+        )
+
+        assert event.processed is True
+
+
+class TestMioWebhookHandlerExtended:
+    """Extended webhook tests for MIO payment gateway."""
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_service.LagoService.record_payment")
+    async def test_transaction_completed_nested_payload(self, mock_record_payment, db_session, test_org):
+        """MIO sometimes sends payload with data.attributes format."""
+        order = MioPaymentOrder(
+            order_uuid="mio-order-nested",
+            lago_invoice_id="lago-inv-nested",
+            organization_id=test_org.id,
+            amount_cents=100000,
+            status="PENDING",
+        )
+        db_session.add(order)
+        db_session.commit()
+
+        mock_record_payment.return_value = {"payment": {"lago_id": "pay-nested"}}
+
+        payload = {
+            "data": {
+                "attributes": {
+                    "uuid": "mio-order-nested",
+                    "status": "SUCCESS",
+                    "payment": {
+                        "id": "pay-nested-1",
+                        "authorization_code": "auth-nested",
+                        "reference_number": "ref-nested",
+                    }
+                }
+            }
+        }
+
+        handler = MioWebhookHandler(db_session)
+        await handler.process(
+            event_type="TRANSACTION_COMPLETED",
+            event_id="mio_evt_nested",
+            payload=payload,
+        )
+
+        db_session.refresh(order)
+        assert order.status == "SUCCESS"
+        assert order.reference_number == "ref-nested"
+        mock_record_payment.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_transaction_completed_already_success(self, db_session, test_org):
+        order = MioPaymentOrder(
+            order_uuid="mio-order-already",
+            lago_invoice_id="lago-inv-already",
+            organization_id=test_org.id,
+            amount_cents=100000,
+            status="SUCCESS",
+        )
+        db_session.add(order)
+        db_session.commit()
+
+        payload = {
+            "order_uuid": "mio-order-already",
+            "payment": {
+                "id": "pay-already",
+                "authorization_code": "auth-already",
+                "reference_number": "ref-already",
+            }
+        }
+
+        handler = MioWebhookHandler(db_session)
+        await handler.process(
+            event_type="TRANSACTION_COMPLETED",
+            event_id="mio_evt_already",
+            payload=payload,
+        )
+
+        db_session.refresh(order)
+        assert order.status == "SUCCESS"  # Still SUCCESS
+        # Authorization code should NOT be updated (already SUCCESS, skipped)
+        assert order.authorization_code is None
+
+    @pytest.mark.anyio
+    async def test_transaction_completed_missing_order(self, db_session, test_org):
+        payload = {
+            "order_uuid": "mio-order-nonexistent",
+            "payment": {"id": "pay-404", "reference_number": "ref-404"},
+        }
+
+        handler = MioWebhookHandler(db_session)
+        with pytest.raises(ValueError, match="Order not found"):
+            await handler.process(
+                event_type="TRANSACTION_COMPLETED",
+                event_id="mio_evt_missing",
+                payload=payload,
+            )
+
+    @pytest.mark.anyio
+    async def test_transaction_completed_no_order_uuid(self, db_session):
+        payload = {"event": "TRANSACTION_COMPLETED"}
+
+        handler = MioWebhookHandler(db_session)
+        with pytest.raises(ValueError, match="No order UUID found"):
+            await handler.process(
+                event_type="TRANSACTION_COMPLETED",
+                event_id="mio_evt_no_uuid",
+                payload=payload,
+            )
+
+    @pytest.mark.anyio
+    async def test_mio_webhook_idempotent(self, db_session, test_org):
+        event_id = "mio_evt_idempotent"
+        order = MioPaymentOrder(
+            order_uuid="mio-order-idemp",
+            lago_invoice_id="lago-inv-idemp",
+            organization_id=test_org.id,
+            amount_cents=100000,
+            status="PENDING",
+        )
+        db_session.add(order)
+        db_session.commit()
+
+        payload = {
+            "order_uuid": "mio-order-idemp",
+            "payment": {
+                "id": "pay-idemp",
+                "authorization_code": "auth-idemp",
+                "reference_number": "ref-idemp",
+            }
+        }
+
+        handler = MioWebhookHandler(db_session)
+        event1 = await handler.process(
+            event_type="TRANSACTION_COMPLETED",
+            event_id=event_id,
+            payload=payload,
+        )
+        event2 = await handler.process(
+            event_type="TRANSACTION_COMPLETED",
+            event_id=event_id,
+            payload=payload,
+        )
+
+        assert event1.id == event2.id
+        count = db_session.query(BillingWebhookEvent).filter(
+            BillingWebhookEvent.event_id == event_id
+        ).count()
+        assert count == 1
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_service.LagoService.record_payment")
+    async def test_record_payment_failure_does_not_rollback(
+        self, mock_record_payment, db_session, test_org
+    ):
+        """Even if Lago record_payment fails, the MIO order should still be updated locally."""
+        order = MioPaymentOrder(
+            order_uuid="mio-order-pay-fail",
+            lago_invoice_id="lago-inv-pay-fail",
+            organization_id=test_org.id,
+            amount_cents=100000,
+            status="PENDING",
+        )
+        db_session.add(order)
+        db_session.commit()
+
+        mock_record_payment.side_effect = Exception("Lago network error")
+
+        payload = {
+            "order_uuid": "mio-order-pay-fail",
+            "payment": {
+                "id": "pay-fail",
+                "authorization_code": "auth-fail",
+                "reference_number": "ref-fail",
+            }
+        }
+
+        handler = MioWebhookHandler(db_session)
+        await handler.process(
+            event_type="TRANSACTION_COMPLETED",
+            event_id="mio_evt_pay_fail",
+            payload=payload,
+        )
+
+        # Order should still be updated locally (payment already charged)
+        db_session.refresh(order)
+        assert order.status == "SUCCESS"
+        assert order.reference_number == "ref-fail"
+
+    # --- Token registration in MIO webhook ---
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_service.LagoService.record_payment")
+    async def test_card_token_registered_from_flat_payload(self, mock_record_payment, db_session, test_org):
+        """Card token is extracted from flat payment payload and registered."""
+        from app.models.user_card_token import UserCardToken
+
+        order = MioPaymentOrder(
+            order_uuid="mio-order-tok-flat",
+            user_id=uuid4(),
+            amount_cents=100000,
+            status="PENDING",
+        )
+        db_session.add(order)
+        db_session.commit()
+
+        mock_record_payment.return_value = {"payment": {"lago_id": "pay-tok-flat"}}
+
+        payload = {
+            "order_uuid": "mio-order-tok-flat",
+            "payment": {
+                "id": "pay-tok-flat",
+                "card_token": "tok_flat_123",
+                "card_brand": "Mastercard",
+                "last_four": "5555",
+                "authorization_code": "auth-flat",
+                "reference_number": "ref-flat",
+            }
+        }
+
+        handler = MioWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="TRANSACTION_COMPLETED",
+            event_id="mio_evt_tok_flat",
+            payload=payload,
+        )
+
+        assert event.processed is True
+
+        # Token should be registered
+        token = db_session.query(UserCardToken).filter(
+            UserCardToken.card_token == "tok_flat_123"
+        ).first()
+        assert token is not None
+        assert token.card_brand == "Mastercard"
+        assert token.last_four == "5555"
+        assert token.is_active is True
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_service.LagoService.record_payment")
+    async def test_card_token_registered_from_nested_payload(self, mock_record_payment, db_session, test_org):
+        """Card token is extracted from data.attributes.payment.token in nested payload."""
+        from app.models.user_card_token import UserCardToken
+
+        order = MioPaymentOrder(
+            order_uuid="mio-order-tok-nest",
+            user_id=uuid4(),
+            amount_cents=100000,
+            status="PENDING",
+        )
+        db_session.add(order)
+        db_session.commit()
+
+        mock_record_payment.return_value = {"payment": {"lago_id": "pay-tok-nest"}}
+
+        payload = {
+            "data": {
+                "attributes": {
+                    "uuid": "mio-order-tok-nest",
+                    "payment": {
+                        "id": "pay-tok-nest",
+                        "token": "tok_nested_456",
+                        "brand": "Visa",
+                        "last4": "4242",
+                        "authorization_code": "auth-nest",
+                        "reference_number": "ref-nest",
+                    }
+                }
+            }
+        }
+
+        handler = MioWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="TRANSACTION_COMPLETED",
+            event_id="mio_evt_tok_nest",
+            payload=payload,
+        )
+
+        assert event.processed is True
+
+        token = db_session.query(UserCardToken).filter(
+            UserCardToken.card_token == "tok_nested_456"
+        ).first()
+        assert token is not None
+        assert token.card_brand == "Visa"
+        assert token.last_four == "4242"
+        assert token.is_active is True
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_service.LagoService.record_payment")
+    async def test_card_token_registration_deactivates_old_tokens(self, mock_record_payment, db_session, test_org):
+        """When a new token is registered, previous active tokens for that user are deactivated."""
+        from app.models.user_card_token import UserCardToken
+
+        user_id = uuid4()
+
+        # Existing old active token
+        old_token = UserCardToken(
+            user_id=user_id,
+            card_token="tok_old_active",
+            card_brand="MC",
+            last_four="0000",
+            is_active=True,
+        )
+        db_session.add(old_token)
+        db_session.commit()
+
+        order = MioPaymentOrder(
+            order_uuid="mio-order-tok-deact",
+            user_id=user_id,
+            amount_cents=100000,
+            status="PENDING",
+        )
+        db_session.add(order)
+        db_session.commit()
+
+        mock_record_payment.return_value = {"payment": {"lago_id": "pay-tok-deact"}}
+
+        payload = {
+            "order_uuid": "mio-order-tok-deact",
+            "payment": {
+                "id": "pay-tok-deact",
+                "card_token": "tok_new_active",
+                "card_brand": "Visa",
+                "last_four": "7777",
+            }
+        }
+
+        handler = MioWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="TRANSACTION_COMPLETED",
+            event_id="mio_evt_tok_deact",
+            payload=payload,
+        )
+
+        assert event.processed is True
+
+        # Old token should be inactive
+        db_session.refresh(old_token)
+        assert old_token.is_active is False
+
+        # New token should be active
+        new_token = db_session.query(UserCardToken).filter(
+            UserCardToken.card_token == "tok_new_active"
+        ).first()
+        assert new_token is not None
+        assert new_token.is_active is True
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_service.LagoService.record_payment")
+    async def test_card_token_registration_optional_fields_defaults(self, mock_record_payment, db_session, test_org):
+        """When brand/last_four are missing, defaults are used instead of crashing."""
+        from app.models.user_card_token import UserCardToken
+
+        order = MioPaymentOrder(
+            order_uuid="mio-order-tok-min",
+            user_id=uuid4(),
+            amount_cents=100000,
+            status="PENDING",
+        )
+        db_session.add(order)
+        db_session.commit()
+
+        mock_record_payment.return_value = {"payment": {"lago_id": "pay-tok-min"}}
+
+        # Minimal payload — no brand, no last_four
+        payload = {
+            "order_uuid": "mio-order-tok-min",
+            "payment": {
+                "id": "pay-tok-min",
+                "card_token": "tok_minimal",
+                "authorization_code": "auth-min",
+                "reference_number": "ref-min",
+            }
+        }
+
+        handler = MioWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="TRANSACTION_COMPLETED",
+            event_id="mio_evt_tok_min",
+            payload=payload,
+        )
+
+        assert event.processed is True
+
+        token = db_session.query(UserCardToken).filter(
+            UserCardToken.card_token == "tok_minimal"
+        ).first()
+        assert token is not None
+        # Should use defaults
+        assert token.card_brand == "Visa"
+        assert token.last_four == "4242"
+        assert token.expiry_month is None
+        assert token.expiry_year is None
+        assert token.is_active is True
+
+    @pytest.mark.anyio
+    @patch("app.services.lago_service.LagoService.record_payment")
+    async def test_card_token_not_registered_for_org_orders(self, mock_record_payment, db_session, test_org):
+        """Order without user_id should NOT attempt token registration (no crash)."""
+        from app.models.user_card_token import UserCardToken
+
+        # Order with organization_id (no user_id)
+        order = MioPaymentOrder(
+            order_uuid="mio-order-org-only",
+            organization_id=test_org.id,
+            amount_cents=100000,
+            status="PENDING",
+        )
+        db_session.add(order)
+        db_session.commit()
+
+        mock_record_payment.return_value = {"payment": {"lago_id": "pay-org-only"}}
+
+        payload = {
+            "order_uuid": "mio-order-org-only",
+            "payment": {
+                "id": "pay-org-only",
+                "card_token": "tok_should_not_exist",
+            }
+        }
+
+        handler = MioWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="TRANSACTION_COMPLETED",
+            event_id="mio_evt_org_only",
+            payload=payload,
+        )
+
+        assert event.processed is True
+
+        # No token should be created
+        token = db_session.query(UserCardToken).filter(
+            UserCardToken.card_token == "tok_should_not_exist"
+        ).first()
+        assert token is None
+
+
+class TestEmailService:
+    """Tests for send_purchase_invoice_email."""
+
+    @patch("app.services.email_service.RESEND_API_KEY", "re_test_key")
+    @patch("app.services.email_service.resend.Emails.send")
+    def test_send_purchase_invoice_email_success(self, mock_send, monkeypatch):
+        mock_send.return_value = {"id": "email-test-id-123"}
+
+        result = send_purchase_invoice_email(
+            customer_email="cliente@example.com",
+            customer_name="Cliente Test",
+            items=[{"label": "Plan Profesional", "quantity": 1, "total": 2800.00}],
+            total=2800.00,
+        )
+
+        assert result is True
+        mock_send.assert_called_once()
+        args, kwargs = mock_send.call_args
+        call_dict = args[0]
+        assert call_dict["to"] == ["cliente@example.com"]
+        assert "Plan Profesional" in call_dict["html"]
+        assert "2800.00" in call_dict["html"]
+
+    @patch("app.services.email_service.RESEND_API_KEY", "")
+    def test_send_purchase_invoice_no_api_key(self):
+        result = send_purchase_invoice_email(
+            customer_email="cliente@example.com",
+            customer_name="Cliente Test",
+            items=[],
+            total=100.00,
+        )
+        assert result is False
+
+    @patch("app.services.email_service.RESEND_API_KEY", "re_test_key")
+    @patch("app.services.email_service.resend.Emails.send")
+    def test_send_purchase_invoice_error_handled(self, mock_send):
+        mock_send.side_effect = Exception("Resend API error")
+
+        result = send_purchase_invoice_email(
+            customer_email="cliente@example.com",
+            customer_name="Cliente Test",
+            items=[],
+            total=100.00,
+        )
+        assert result is False
+
+
+class TestUnhandledWebhookTypes:
+    """Tests that unhandled webhook types are logged but don't error."""
+
+    @pytest.mark.anyio
+    async def test_lago_unhandled_event_type(self, db_session, test_org):
+        handler = LagoWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="credit_note.generated",
+            event_id="lago_evt_unknown",
+            payload={"credit_note": {"lago_id": "cn-1", "customer": {"external_id": str(test_org.id)}}},
+        )
+        assert event.processed is True
+
+    @pytest.mark.anyio
+    async def test_mio_unhandled_event_type(self, db_session):
+        handler = MioWebhookHandler(db_session)
+        event = await handler.process(
+            event_type="UNKNOWN_EVENT",
+            event_id="mio_evt_unknown",
+            payload={"unknown": True},
+        )
+        assert event.processed is True

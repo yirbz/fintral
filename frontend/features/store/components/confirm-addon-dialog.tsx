@@ -16,8 +16,7 @@ interface ConfirmAddonDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   label: string;
-  priceUsd: number;
-  priceDop: number;
+  priceDopCents: number;
   onConfirm: () => void;
   isLoading?: boolean;
   confirmLabel?: string;
@@ -27,8 +26,7 @@ export function ConfirmAddonDialog({
   open,
   onOpenChange,
   label,
-  priceUsd,
-  priceDop,
+  priceDopCents,
   onConfirm,
   isLoading = false,
   confirmLabel = "Adquirir ahora",
@@ -51,11 +49,8 @@ export function ConfirmAddonDialog({
             <span className="text-xs font-medium text-brand-ink-secondary dark:text-slate-300">
               {label}
             </span>
-            <span className="text-sm font-semibold tabular-nums text-brand-ink dark:text-white flex flex-col items-end">
-              <span>${priceUsd.toFixed(2)} USD</span>
-              <span className="text-[10px] font-normal text-brand-ink-mute dark:text-slate-400">
-                Equivale a ~RD$ {Math.round(priceDop).toLocaleString("es-DO")}/mes
-              </span>
+            <span className="text-sm font-semibold tabular-nums text-brand-ink dark:text-white">
+              RD$ {(priceDopCents / 100).toLocaleString("es-DO", { minimumFractionDigits: 0 })}/mes
             </span>
           </div>
 

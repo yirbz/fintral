@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getMyPlan, getPublicPlans, purchaseAddonDirect, PlanSummary, getExchangeRate } from "@/lib/api/plans";
+import { getMyPlan, getPublicPlans, purchaseAddonDirect, PlanSummary } from "@/lib/api/plans";
 import { useSession } from "@/hooks/use-session";
 import { useCart } from "./cart-context";
 import { DurationSelector } from "./components/duration-selector";
@@ -13,6 +13,7 @@ import { CartDrawer } from "./cart-drawer";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TrialRemainingBadge } from "@/components/trial-remaining-badge";
 import { Package, Lock, ArrowUpRight } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -39,22 +40,18 @@ export function StorePage() {
     enabled: canManage,
   });
 
-  const { data: rateData } = useQuery({
-    queryKey: ["exchange-rate"],
-    queryFn: getExchangeRate,
-    staleTime: 1000 * 60 * 60 * 12, // 12 hours
-  });
-  const exchangeRate = rateData?.rate ?? 59.0;
+  // Handle URL auto-add from billing platform redirects — runs once on mount
+  const cartRef = React.useRef({ items, addItem, removeItem });
+  cartRef.current = { items, addItem, removeItem };
 
-  // Handle URL auto-add from billing platform redirects
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const qty = parseInt(params.get("add_ecf") || "", 10);
     const price = parseInt(params.get("price") || "", 10);
-    
+
     if (qty > 0 && price > 0) {
-      // Remove any existing ECF block items to avoid duplicates
+      const { items, addItem, removeItem } = cartRef.current;
       const existingEcf = items.find((i) => i.type === "ecf_blocks");
       if (existingEcf) removeItem(existingEcf.id);
 
@@ -66,31 +63,29 @@ export function StorePage() {
         label: `${qty} bloque${qty > 1 ? "s" : ""} de 100 documentos ECF`,
       });
       toast.success(`${qty} bloque${qty > 1 ? "s" : ""} de ECF agregado al carrito`);
-      
-      // Update clean URL path to new Tienda route
+
       window.history.replaceState({}, "", "/dashboard/tienda");
     }
-  }, [items, addItem, removeItem]);
+  }, []); // Intentionally empty — reads cart via ref to avoid re-trigger loop
 
   // Handle adding plans to cart (pre-pay)
   const handleAddPlanToCart = (plan: PlanSummary) => {
     const existing = items.find((i) => i.type === "plan_change");
     if (existing) removeItem(existing.id);
 
-    const usdPrice = plan.price_usd || (plan.price_monthly / 60.0);
     addItem({
       type: "plan_change",
       plan_name: plan.name,
       quantity: 1,
       months: commitMonths,
-      price_cents: Math.round(usdPrice * 100),
+      price_cents: Math.round(plan.price_monthly * 100),
       label: `Plan ${plan.display_name} (${commitMonths} mes${commitMonths > 1 ? "es" : ""})`,
     });
     toast.success(`${plan.display_name} agregado al carrito`);
   };
 
   // Handle adding ECF block to cart (pre-pay)
-  const handleAddEcfToCart = (quantity: number, pricePerBlockUsd: number) => {
+  const handleAddEcfToCart = (quantity: number, pricePerBlockDop: number) => {
     const existing = items.find((i) => i.type === "ecf_blocks");
     if (existing) removeItem(existing.id);
 
@@ -98,7 +93,7 @@ export function StorePage() {
       type: "ecf_blocks",
       quantity,
       months: 1,
-      price_cents: Math.round(pricePerBlockUsd * 100),
+      price_cents: Math.round(pricePerBlockDop * 100),
       label: `${quantity} bloque${quantity > 1 ? "s" : ""} de 100 documentos ECF`,
     });
     toast.success(`${quantity} bloque${quantity > 1 ? "s" : ""} de ECF agregado al carrito`);
@@ -173,6 +168,9 @@ export function StorePage() {
         </div>
       </div>
 
+      {/* Trial remaining indicator */}
+      <TrialRemainingBadge />
+
       {/* Commitment duration selector */}
       <DurationSelector value={commitMonths} onChange={setCommitMonths} />
 
@@ -189,7 +187,6 @@ export function StorePage() {
           cartPlanNames={cartPlanNames}
           commitMonths={commitMonths}
           onAddToCart={handleAddPlanToCart}
-          exchangeRate={exchangeRate}
         />
       </div>
 
@@ -219,7 +216,6 @@ export function StorePage() {
         onAddPrepayToCart={handleAddEcfToCart}
         onPurchaseDirect={handlePurchaseDirect}
         isDirectLoading={isDirectLoading}
-        exchangeRate={exchangeRate}
       />
 
       <Separator className="bg-brand-hairline dark:bg-slate-800" />

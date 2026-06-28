@@ -77,7 +77,9 @@ export async function apiFetch<T>(
 
     if (response.status === 402 && !isOnPublicPage()) {
       try {
-        window.dispatchEvent(new CustomEvent("billing:required", { detail: { path: input, message: errorMessage } }));
+        const graceHeader = response.headers.get("X-Subscription-Grace-Remaining");
+        const graceHours = graceHeader ? parseInt(graceHeader, 10) : null;
+        window.dispatchEvent(new CustomEvent("billing:required", { detail: { path: input, message: errorMessage, grace_hours: graceHours } }));
       } catch { /* noop */ }
       throw new ApiError(errorMessage, response.status, errorPayload);
     }

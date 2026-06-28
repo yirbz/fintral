@@ -14,7 +14,9 @@ class MioPaymentOrder(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     order_uuid = Column(String(255), unique=True, nullable=False, index=True)
     lago_invoice_id = Column(String(255), nullable=True, index=True)
-    organization_id = Column(GUID, ForeignKey("organizations.id"), nullable=False)
+    organization_id = Column(GUID, ForeignKey("organizations.id"), nullable=True)
+    user_id = Column(GUID, ForeignKey("users.id"), nullable=True)
+    plan_id = Column(GUID, ForeignKey("subscription_plans.id"), nullable=True)
     
     amount_cents = Column(Integer, nullable=False)
     currency = Column(String(10), default="DOP", nullable=False)
@@ -32,3 +34,5 @@ class MioPaymentOrder(Base):
 
     # Relationships
     organization = relationship("Organization")
+    user = relationship("User")
+    plan = relationship("SubscriptionPlan")

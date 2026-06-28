@@ -135,6 +135,36 @@ export async function getMyPlan() {
   return apiFetch<FullUsageResponse>("/api/plans/my");
 }
 
+export interface UserSubscriptionResponse {
+  subscription: {
+    id: string;
+    status: string;
+    plan_code: string | null;
+    plan_name: string | null;
+    payment_method: string | null;
+    auto_renew: boolean;
+    trial_ends_at: string | null;
+    trial_remaining_days: number;
+    billing_cycle_start: string | null;
+    billing_cycle_end: string | null;
+    canceled_at: string | null;
+    lago_subscription_id: string | null;
+    lago_customer_id: string | null;
+    card_info?: {
+      brand: string;
+      last4: string;
+      expiry_month?: number | null;
+      expiry_year?: number | null;
+    } | null;
+    grace_hours?: number | null;
+  } | null;
+  has_active_subscription: boolean;
+}
+
+export async function getMyUserSubscription() {
+  return apiFetch<UserSubscriptionResponse>("/api/me/subscription");
+}
+
 export async function changePlan(planName: string) {
   return apiFetch<{ message: string; subscription_id: string }>("/api/plans/change", {
     method: "POST",
@@ -286,4 +316,46 @@ export async function payStatement(cycle: number, paymentProofId: string) {
 
 export async function getUnpaidPrevious() {
   return apiFetch<{ unpaid: boolean }>("/api/plans/unpaid-previous");
+}
+
+// ── User subscription management & Refunds ──────────────────────────
+
+export async function toggleSubscriptionAutoRenew(enabled: boolean) {
+  return apiFetch<{ enabled: boolean; message: string }>("/api/plans/subscription/auto-renew", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export async function cancelUserSubscription() {
+  return apiFetch<{ message: string }>("/api/plans/subscription/cancel", {
+    method: "POST",
+  });
+}
+
+export async function requestSubscriptionRefund(paymentOrderId: number, reason: string, notes?: string) {
+  return apiFetch<{ message: string; refund_request_id: string }>("/api/plans/subscription/refund", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payment_order_id: paymentOrderId, reason, notes }),
+  });
+}
+
+export interface TransactionItem {
+  id: string;
+  db_id?: number | null;
+  type: "card" | "transfer";
+  date: string;
+  description: string;
+  amount: number;
+  currency: string;
+  status: string;
+  reference?: string | null;
+  receipt_url?: string | null;
+  refund_requested?: boolean;
+}
+
+export async function getTransactions() {
+  return apiFetch<TransactionItem[]>("/api/plans/transactions");
 }

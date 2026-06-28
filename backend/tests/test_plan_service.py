@@ -186,19 +186,45 @@ def test_addon_margins(plans):
     assert p.user_slot_price_cents == 30000
 
 
+# ── Helpers ─────────────────────────────────────────────────────────
+
+def _create_trial_sub(db_session, plans, org_id):
+    """Create a trial OrganizationSubscription for an org (replaces old auto-create)."""
+    from datetime import date, timedelta
+    today = date.today()
+    sub = OrganizationSubscription(
+        organization_id=org_id,
+        plan_id=plans["inicial"].id,
+        status="trialing",
+        billing_cycle_start=today - timedelta(days=1),
+        billing_cycle_end=today + timedelta(days=29),
+        trial_ends_at=today + timedelta(days=7),
+    )
+    db_session.add(sub)
+    db_session.commit()
+    db_session.refresh(sub)
+    return sub
+
+
 # ── Tests: Subscription ────────────────────────────────────────────
 
-def test_get_plan_for_org_creates_trial(db_session, plans, fresh_org):
+def test_get_plan_for_org_returns_none_when_no_sub(db_session, plans, fresh_org):
+    svc = PlanService(db_session)
+    sub, plan = svc.get_plan_for_org(fresh_org.id)
+    assert sub is None
+    assert plan is None
+
+
+def test_get_plan_for_org_with_sub(db_session, plans, fresh_org):
+    _create_trial_sub(db_session, plans, fresh_org.id)
     svc = PlanService(db_session)
     sub, plan = svc.get_plan_for_org(fresh_org.id)
     assert sub.status == "trialing"
     assert sub.plan_id == plans["inicial"].id
-    # Second call returns same
-    sub2, _ = svc.get_plan_for_org(fresh_org.id)
-    assert sub2.id == sub.id
 
 
 def test_change_plan(db_session, plans, fresh_org):
+    _create_trial_sub(db_session, plans, fresh_org.id)
     sub = PlanService(db_session).change_plan(fresh_org.id, "profesional")
     assert sub.status == "active"
     assert sub.plan.name == "profesional"
@@ -210,11 +236,9 @@ def test_change_plan_invalid_name(db_session, fresh_org):
 
 
 def test_cancel_subscription(db_session, plans, fresh_org):
+    _create_trial_sub(db_session, plans, fresh_org.id)
     svc = PlanService(db_session)
-    # First ensure a subscription exists
-    svc.get_plan_for_org(fresh_org.id)
     svc.cancel_subscription(fresh_org.id)
-    # Query directly (not get_plan_for_org which auto-creates new trials)
     sub = db_session.query(OrganizationSubscription).filter(
         OrganizationSubscription.organization_id == fresh_org.id
     ).order_by(OrganizationSubscription.created_at.desc()).first()
@@ -222,6 +246,7 @@ def test_cancel_subscription(db_session, plans, fresh_org):
 
 
 def test_usage_summary(db_session, plans, fresh_org):
+    _create_trial_sub(db_session, plans, fresh_org.id)
     svc = PlanService(db_session)
     summary = svc.get_usage_summary(fresh_org.id)
     assert summary["plan"]["name"] == "inicial"
@@ -230,8 +255,7 @@ def test_usage_summary(db_session, plans, fresh_org):
 
 
 def test_subscription_effective_limits(db_session, plans, fresh_org):
-    svc = PlanService(db_session)
-    sub, _ = svc.get_plan_for_org(fresh_org.id)
+    sub = _create_trial_sub(db_session, plans, fresh_org.id)
     assert sub.effective_limits()["max_ecf_monthly"] == 0
     sub.addon_ecf_blocks = 2
     db_session.commit()
@@ -239,6 +263,7 @@ def test_subscription_effective_limits(db_session, plans, fresh_org):
 
 
 def test_purchase_addon_increases_limits(db_session, plans, fresh_org):
+    _create_trial_sub(db_session, plans, fresh_org.id)
     svc = PlanService(db_session)
     svc.purchase_addon(fresh_org.id, "ecf", 2)
     svc.purchase_addon(fresh_org.id, "ai", 1)
@@ -256,16 +281,15 @@ def test_user_slot_price_in_to_dict(plans):
 
 
 def test_purchase_user_slot_addon(db_session, plans, fresh_org):
+    sub = _create_trial_sub(db_session, plans, fresh_org.id)
     svc = PlanService(db_session)
-    sub, _ = svc.get_plan_for_org(fresh_org.id)
     svc.purchase_addon(fresh_org.id, "user_slot", 2)
     db_session.refresh(sub)
     assert sub.addon_user_slots == 2
 
 
 def test_effective_limits_includes_user_slots(db_session, plans, fresh_org):
-    svc = PlanService(db_session)
-    sub, _ = svc.get_plan_for_org(fresh_org.id)
+    sub = _create_trial_sub(db_session, plans, fresh_org.id)
     # Base: Inicial has max_users=3
     assert sub.effective_limits()["max_users"] == 3
     # Add 2 user slots
@@ -275,8 +299,8 @@ def test_effective_limits_includes_user_slots(db_session, plans, fresh_org):
 
 
 def test_entity_slot_addon_updates_max_entities(db_session, plans, fresh_org):
+    sub = _create_trial_sub(db_session, plans, fresh_org.id)
     svc = PlanService(db_session)
-    sub, _ = svc.get_plan_for_org(fresh_org.id)
     # Base: Inicial has max_entities=1
     assert sub.effective_limits()["max_entities"] == 1
     svc.purchase_addon(fresh_org.id, "entity_slot", 3)
@@ -286,14 +310,14 @@ def test_entity_slot_addon_updates_max_entities(db_session, plans, fresh_org):
 
 
 def test_purchase_addon_rejects_unknown_type(db_session, plans, fresh_org):
+    _create_trial_sub(db_session, plans, fresh_org.id)
     svc = PlanService(db_session)
     with pytest.raises(ValueError, match="Unknown addon type"):
         svc.purchase_addon(fresh_org.id, "invalid_type")
 
 
 def test_subscription_to_dict_includes_user_slots(db_session, plans, fresh_org):
-    svc = PlanService(db_session)
-    sub, _ = svc.get_plan_for_org(fresh_org.id)
+    sub = _create_trial_sub(db_session, plans, fresh_org.id)
     sub.addon_user_slots = 3
     db_session.commit()
     d = sub.to_dict()
@@ -363,11 +387,13 @@ def test_ecf_limit_zero_balance_blocks(db_session, plans, fresh_org):
 # ── Tests: Rate Limiting ───────────────────────────────────────────
 
 def test_rate_limit_allows_normal(db_session, plans, fresh_org):
+    _create_trial_sub(db_session, plans, fresh_org.id)
     result = PlanService(db_session).check_rate_limit(fresh_org.id, "ai")
     assert result["allowed"] is True
 
 
 def test_rate_limit_blocks_excess(db_session, plans, fresh_org):
+    _create_trial_sub(db_session, plans, fresh_org.id)
     with patch("app.services.usage_tracker.get_redis_client") as mock_get:
         mock_redis = MagicMock()
         mock_get.return_value = mock_redis
@@ -383,6 +409,7 @@ def test_rate_limit_blocks_excess(db_session, plans, fresh_org):
 
 
 def test_rate_limit_fallback_when_redis_down(db_session, plans, fresh_org):
+    _create_trial_sub(db_session, plans, fresh_org.id)
     with patch("app.services.usage_tracker.get_redis_client") as mock_redis:
         mock_redis.return_value = None
         result = PlanService(db_session).check_rate_limit(fresh_org.id, "ai")
@@ -392,6 +419,7 @@ def test_rate_limit_fallback_when_redis_down(db_session, plans, fresh_org):
 # ── Tests: Usage Recording ─────────────────────────────────────────
 
 def test_record_and_get_usage(db_session, plans, fresh_org, test_tenant):
+    _create_trial_sub(db_session, plans, fresh_org.id)
     svc = PlanService(db_session)
     now = utc_now()
 
@@ -447,6 +475,7 @@ def test_recording_triggers_soft_limit_alerts(db_session, plans, fresh_org):
 # ── Tests: Storage Limit ───────────────────────────────────────────
 
 def test_storage_limit_check(db_session, plans, fresh_org):
+    _create_trial_sub(db_session, plans, fresh_org.id)
     svc = PlanService(db_session)
     svc.check_storage_limit(fresh_org.id, additional_bytes=1024 * 1024)
     with pytest.raises(PlanLimitExceeded):

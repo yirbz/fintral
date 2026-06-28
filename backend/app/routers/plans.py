@@ -148,11 +148,13 @@ async def get_current_exchange_rate():
 
 @router.get("/my", response_model=FullUsageResponse)
 async def my_plan_and_usage(ctx: TenantContext = Depends(require_tenant)):
-    """Get current org's plan, subscription, and usage stats."""
+    """Get current org's plan, subscription, and usage stats.
+
+    Returns nulls for plan/subscription/usage when the org has no
+    active subscription (free Factura tier).
+    """
     svc = PlanService(ctx.db)
     summary = svc.get_usage_summary(ctx.org_id)
-    if "error" in summary:
-        raise HTTPException(status_code=404, detail=summary["error"])
 
     plan_data = summary.get("plan")
     sub_data = summary.get("subscription")
@@ -454,18 +456,16 @@ async def calculate_cart(
     payload: CalculateCartRequest,
     ctx: TenantContext = Depends(require_tenant),
 ):
-    """Calculate total price for a cart of items in USD."""
+    """Calculate total price for a cart of items in DOP."""
     breakdowm: list[CartBreakdownItem] = []
     total = 0.0
-    currency = "USD"
+    currency = "DOP"
 
     months = max((item.months or 1) for item in payload.items) if payload.items else 1
     discount = DISCOUNT_TIERS.get(months, 0.0)
 
     for item in payload.items:
-        unit_price = item.price_cents / 100.0
         months = item.months or 1
-        line_total = unit_price * item.quantity * months
 
         if item.type == "plan_change" and item.plan_name:
             plan = (
@@ -474,30 +474,16 @@ async def calculate_cart(
                 .first()
             )
             if plan:
-                usd_price = float(plan.price_usd) if plan.price_usd is not None else None
-                if usd_price is None:
-                    fallbacks = {"inicial": 16.49, "profesional": 47.99, "despacho": 127.99}
-                    usd_price = fallbacks.get(plan.name.lower(), plan.price_monthly_cents / 6000.0)
-                unit_price = usd_price
-                line_total = unit_price * item.quantity * months
+                unit_price = plan.price_monthly_cents / 100.0
                 label = item.label or f"Plan {plan.display_name}"
             else:
+                unit_price = item.price_cents / 100.0
                 label = item.label or f"Plan {item.plan_name}"
-        elif item.type == "addon":
-            label = item.label or f"Addon {item.addon_type} x{item.quantity}"
-        elif item.type == "renewal":
-            label = item.label or f"Renovación ({months} mes{'es' if months > 1 else ''})"
-        elif item.type == "overage":
-            label = item.label or f"Pago por uso ({item.addon_type})"
-        elif item.type == "ecf_blocks":
-            label = item.label or f"Bloque de {item.quantity} documentos ECF"
-        elif item.type == "entity_slot":
-            label = item.label or f"Slot de entidad adicional ({months} mes{'es' if months > 1 else ''})"
-        elif item.type == "user_slot":
-            label = item.label or f"Slot de usuario adicional ({months} mes{'es' if months > 1 else ''})"
         else:
+            unit_price = item.price_cents / 100.0
             label = item.label or item.type
 
+        line_total = unit_price * item.quantity * months
         discounted = round(line_total * (1 - discount), 2)
         total += discounted
         breakdowm.append(CartBreakdownItem(
@@ -844,16 +830,22 @@ async def checkout_subscribe(
     payload: SubscribeRequest,
     ctx: TenantContext = Depends(require_tenant),
 ):
-    """Subscribe an organization to a Hub subscription plan (Inicial, Profesional, Despacho)."""
+    """Subscribe a user to a Hub subscription plan (Inicial, Profesional, Despacho)."""
     from app.services.billing_checkout_service import BillingCheckoutService
     checkout_svc = BillingCheckoutService(ctx.db)
     try:
-        result = await checkout_svc.subscribe_organization(
-            org_id=str(ctx.org_id),
-            plan_name=payload.plan_name,
-            payment_method=payload.payment_method,
-        )
-        return result
+        if payload.payment_method == "card":
+            result = await checkout_svc.initiate_user_subscription_checkout(
+                user_id=str(ctx.user.id),
+                plan_name=payload.plan_name,
+            )
+            return result
+        else:
+            return {
+                "payment_method": "transfer",
+                "status": "pending_proof",
+                "message": "Por favor suba el comprobante de transferencia bancaria para verificar e iniciar su suscripción."
+            }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
@@ -880,3 +872,220 @@ async def checkout_prepaid_ecf(
     except Exception:
         logger.exception("Error initiating prepaid e-CF block checkout")
         raise HTTPException(status_code=500, detail="Error interno al procesar compra prepago")
+
+
+# ── User Subscription management & Refunds ──────────────────────────
+
+class ToggleAutoRenewRequest(BaseModel):
+    enabled: bool
+
+class RefundRequestPayload(BaseModel):
+    payment_order_id: int
+    reason: str
+    notes: str | None = None
+
+@router.post("/subscription/auto-renew")
+async def toggle_subscription_auto_renew(
+    payload: ToggleAutoRenewRequest,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """Toggle auto-renew status of the user's subscription."""
+    from app.models.user_subscription import UserSubscription
+    sub = (
+        ctx.db.query(UserSubscription)
+        .filter(UserSubscription.user_id == ctx.user.id)
+        .order_by(UserSubscription.created_at.desc())
+        .first()
+    )
+    if not sub:
+        raise HTTPException(status_code=404, detail="Suscripción no encontrada")
+
+    sub.auto_renew = payload.enabled
+    ctx.db.commit()
+    return {
+        "enabled": payload.enabled,
+        "message": "Renovación automática " + ("activada" if payload.enabled else "desactivada")
+    }
+
+@router.post("/subscription/cancel")
+async def cancel_user_subscription(
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """Cancel user subscription immediately."""
+    from app.models.user_subscription import UserSubscription
+    sub = (
+        ctx.db.query(UserSubscription)
+        .filter(UserSubscription.user_id == ctx.user.id)
+        .order_by(UserSubscription.created_at.desc())
+        .first()
+    )
+    if not sub:
+        raise HTTPException(status_code=404, detail="Suscripción no encontrada")
+        
+    sub.status = "canceled"
+    sub.canceled_at = datetime.utcnow()
+    ctx.db.commit()
+    
+    if sub.lago_subscription_id:
+        try:
+            from app.services.lago_service import LagoService
+            lago = LagoService()
+            await lago.cancel_subscription(sub.lago_subscription_id)
+        except Exception as e:
+            logger.error(f"Failed to terminate subscription in Lago: {e}")
+            
+    return {"message": "Suscripción cancelada exitosamente."}
+
+@router.post("/subscription/refund")
+async def request_subscription_refund(
+    payload: RefundRequestPayload,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """Submit a refund request for a credit card subscription transaction."""
+    from app.models.mio_payment_order import MioPaymentOrder
+    from app.models.refund_request import RefundRequest
+    
+    # Verify the payment order exists and belongs to the user
+    order = (
+        ctx.db.query(MioPaymentOrder)
+        .filter(MioPaymentOrder.id == payload.payment_order_id)
+        .filter(MioPaymentOrder.user_id == ctx.user.id)
+        .filter(MioPaymentOrder.status == "SUCCESS")
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Orden de pago no encontrada o no válida para reembolso")
+        
+    # Check if a refund request already exists for this payment order
+    existing = (
+        ctx.db.query(RefundRequest)
+        .filter(RefundRequest.payment_order_id == order.id)
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail="Ya existe una solicitud de reembolso para este pago")
+        
+    # Create the refund request record
+    req = RefundRequest(
+        user_id=ctx.user.id,
+        payment_order_id=order.id,
+        amount_cents=order.amount_cents,
+        reason=payload.reason,
+        notes=payload.notes,
+        status="pending"
+    )
+    ctx.db.add(req)
+    ctx.db.commit()
+    
+    # Send email notification to support via Resend
+    try:
+        import resend
+        from app.config import RESEND_API_KEY, BILLING_EMAIL_FROM
+        if RESEND_API_KEY:
+            resend.api_key = RESEND_API_KEY
+            support_email = "soporte@fintral.app"
+            html = f"""
+            <h3>Nueva Solicitud de Reembolso Recibida</h3>
+            <p><strong>Usuario:</strong> {ctx.user.full_name or ctx.user.email} ({ctx.user.email})</p>
+            <p><strong>ID Orden MIO:</strong> {order.id}</p>
+            <p><strong>UUID Orden MIO:</strong> {order.order_uuid}</p>
+            <p><strong>Monto:</strong> RD$ {float(order.amount_cents) / 100.0:.2f}</p>
+            <p><strong>Referencia MIO:</strong> {order.reference_number}</p>
+            <p><strong>Motivo:</strong> {payload.reason}</p>
+            <p><strong>Notas:</strong> {payload.notes or 'Sin notas adicionales'}</p>
+            <p>Por favor revise y procese este reembolso en la consola de MIO / GeoPagos.</p>
+            """
+            resend.Emails.send({
+                "from": BILLING_EMAIL_FROM,
+                "to": [support_email],
+                "subject": f"Solicitud de Reembolso: {ctx.user.email}",
+                "html": html
+            })
+    except Exception as e:
+        logger.error(f"Failed to send refund request support email: {e}")
+        
+    return {
+        "message": "Solicitud de reembolso recibida. Evaluaremos su caso en un plazo máximo de 48 horas.",
+        "refund_request_id": str(req.id)
+    }
+
+
+class TransactionItem(BaseModel):
+    id: str
+    db_id: int | None = None
+    type: str # "card" or "transfer"
+    date: datetime
+    description: str
+    amount: float
+    currency: str
+    status: str
+    reference: str | None = None
+    receipt_url: str | None = None
+    refund_requested: bool = False
+
+
+@router.get("/transactions", response_model=List[TransactionItem])
+async def list_transactions(ctx: TenantContext = Depends(require_tenant)):
+    """Get all billing transaction items (card payments and bank transfer proofs) for the user/organization."""
+    from app.models.mio_payment_order import MioPaymentOrder
+    from app.models.refund_request import RefundRequest
+    from app.models.payment_proof import PaymentProof
+
+    # 1. Fetch MIO card payment orders
+    card_orders = (
+        ctx.db.query(MioPaymentOrder)
+        .filter(MioPaymentOrder.user_id == ctx.user.id)
+        .all()
+    )
+    
+    # 2. Fetch refund requests to check which orders have one
+    refund_requests = (
+        ctx.db.query(RefundRequest)
+        .filter(RefundRequest.user_id == ctx.user.id)
+        .all()
+    )
+    refund_order_ids = {r.payment_order_id for r in refund_requests}
+
+    # 3. Fetch bank transfer proofs
+    transfer_proofs = (
+        ctx.db.query(PaymentProof)
+        .filter(PaymentProof.organization_id == ctx.org_id)
+        .all()
+    )
+
+    transactions = []
+
+    # Map MIO orders
+    for order in card_orders:
+        transactions.append(TransactionItem(
+            id=f"card_{order.id}",
+            db_id=order.id,
+            type="card",
+            date=order.created_at,
+            description="Pago con Tarjeta - Fintral Hub",
+            amount=float(order.amount_cents) / 100.0,
+            currency="DOP",
+            status=order.status, # SUCCESS or PENDING or FAILED
+            reference=order.reference_number or order.authorization_code,
+            receipt_url=order.checkout_url,
+            refund_requested=order.id in refund_order_ids
+        ))
+
+    # Map transfer proofs
+    for proof in transfer_proofs:
+        transactions.append(TransactionItem(
+            id=f"transfer_{proof.id}",
+            type="transfer",
+            date=proof.created_at,
+            description=f"Transferencia - Plan {proof.plan_name}",
+            amount=float(proof.amount),
+            currency=proof.currency,
+            status=proof.status.upper(), # PENDING, VERIFIED, REJECTED
+            reference=None,
+            receipt_url=proof.file_url,
+            refund_requested=False
+        ))
+
+    # Sort by date descending
+    transactions.sort(key=lambda t: t.date, reverse=True)
+    return transactions

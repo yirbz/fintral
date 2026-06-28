@@ -37,11 +37,12 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['created_by_user_id'], ['users.id'], ondelete='SET NULL'),
     sa.ForeignKeyConstraint(['organization_id'], ['organizations.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    if_not_exists=True
     )
-    op.create_index(op.f('ix_upload_links_organization_id'), 'upload_links', ['organization_id'], unique=False)
-    op.create_index(op.f('ix_upload_links_tenant_id'), 'upload_links', ['tenant_id'], unique=False)
-    op.create_index(op.f('ix_upload_links_token'), 'upload_links', ['token'], unique=True)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_upload_links_organization_id ON upload_links (organization_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_upload_links_tenant_id ON upload_links (tenant_id)")
+    op.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_upload_links_token ON upload_links (token)")
     # Idempotent drops — use IF EXISTS to avoid transaction abortion
     op.execute("ALTER TABLE invoices DROP CONSTRAINT IF EXISTS invoices_temporary_link_id_fkey")
     op.execute("ALTER TABLE invoices DROP COLUMN IF EXISTS temporary_link_id")
@@ -52,7 +53,7 @@ def upgrade() -> None:
     op.execute("DROP INDEX IF EXISTS ix_temporary_links_token")
     op.execute("DROP INDEX IF EXISTS ix_temporary_links_user_id")
     op.execute("DROP TABLE IF EXISTS temporary_links CASCADE")
-    op.add_column('ledger_entries', sa.Column('currency', sa.String(length=3), nullable=False))
+    op.execute("ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS currency VARCHAR(3) NOT NULL DEFAULT 'DOP'")
     op.alter_column('ledger_entries', 'entry_type',
                existing_type=sa.VARCHAR(length=10),
                type_=sa.String(length=20),
@@ -73,18 +74,44 @@ def upgrade() -> None:
     op.execute("DROP INDEX IF EXISTS ix_ledger_created_at")
     op.execute("DROP INDEX IF EXISTS ix_ledger_invoice")
     op.execute("DROP INDEX IF EXISTS ix_ledger_tenant_org")
-    op.create_index(op.f('ix_ledger_entries_credit_note_id'), 'ledger_entries', ['credit_note_id'], unique=False)
-    op.create_index(op.f('ix_ledger_entries_invoice_id'), 'ledger_entries', ['invoice_id'], unique=False)
-    op.create_index(op.f('ix_ledger_entries_organization_id'), 'ledger_entries', ['organization_id'], unique=False)
-    op.create_index(op.f('ix_ledger_entries_reversal_of'), 'ledger_entries', ['reversal_of'], unique=False)
-    op.create_index(op.f('ix_ledger_entries_tenant_id'), 'ledger_entries', ['tenant_id'], unique=False)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_ledger_entries_credit_note_id ON ledger_entries (credit_note_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_ledger_entries_invoice_id ON ledger_entries (invoice_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_ledger_entries_organization_id ON ledger_entries (organization_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_ledger_entries_reversal_of ON ledger_entries (reversal_of)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_ledger_entries_tenant_id ON ledger_entries (tenant_id)")
     op.execute("ALTER TABLE ledger_entries DROP CONSTRAINT IF EXISTS ledger_entries_tenant_id_fkey")
     op.execute("ALTER TABLE ledger_entries DROP CONSTRAINT IF EXISTS ledger_entries_organization_id_fkey")
     op.execute("ALTER TABLE ledger_entries DROP CONSTRAINT IF EXISTS ledger_entries_reversed_entry_id_fkey")
     op.execute("ALTER TABLE ledger_entries DROP CONSTRAINT IF EXISTS ledger_entries_bank_account_id_fkey")
     op.execute("ALTER TABLE ledger_entries DROP CONSTRAINT IF EXISTS ledger_entries_created_by_fkey")
-    op.create_foreign_key(None, 'ledger_entries', 'tenants', ['tenant_id'], ['id'])
-    op.create_foreign_key(None, 'ledger_entries', 'organizations', ['organization_id'], ['id'])
+    op.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conrelid = 'ledger_entries'::regclass
+                AND conname = 'fk_ledger_entries_tenant_id'
+            ) THEN
+                ALTER TABLE ledger_entries
+                ADD CONSTRAINT fk_ledger_entries_tenant_id
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id);
+            END IF;
+        END $$;
+    """)
+    op.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conrelid = 'ledger_entries'::regclass
+                AND conname = 'fk_ledger_entries_organization_id'
+            ) THEN
+                ALTER TABLE ledger_entries
+                ADD CONSTRAINT fk_ledger_entries_organization_id
+                FOREIGN KEY (organization_id) REFERENCES organizations(id);
+            END IF;
+        END $$;
+    """)
     op.execute("ALTER TABLE ledger_entries DROP COLUMN IF EXISTS reference")
     op.execute("ALTER TABLE ledger_entries DROP COLUMN IF EXISTS reversed_entry_id")
     op.execute("ALTER TABLE ledger_entries DROP COLUMN IF EXISTS bank_account_id")
@@ -99,8 +126,8 @@ def downgrade() -> None:
     op.add_column('ledger_entries', sa.Column('bank_account_id', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('ledger_entries', sa.Column('reversed_entry_id', sa.UUID(), autoincrement=False, nullable=True))
     op.add_column('ledger_entries', sa.Column('reference', sa.VARCHAR(length=100), autoincrement=False, nullable=True))
-    op.drop_constraint(None, 'ledger_entries', type_='foreignkey')
-    op.drop_constraint(None, 'ledger_entries', type_='foreignkey')
+    op.execute("ALTER TABLE ledger_entries DROP CONSTRAINT IF EXISTS fk_ledger_entries_tenant_id")
+    op.execute("ALTER TABLE ledger_entries DROP CONSTRAINT IF EXISTS fk_ledger_entries_organization_id")
     op.create_foreign_key(op.f('ledger_entries_created_by_fkey'), 'ledger_entries', 'users', ['created_by'], ['id'], ondelete='SET NULL')
     op.create_foreign_key(op.f('ledger_entries_bank_account_id_fkey'), 'ledger_entries', 'bank_accounts', ['bank_account_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key(op.f('ledger_entries_reversed_entry_id_fkey'), 'ledger_entries', 'ledger_entries', ['reversed_entry_id'], ['id'], ondelete='SET NULL')

@@ -137,6 +137,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSession } from "@/hooks/use-session"
 import { useRealtime } from "@/hooks/use-realtime"
 import { getPendingUploadCount } from "@/lib/api/invoices"
+import { TrialRemainingBadge } from "@/components/trial-remaining-badge"
 
 function getLink(path: string) {
   if (typeof window === "undefined") {
@@ -305,6 +306,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavSecondary items={navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>
+        {!isBillingSubdomain && (
+          <div className="px-3 pb-2">
+            <TrialRemainingBadge variant="sidebar" />
+          </div>
+        )}
         <NavUser user={user} isBilling={isBillingSubdomain} />
       </SidebarFooter>
     </Sidebar>

@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSubscription } from "@/hooks/use-subscription";
-import { useCustomerPortal } from "@/hooks/use-customer-portal";
 import {
   getPaymentProofs,
   PaymentProof,
@@ -11,6 +10,7 @@ import {
   payStatement,
   uploadPaymentProof,
 } from "@/lib/api/plans";
+import { TrialRemainingBadge } from "@/components/trial-remaining-badge";
 import { WelcomeBanner } from "./components/welcome-banner";
 import { SubscriptionCard } from "./components/subscription-card";
 import { UsageMeters } from "./components/usage-meters";
@@ -88,8 +88,6 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
 
   // Queries
   const { plan, subscription, usage, isLoading: isSubLoading } = useSubscription();
-  const { openPortal, loading: isPortalLoading } = useCustomerPortal();
-
   const { data: proofs, isLoading: isProofsLoading } = useQuery<PaymentProof[]>({
     queryKey: ["payment-proofs-my", orgId],
     queryFn: getPaymentProofs,
@@ -101,16 +99,6 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
     queryFn: () => getStatement(),
     enabled: true, // Fetch on mount to avoid visual skeleton flashes when switching tabs
   });
-
-  const handleManagePortal = async () => {
-    if (!orgId) return;
-    try {
-      setErrorMsg("");
-      await openPortal(orgId);
-    } catch (err) {
-      setErrorMsg("No pudimos abrir el portal de autogestión. Inténtalo más tarde.");
-    }
-  };
 
   async function handlePayStatement(e: React.FormEvent) {
     e.preventDefault();
@@ -288,12 +276,12 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
                     </div>
                   )}
                   
+                  <TrialRemainingBadge variant="card" />
+
                   <SubscriptionCard
                     plan={plan}
                     subscription={subscription}
                     orgId={orgId}
-                    onManagePortal={handleManagePortal}
-                    isPortalLoading={isPortalLoading}
                   />
                   
                   {subscription && (

@@ -10,7 +10,7 @@ Coordinates between:
 All endpoints that consume plan-limited resources go through this service.
 """
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -50,8 +50,10 @@ class PlanService:
     def get_plan_for_org(self, org_id) -> tuple[Optional[OrganizationSubscription], Optional[SubscriptionPlan]]:
         """Get active subscription + plan for an org.
 
-        Returns (subscription, plan) or (None, free_plan) if no subscription.
-        Creates a trial subscription on first access if none exists.
+        Returns (subscription, plan) or (None, None) if no subscription.
+        Org-level subscriptions are only created when the org purchases
+        prepaid e-CF blocks or sets up billing. Hub subscription is
+        per-user via UserSubscription.
         """
         today = date.today()
         sub = (
@@ -68,37 +70,7 @@ class PlanService:
         if sub:
             return sub, sub.plan
 
-        # Auto-create trial subscription with Esencial plan
-        default_plan = (
-            self.db.query(SubscriptionPlan)
-            .filter(SubscriptionPlan.name == "inicial")
-            .first()
-        )
-        if not default_plan:
-            logger.error("No 'inicial' plan found in DB — run seed_plans first")
-            return None, None
-
-        trial_end = datetime.utcnow() + timedelta(days=TRIAL_DAYS)
-        cycle_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        if cycle_start.month == 12:
-            cycle_end = cycle_start.replace(year=cycle_start.year + 1, month=1)
-        else:
-            cycle_end = cycle_start.replace(month=cycle_start.month + 1)
-
-        new_sub = OrganizationSubscription(
-            organization_id=org_id,
-            plan_id=default_plan.id,
-            status="trialing",
-            billing_cycle_start=cycle_start,
-            billing_cycle_end=cycle_end,
-            trial_ends_at=trial_end,
-        )
-        self.db.add(new_sub)
-        self.db.commit()
-        self.db.refresh(new_sub)
-
-        logger.info("🆕 Auto-created trial subscription for org %s", org_id)
-        return new_sub, default_plan
+        return None, None
 
     def effective_limits(self, org_id) -> dict:
         """Return the effective resource limits for an org."""
@@ -108,10 +80,15 @@ class PlanService:
         return sub.effective_limits()
 
     def get_usage_summary(self, org_id) -> dict:
-        """Return full usage + plan info for an org."""
+        """Return full usage + plan info for an org.
+
+        Returns empty/Nones for plan/subscription when none exists —
+        orgs may be on the free Factura tier without any active plan.
+        Callers should handle None plan as "no plan" (free tier).
+        """
         sub, plan = self.get_plan_for_org(org_id)
         if not plan:
-            return {"error": "No active plan"}
+            return {"plan": None, "subscription": None, "usage": None, "trial_remaining_days": 0}
 
         limits = sub.effective_limits()
         usage = self.tracker.get_current_usage(org_id, limits)
