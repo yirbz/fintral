@@ -743,7 +743,7 @@ def send_purchase_invoice_email(
     )
 
     if payment_method == "card":
-        payment_method_html = f"""
+        payment_method_html = """
         <p style="margin:0 0 4px;color:#6b7280;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px">Método de pago</p>
         <p style="margin:0;color:#111827;font-size:14px;font-weight:600">Tarjeta de Crédito / Débito (MIO)</p>
         <p style="margin:0;color:#6b7280;font-size:13px">Transacción en línea procesada de forma segura.</p>

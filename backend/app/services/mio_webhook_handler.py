@@ -121,7 +121,7 @@ class MioWebhookHandler:
                 # Deactivate previous active card tokens for this user
                 self.db.query(UserCardToken).filter(
                     UserCardToken.user_id == order.user_id,
-                    UserCardToken.is_active == True
+                    UserCardToken.is_active
                 ).update({"is_active": False, "updated_at": utc_now()})
 
                 # Insert the new card token
@@ -220,7 +220,7 @@ class MioWebhookHandler:
                     elif amount_dop == 3675.0:  # 3500 + 5% fee
                         label = "Fintral Factura: Bloque prepagado de 1000 e-CFs"
                     else:
-                        label = f"Fintral Factura: Bloque prepagado e-CF"
+                        label = "Fintral Factura: Bloque prepagado e-CF"
 
                     items_list = [{
                         "label": label,

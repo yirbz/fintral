@@ -148,7 +148,7 @@ class LagoWebhookHandler:
                 from app.models.user_card_token import UserCardToken
                 card_token_obj = (
                     self.db.query(UserCardToken)
-                    .filter(UserCardToken.user_id == user.id, UserCardToken.is_active == True)
+                    .filter(UserCardToken.user_id == user.id, UserCardToken.is_active)
                     .first()
                 )
                 

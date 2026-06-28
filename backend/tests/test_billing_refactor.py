@@ -1291,8 +1291,6 @@ class TestLagoWebhookHandlerExtended:
         from app.models.user import User
         from app.models.user_card_token import UserCardToken
 
-        plan = db_session.query(SubscriptionPlan).filter(SubscriptionPlan.name == "profesional").first()
-
         user = User(
             id=uuid4(),
             tenant_id=test_org.tenant_id,
