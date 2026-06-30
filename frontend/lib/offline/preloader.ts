@@ -6,11 +6,12 @@ export async function preloadOfflineData(tenantId: string, orgId: string) {
     console.log("Preloading offline data for tenant:", tenantId, "org:", orgId);
 
     // 1. Fetch from server in parallel
-    const [products, clients, sequences] = await Promise.all([
-      billingApi.getProducts().catch(() => []),
+    const [productRes, clients, sequences] = await Promise.all([
+      billingApi.getProducts().catch(() => ({ products: [], total: 0, page: 1, page_size: 50 })),
       billingApi.getClients().catch(() => []),
       billingApi.getSequences().catch(() => []),
     ]);
+    const products = productRes.products;
 
     const cachedAt = new Date();
 

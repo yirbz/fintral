@@ -39,8 +39,8 @@ from .monthly_charge import MonthlyCharge
 from .billing_webhook_event import BillingWebhookEvent
 from .mio_payment_order import MioPaymentOrder
 from .user_subscription import UserSubscription
-from .user_card_token import UserCardToken
 from .refund_request import RefundRequest
+from .lago_invoice import LagoInvoice
 
 __all__ = [
     "AccountMapping",
@@ -79,6 +79,6 @@ __all__ = [
     "BillingWebhookEvent",
     "MioPaymentOrder",
     "UserSubscription",
-    "UserCardToken",
     "RefundRequest",
+    "LagoInvoice",
 ]

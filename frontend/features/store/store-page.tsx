@@ -23,7 +23,7 @@ export function StorePage() {
   const queryClient = useQueryClient();
   const { items, addItem, removeItem } = useCart();
   const [commitMonths, setCommitMonths] = useState(1);
-  const [isDirectLoading, setIsDirectLoading] = useState(false);
+
 
   const isSessionLoading = session.isLoading;
   const role = session.data?.role;
@@ -84,36 +84,19 @@ export function StorePage() {
     toast.success(`${plan.display_name} agregado al carrito`);
   };
 
-  // Handle adding ECF block to cart (pre-pay)
-  const handleAddEcfToCart = (quantity: number, pricePerBlockDop: number) => {
-    const existing = items.find((i) => i.type === "ecf_blocks");
+  // Handle adding addon block to cart (pre-pay)
+  const handleAddAddonToCart = (type: string, quantity: number, pricePerBlockDop: number, label: string) => {
+    const existing = items.find((i) => i.type === type);
     if (existing) removeItem(existing.id);
 
     addItem({
-      type: "ecf_blocks",
+      type: type as any,
       quantity,
       months: 1,
       price_cents: Math.round(pricePerBlockDop * 100),
-      label: `${quantity} bloque${quantity > 1 ? "s" : ""} de 100 documentos ECF`,
+      label,
     });
-    toast.success(`${quantity} bloque${quantity > 1 ? "s" : ""} de ECF agregado al carrito`);
-  };
-
-  // Handle direct purchases of addons (post-pay, charged directly to monthly statement)
-  const handlePurchaseDirect = async (type: string, label: string, price: number) => {
-    setIsDirectLoading(true);
-    try {
-      const res = await purchaseAddonDirect(type, 1, label);
-      toast.success(`${label} activado — cargado a tu estado de cuenta mensual (RD$ ${(res.total_price_cents / 100).toLocaleString("es-DO")})`);
-      
-      // Invalidate current subscription caches
-      await queryClient.invalidateQueries({ queryKey: ["plans", "my"] });
-      await queryClient.invalidateQueries({ queryKey: ["subscription-my"] });
-    } catch (err: any) {
-      toast.error(`Error al adquirir ${label.toLowerCase()}`, { description: err.message });
-    } finally {
-      setIsDirectLoading(false);
-    }
+    toast.success(`${label} agregado al carrito`);
   };
 
   if (isSessionLoading) {
@@ -199,7 +182,7 @@ export function StorePage() {
           Si tu organización requiere límites superiores, integraciones a la medida o condiciones especiales, podemos diseñar un plan Enterprise adaptado a tu negocio.
         </p>
         <Button asChild variant="outline" className="h-11 py-3 px-7 min-w-[120px] rounded-xl text-sm font-semibold active:scale-[0.98] transition-all duration-100 font-semibold">
-          <a href="mailto:soporte@fintral.app?subject=Quiero%20información%20de%20un%20plan%20personalizado">
+          <a href="mailto:support@fintral.app?subject=Quiero%20información%20de%20un%20plan%20personalizado">
             <span>Contactar a ventas</span>
             <ArrowUpRight className="size-3.5" />
           </a>
@@ -213,9 +196,7 @@ export function StorePage() {
         plan={mySubData?.plan ?? null}
         addons={mySubData?.subscription?.addons}
         cartItems={items}
-        onAddPrepayToCart={handleAddEcfToCart}
-        onPurchaseDirect={handlePurchaseDirect}
-        isDirectLoading={isDirectLoading}
+        onAddPrepayToCart={handleAddAddonToCart}
       />
 
       <Separator className="bg-brand-hairline dark:bg-slate-800" />

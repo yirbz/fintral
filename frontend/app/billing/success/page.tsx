@@ -44,7 +44,7 @@ export default function PaymentSuccessPage() {
 
         <div className="border-t border-slate-100 dark:border-slate-800/80 pt-6 space-y-3">
           <Button
-            onClick={() => router.push("/dashboard")}
+            onClick={() => { window.location.href = "/dashboard"; }}
             className="w-full h-11 rounded-xl text-sm font-semibold bg-brand-primary text-white hover:bg-brand-primary-deep active:scale-[0.98] transition-all duration-100 shadow-sm gap-2"
           >
             <span>Ir al Panel de Control</span>
@@ -53,7 +53,7 @@ export default function PaymentSuccessPage() {
 
           <Button
             variant="ghost"
-            onClick={() => router.push("/dashboard/settings/organization")}
+            onClick={() => { window.location.href = "/dashboard/settings/organization"; }}
             className="w-full h-11 rounded-xl text-xs font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
           >
             Ver detalles de mi suscripción

@@ -217,7 +217,7 @@ function BillingSettingsPageInner() {
   // ── Organization ──
   const {data: orgQuery_data, isLoading: orgQuery_isLoading} = useQuery({
     queryKey: ["billing-org"],
-    queryFn: getOrganization,
+    queryFn: () => getOrganization(),
   });
   const [orgName, setOrgName] = useState("");
   const [taxId, setTaxId] = useState("");

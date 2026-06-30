@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { FileText, Sparkles, Scan, HardDrive, Code, AlertTriangle } from "lucide-react";
+import { Sparkles, Scan, HardDrive, Code } from "lucide-react";
 import { UsageSummary } from "@/lib/api/plans";
 import { UsageAlert } from "./usage-alert";
 
@@ -24,14 +24,6 @@ export function UsageMeters({ usage }: UsageMetersProps) {
 
   const metrics: MetricItem[] = usage
     ? [
-        {
-          key: "ecf",
-          label: "Documentos e-CF",
-          used: usage.ecf.used,
-          limit: usage.ecf.limit,
-          icon: FileText,
-          unit: "documentos",
-        },
         {
           key: "ai_queries",
           label: "Consultas de IA",
@@ -72,7 +64,7 @@ export function UsageMeters({ usage }: UsageMetersProps) {
     // Trigger animation after mount
     const timer = setTimeout(() => {
       const initial: Record<string, number> = {};
-      const keys = ["ecf", "ai_queries", "ocr_docs", "storage_mb", "api_calls"] as const;
+      const keys = ["ai_queries", "ocr_docs", "storage_mb", "api_calls"] as const;
       keys.forEach((key) => {
         const item = usage[key];
         const pct = item.limit > 0 ? (item.used / item.limit) * 100 : 0;

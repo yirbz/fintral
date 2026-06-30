@@ -15,6 +15,7 @@ from app.models import (
     UsageAlert,
     Organization,
     Invoice,
+    UserSubscription,
 )
 from app.services.plan_service import PlanService, PlanLimitExceeded
 from app.services.usage_tracker import UsageTracker
@@ -298,15 +299,30 @@ def test_effective_limits_includes_user_slots(db_session, plans, fresh_org):
     assert sub.effective_limits()["max_users"] == 5
 
 
-def test_entity_slot_addon_updates_max_entities(db_session, plans, fresh_org):
-    sub = _create_trial_sub(db_session, plans, fresh_org.id)
+def test_entity_slot_addon_updates_max_entities(db_session, plans, fresh_org, test_user):
+    from app.models.user_subscription import UserSubscription
+
+    _create_trial_sub(db_session, plans, fresh_org.id)
+    # Create a UserSubscription for the test user
+    user_sub = UserSubscription(
+        user_id=test_user.id,
+        plan_id=plans["inicial"].id,
+        status="active",
+    )
+    db_session.add(user_sub)
+    db_session.commit()
+    db_session.refresh(user_sub)
+
     svc = PlanService(db_session)
     # Base: Inicial has max_entities=1
-    assert sub.effective_limits()["max_entities"] == 1
-    svc.purchase_addon(fresh_org.id, "entity_slot", 3)
-    db_session.refresh(sub)
-    assert sub.addon_entity_slots == 3
-    assert sub.effective_limits()["max_entities"] == 4
+    assert svc.get_user_entity_limits(str(test_user.id))["max_entities"] == 1
+
+    svc.purchase_addon(fresh_org.id, "entity_slot", 3, user_id=str(test_user.id))
+    db_session.refresh(user_sub)
+    assert user_sub.addon_entity_slots == 3
+
+    limits = svc.get_user_entity_limits(str(test_user.id))
+    assert limits["max_entities"] == 4  # 1 base + 3 addon
 
 
 def test_purchase_addon_rejects_unknown_type(db_session, plans, fresh_org):
@@ -480,3 +496,68 @@ def test_storage_limit_check(db_session, plans, fresh_org):
     svc.check_storage_limit(fresh_org.id, additional_bytes=1024 * 1024)
     with pytest.raises(PlanLimitExceeded):
         svc.check_storage_limit(fresh_org.id, additional_bytes=9999 * 1024 * 1024)
+
+
+# ── Tests: Addon Cancellation ─────────────────────────────────────
+
+def test_cancel_addon_org_level(db_session, plans, fresh_org):
+    sub = _create_trial_sub(db_session, plans, fresh_org.id)
+    sub.addon_user_slots = 2
+    sub.addon_ai_blocks = 3
+    db_session.commit()
+
+    svc = PlanService(db_session)
+    
+    # Successful cancel 1 user slot
+    res = svc.cancel_addon(fresh_org.id, "user_slot", quantity=1)
+    assert res["addon_type"] == "user_slot"
+    assert res["cancelled"] == 1
+    assert res["remaining"] == 1
+    assert sub.addon_user_slots == 2
+    assert sub.pending_cancel_user_slots == 1
+
+    # Successful cancel remaining AI blocks
+    res = svc.cancel_addon(fresh_org.id, "ai", quantity=3)
+    assert res["addon_type"] == "ai"
+    assert res["cancelled"] == 3
+    assert res["remaining"] == 0
+    assert sub.addon_ai_blocks == 3
+    assert sub.pending_cancel_ai_blocks == 3
+
+    # Error: quantity greater than active
+    with pytest.raises(ValueError, match="No puedes cancelar 2"):
+        svc.cancel_addon(fresh_org.id, "user_slot", quantity=2)
+
+    # Error: quantity less than 1
+    with pytest.raises(ValueError, match="La cantidad a cancelar debe ser al menos 1"):
+        svc.cancel_addon(fresh_org.id, "user_slot", quantity=0)
+
+
+def test_cancel_addon_user_level(db_session, plans, fresh_org):
+    user_id = str(uuid4())
+    user_sub = UserSubscription(
+        user_id=user_id,
+        plan_id=plans["inicial"].id,
+        status="active",
+        addon_entity_slots=3,
+    )
+    db_session.add(user_sub)
+    db_session.commit()
+
+    svc = PlanService(db_session)
+
+    # Successful cancel 1 entity slot
+    res = svc.cancel_addon(fresh_org.id, "entity_slot", quantity=1, user_id=user_id)
+    assert res["addon_type"] == "entity_slot"
+    assert res["cancelled"] == 1
+    assert res["remaining"] == 2
+    assert user_sub.addon_entity_slots == 3
+    assert user_sub.pending_cancel_entity_slots == 1
+
+    # Error: user_id missing
+    with pytest.raises(ValueError, match="Se requiere user_id"):
+        svc.cancel_addon(fresh_org.id, "entity_slot", quantity=1)
+
+    # Error: quantity greater than active
+    with pytest.raises(ValueError, match="No puedes cancelar 4"):
+        svc.cancel_addon(fresh_org.id, "entity_slot", quantity=4, user_id=user_id)

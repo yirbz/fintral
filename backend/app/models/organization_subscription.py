@@ -1,6 +1,6 @@
 """OrganizationSubscription — links an org to its active plan + addons."""
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, JSON
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 from uuid_utils import uuid7
 
@@ -24,12 +24,6 @@ class OrganizationSubscription(Base):
         # active | trialing | past_due | canceled | expired | suspended
     )
 
-    # ── Paddle Billing fields ────────────────────────────────────────
-    paddle_subscription_id = Column(String(64), nullable=True, index=True)
-    paddle_customer_id = Column(String(64), nullable=True, index=True)
-    paddle_price_id = Column(String(64), nullable=True)
-    paddle_collection_mode = Column(String(16), nullable=True)  # automatic | manual
-    paddle_scheduled_change = Column(JSON, nullable=True)
     current_billing_period_start = Column(DateTime(timezone=True), nullable=True)
     current_billing_period_end = Column(DateTime(timezone=True), nullable=True)
 
@@ -38,6 +32,7 @@ class OrganizationSubscription(Base):
     lago_customer_id = Column(String(64), nullable=True, index=True)
     lago_plan_code = Column(String(100), nullable=True)
     payment_method = Column(String(50), nullable=True)  # card | transfer
+    billing_time = Column(String(20), default="anniversary")  # anniversary | calendar
 
     # ── MIO Payment fields ───────────────────────────────────────────
     mio_customer_token = Column(String(255), nullable=True)  # card-on-file token
@@ -57,6 +52,10 @@ class OrganizationSubscription(Base):
     addon_entity_slots = Column(Integer, default=0)      # extra entity slots beyond plan limit
     addon_user_slots = Column(Integer, default=0)        # extra user slots beyond plan limit
     auto_renew_addons = Column(Boolean, default=False)   # auto-purchase on soft limit
+    pending_cancel_entity_slots = Column(Integer, default=0, nullable=False)
+    pending_cancel_user_slots = Column(Integer, default=0, nullable=False)
+    pending_cancel_ai_blocks = Column(Integer, default=0, nullable=False)
+    pending_cancel_storage_blocks = Column(Integer, default=0, nullable=False)
 
     # ── Override (for Enterprise custom plans) ───────────────────────
     custom_limits_json = Column(String, nullable=True)   # JSON override of plan limits
@@ -77,13 +76,11 @@ class OrganizationSubscription(Base):
             "plan_id": str(self.plan_id),
             "plan_name": self.plan.display_name if self.plan else None,
             "status": self.status,
-            "paddle_subscription_id": self.paddle_subscription_id,
-            "paddle_customer_id": self.paddle_customer_id,
-            "paddle_collection_mode": self.paddle_collection_mode,
             "lago_subscription_id": self.lago_subscription_id,
             "lago_customer_id": self.lago_customer_id,
             "lago_plan_code": self.lago_plan_code,
             "payment_method": self.payment_method,
+            "billing_time": self.billing_time,
             "mio_customer_token": self.mio_customer_token,
             "billing_cycle_start": self.billing_cycle_start.isoformat() if self.billing_cycle_start else None,
             "billing_cycle_end": self.billing_cycle_end.isoformat() if self.billing_cycle_end else None,
@@ -112,6 +109,7 @@ class OrganizationSubscription(Base):
         base = {
             "max_users": plan.max_users + self.addon_user_slots,
             "max_entities": plan.max_entities + self.addon_entity_slots,
+            "max_products": plan.max_products,
             "max_ecf_monthly": plan.max_ecf_monthly
                 + (self.addon_ecf_blocks * plan.addon_ecf_block_size),
             "max_ai_queries_monthly": plan.max_ai_queries_monthly

@@ -37,7 +37,7 @@ services:
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_JWT_ISSUER=${SUPABASE_JWT_ISSUER:-http://127.0.0.1:54321/auth/v1}
       - SUPABASE_STORAGE_BUCKET=${SUPABASE_STORAGE_BUCKET:-invoices}
-      - DATABASE_URL=${LOCAL_DATABASE_URL:-${DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:5440/invoices}}
+      - DATABASE_URL=${LOCAL_DATABASE_URL:-${DATABASE_URL:-postgresql://postgres:postgres@supabase_db_fintral-dev:5432/postgres}}
       - REDIS_URL=${LOCAL_REDIS_URL:-${REDIS_URL}}
       # ── Secrets (inherited from Doppler via shell — no default) ──
       - APP_JWT_SECRET_KEY

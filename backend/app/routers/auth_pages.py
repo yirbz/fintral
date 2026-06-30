@@ -56,14 +56,17 @@ async def login_for_access_token(
             if not user:
                 raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
             _assert_not_deleted(user)
-            # Use the verified Supabase access token directly
-            token = result["access_token"]
+            # Generate a local session JWT to respect the remember-me / persistence settings,
+            # since Supabase's native access token expires after 1 hour.
+            expire = timedelta(days=REMEMBER_ME_EXPIRE_DAYS) if remember else timedelta(minutes=_SESSION_EXPIRE_MINUTES)
+            local_token = create_access_token(data={"sub": form_data.username}, expires_delta=expire)
             audit_record(
                 db, tenant_id=user.tenant_id, organization_id=user.tenant_id,
                 actor_id=str(user.id), actor_name=user.full_name, actor_email=user.email,
                 action="user.login", summary=f"Inicio de sesión (Supabase): {user.email}",
             )
-            return _create_token_response(token, persist=remember)
+            hostname = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+            return _create_token_response(local_token, persist=remember, hostname=hostname)
         # fall through to local verification if Supabase fails
 
     # 2) Legacy password verification (PROD fallback + DEVELOPMENT primary)
@@ -80,7 +83,8 @@ async def login_for_access_token(
                 actor_id=str(user.id), actor_name=user.full_name, actor_email=user.email,
                 action="user.login", summary=f"Inicio de sesión: {user.email}",
             )
-            return _create_token_response(token, persist=remember)
+            hostname = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+            return _create_token_response(token, persist=remember, hostname=hostname)
     except OperationalError:
         pass
 
@@ -98,7 +102,8 @@ async def login_for_access_token(
                 )
         except Exception:
             pass
-        return _create_token_response(token, persist=remember)
+        hostname = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+        return _create_token_response(token, persist=remember, hostname=hostname)
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -351,11 +356,34 @@ def _assert_not_deleted(user: User) -> None:
         raise HTTPException(status_code=401, detail="No disponible")
 
 
-def _create_token_response(token: str, *, persist: bool = False):
+def _get_cookie_domain(hostname: str) -> str | None:
+    """Extract parent domain for cookie sharing across subdomains.
+
+    - factura.localhost:3000 → None (host-only cookie for local dev)
+    - factura.fintral.app   → .fintral.app
+    - localhost:3000        → None
+    - fintral.app           → .fintral.app
+    """
+    hostname = hostname.split(":")[0].lower()
+    if hostname == "localhost" or hostname.endswith(".localhost") or hostname == "127.0.0.1":
+        return None
+    
+    import re
+    if re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", hostname):
+        return None
+
+    parts = hostname.split(".")
+    if len(parts) >= 2:
+        return "." + ".".join(parts[-2:])
+    return None
+
+
+def _create_token_response(token: str, *, persist: bool = False, hostname: str | None = None):
     """Build a JSONResponse that sets the access_token cookie.
 
     persist=True  → 30-day max_age ("remember me")
     persist=False → session cookie — browser deletes it on close
+    hostname     → if provided, sets domain for subdomain-wide cookie
     """
     response = JSONResponse({"access_token": token, "token_type": "bearer"})
     cookie_kwargs: dict = dict(
@@ -368,12 +396,17 @@ def _create_token_response(token: str, *, persist: bool = False):
     if persist:
         cookie_kwargs["max_age"] = _REMEMBER_MAX_AGE
     # No max_age for session cookies → browser lifetime only
+    if hostname:
+        domain = _get_cookie_domain(hostname)
+        if domain:
+            cookie_kwargs["domain"] = domain
     response.set_cookie(**cookie_kwargs)
     return response
 
 
 @router.get("/logout")
 async def logout(
+    request: Request,
     ctx: Optional[TenantContext] = Depends(optional_tenant),
     db: Session = Depends(get_db),
 ):
@@ -385,7 +418,12 @@ async def logout(
             organization_name=ctx.organization.name if ctx.organization else None,
         )
     response = RedirectResponse(url="/login")
-    response.delete_cookie("access_token")
+    hostname = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+    domain = _get_cookie_domain(hostname)
+    kwargs = {"key": "access_token"}
+    if domain:
+        kwargs["domain"] = domain
+    response.delete_cookie(**kwargs)
     return response
 
 
@@ -440,7 +478,7 @@ async def get_user_subscription(ctx: TenantContext = Depends(require_tenant)):
         .first()
     )
     if not sub:
-        return {"subscription": None, "has_active_subscription": False}
+        return {"subscription": None, "plan": None, "has_active_subscription": False}
 
     trial_remaining = 0
     if sub.trial_ends_at:
@@ -449,19 +487,6 @@ async def get_user_subscription(ctx: TenantContext = Depends(require_tenant)):
         trial_remaining = max(0, remaining)
 
     card_info = None
-    from app.models.user_card_token import UserCardToken
-    card = (
-        ctx.db.query(UserCardToken)
-        .filter(UserCardToken.user_id == ctx.user.id, UserCardToken.is_active.is_(True))
-        .first()
-    )
-    if card:
-        card_info = {
-            "brand": card.card_brand,
-            "last4": card.last_four,
-            "expiry_month": card.expiry_month,
-            "expiry_year": card.expiry_year,
-        }
 
     grace_hours = None
     if sub.status == "past_due":
@@ -472,12 +497,13 @@ async def get_user_subscription(ctx: TenantContext = Depends(require_tenant)):
         if time_since_failed <= grace_period:
             grace_hours = max(0, int((grace_period - time_since_failed).total_seconds() / 3600))
 
+    plan = sub.plan
     return {
         "subscription": {
             "id": str(sub.id),
             "status": sub.status,
             "plan_code": sub.lago_plan_code,
-            "plan_name": sub.plan.display_name if sub.plan else None,
+            "plan_name": plan.display_name if plan else None,
             "payment_method": sub.payment_method,
             "auto_renew": sub.auto_renew,
             "trial_ends_at": sub.trial_ends_at.isoformat() if sub.trial_ends_at else None,
@@ -491,6 +517,19 @@ async def get_user_subscription(ctx: TenantContext = Depends(require_tenant)):
             "card_info": card_info,
             "grace_hours": grace_hours,
         },
+        "plan": {
+            "id": str(plan.id),
+            "name": plan.name,
+            "display_name": plan.display_name,
+            "description": plan.description,
+            "price_monthly": round(plan.price_monthly_cents / 100, 2),
+            "price_usd": float(plan.price_usd) if plan.price_usd is not None else None,
+            "limits": plan.to_dict().get("limits", {}),
+            "features": plan.to_dict().get("features", {}),
+            "is_enterprise": plan.is_enterprise,
+            "sort_order": plan.sort_order,
+            "soft_limit_enabled": plan.soft_limit_enabled,
+        } if plan else None,
         "has_active_subscription": sub.status in ("active", "trialing", "past_due"),
     }
 

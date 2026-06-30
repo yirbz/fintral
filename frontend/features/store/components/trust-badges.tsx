@@ -29,16 +29,7 @@ export function TrustBadges() {
 
       <div className="text-center">
         <p className="text-[11px] text-brand-ink-mute/60 dark:text-slate-500">
-          Procesado por{" "}
-          <a
-            href="https://paddle.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-medium text-brand-ink-secondary dark:text-slate-300 hover:text-brand-primary dark:hover:text-sky-400 transition-colors"
-          >
-            Paddle.com
-          </a>{" "}
-          (PCI-DSS Level 1) · Transferencias validadas localmente en RD
+          Pagos procesados de forma segura · Transferencias validadas localmente en RD
         </p>
       </div>
     </div>

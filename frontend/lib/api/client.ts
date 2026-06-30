@@ -62,7 +62,12 @@ export async function apiFetch<T>(
     try {
       errorPayload = await response.json();
       if (typeof errorPayload === "object" && errorPayload !== null && "detail" in errorPayload) {
-        errorMessage = String((errorPayload as { detail: unknown }).detail);
+        const detailObj = (errorPayload as { detail: any }).detail;
+        if (typeof detailObj === "object" && detailObj !== null) {
+          errorMessage = detailObj.message || detailObj.error || JSON.stringify(detailObj);
+        } else {
+          errorMessage = String(detailObj);
+        }
       }
     } catch {
       // Body already consumed or not JSON - use fallback message
@@ -82,6 +87,28 @@ export async function apiFetch<T>(
         window.dispatchEvent(new CustomEvent("billing:required", { detail: { path: input, message: errorMessage, grace_hours: graceHours } }));
       } catch { /* noop */ }
       throw new ApiError(errorMessage, response.status, errorPayload);
+    }
+
+    if (response.status === 403 && !isOnPublicPage()) {
+      if (errorMessage === "ENTITY_BLOCKED") {
+        try {
+          window.dispatchEvent(new CustomEvent("billing:entity-blocked", { detail: { path: input } }));
+        } catch { /* noop */ }
+        throw new ApiError("Entidad bloqueada por límite de plan superado", response.status, errorPayload);
+      }
+      if (errorMessage === "USER_BLOCKED") {
+        try {
+          window.dispatchEvent(new CustomEvent("billing:user-blocked", { detail: { path: input } }));
+        } catch { /* noop */ }
+        throw new ApiError("Acceso denegado: límite de usuarios en la entidad superado", response.status, errorPayload);
+      }
+    }
+
+    // Detect expired subscription on read-only responses
+    if (response.ok && response.headers.get("X-Subscription-Status") === "expired" && !isOnPublicPage()) {
+      try {
+        window.dispatchEvent(new CustomEvent("billing:required", { detail: {} }));
+      } catch { /* noop */ }
     }
 
     throw new ApiError(errorMessage, response.status, errorPayload);

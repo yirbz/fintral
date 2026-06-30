@@ -142,19 +142,6 @@ class MioService:
                         }
                     }
                 }
-            elif path == "api/v2/charges":
-                return {
-                    "data": {
-                        "attributes": {
-                            "status": "SUCCESS",
-                            "payment": {
-                                "id": f"pay_mock_{uuid.uuid4().hex[:12]}",
-                                "authorization_code": "auth_mock_tok",
-                                "reference_number": f"ref_mock_{uuid.uuid4().hex[:8]}"
-                            }
-                        }
-                    }
-                }
             return {}
 
         url = f"{self.api_base_url}/{path.lstrip('/')}"
@@ -293,37 +280,4 @@ class MioService:
                 logger.error(f"HTTP request failed on MIO Refund API: {exc}")
                 raise MioAPIError(message=f"Refund request failed: {exc}")
 
-    async def charge_token(
-        self,
-        amount_cents: int,
-        card_token: str,
-        description: str,
-        currency_code: str = "214",
-    ) -> Dict[str, Any]:
-        """Execute a server-to-server card charge using a tokenized card (Card-on-File) on MIO.
-        
-        Returns the transaction status and confirmation details.
-        """
-        payload = {
-            "data": {
-                "attributes": {
-                    "amount": amount_cents,
-                    "currency": currency_code,
-                    "description": description[:100],
-                    "token": card_token,
-                }
-            }
-        }
-        
-        logger.info(f"Charging MIO token {card_token} for amount {amount_cents} cents")
-        resp = await self._request("POST", "api/v2/charges", json_data=payload)
-        
-        attributes = resp.get("data", {}).get("attributes", {})
-        payment_data = attributes.get("payment", {})
-        
-        return {
-            "status": attributes.get("status"),  # SUCCESS or FAILED
-            "payment_id": payment_data.get("id"),
-            "authorization_code": payment_data.get("authorization_code"),
-            "reference_number": payment_data.get("reference_number"),
-        }
+

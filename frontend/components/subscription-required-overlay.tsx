@@ -1,76 +1,145 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { AlertTriangle, CreditCard, LogOut, Sparkles, Clock } from "lucide-react";
+import { AlertTriangle, LogOut, Clock, Store, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getMyUserSubscription } from "@/lib/api/plans";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
-export default function SubscriptionRequiredOverlay() {
+interface Props {
+  initialExpired?: boolean;
+  initialGraceHours?: number | null;
+}
+
+function formatRemaining(hours: number): string {
+  const totalMinutes = Math.round(hours * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h > 0 && m > 0) return `${h}h ${m}m`;
+  if (h > 0) return `${h}h`;
+  return `${m}m`;
+}
+
+export default function SubscriptionRequiredOverlay({ initialExpired, initialGraceHours }: Props) {
   const [active, setActive] = useState(false);
-  const [graceHours, setGraceHours] = useState<number | null>(null);
-  const router = useRouter();
+  const [graceHours, setGraceHours] = useState<number | null>(initialGraceHours ?? null);
+  const [isExpired, setIsExpired] = useState(initialExpired ?? false);
+  const [checking, setChecking] = useState(false);
+
+  const checkStatus = async () => {
+    setChecking(true);
+    try {
+      const res = await getMyUserSubscription();
+      if (res.has_active_subscription) {
+        setGraceHours(null);
+        setIsExpired(false);
+        setActive(false);
+        window.dispatchEvent(new CustomEvent("billing:resolved"));
+        toast.success("¡Suscripción activa! Gracias por tu pago.");
+      } else {
+        if (res.subscription?.grace_hours) {
+          setGraceHours(res.subscription.grace_hours);
+          setIsExpired(false);
+        } else {
+          setGraceHours(null);
+          setIsExpired(true);
+        }
+        toast.info("Aún no se detecta tu pago activo. Si pagaste por transferencia, el equipo lo validará pronto.");
+      }
+    } catch {
+      toast.error("No se pudo verificar el estado de la suscripción");
+    } finally {
+      setChecking(false);
+    }
+  };
 
   const handleEvent = useCallback(async (e: Event) => {
     setActive(true);
     const detail = (e as CustomEvent).detail;
-    if (detail?.grace_hours) {
+    if (detail?.grace_hours !== undefined && detail?.grace_hours !== null) {
       setGraceHours(detail.grace_hours);
+      setIsExpired(false);
     } else {
       try {
         const res = await getMyUserSubscription();
         if (res.subscription?.grace_hours) {
           setGraceHours(res.subscription.grace_hours);
+          setIsExpired(false);
+        } else {
+          setGraceHours(null);
+          setIsExpired(true);
         }
-      } catch {}
+      } catch {
+        setIsExpired(true);
+      }
     }
   }, []);
+
+  useEffect(() => {
+    if (initialExpired) {
+      setActive(true);
+      setIsExpired(true);
+    }
+    if (initialGraceHours && initialGraceHours > 0) {
+      setActive(true);
+      setGraceHours(initialGraceHours);
+      setIsExpired(false);
+    }
+  }, [initialExpired, initialGraceHours]);
 
   useEffect(() => {
     window.addEventListener("billing:required", handleEvent);
     return () => window.removeEventListener("billing:required", handleEvent);
   }, [handleEvent]);
 
+  const goToTienda = () => {
+    setActive(false);
+    window.location.href = "/dashboard/tienda";
+  };
+
   if (!active) return null;
 
+  // ── Grace period: red banner with countdown ──
   if (graceHours && graceHours > 0) {
     return (
-      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-background/95 backdrop-blur-sm animate-in fade-in duration-300">
-        <div className="mx-auto flex max-w-sm flex-col items-center gap-6 px-6 text-center">
-          <div className="flex size-14 items-center justify-center rounded-2xl bg-amber-500/10 ring-1 ring-amber-500/20">
-            <Clock className="size-6 text-amber-500" />
-          </div>
-          <div className="flex flex-col items-center gap-1">
-            <h2 className="text-lg font-semibold tracking-tight text-foreground">
-              Pago Pendiente
-            </h2>
-            <p className="max-w-[34ch] text-sm leading-relaxed text-muted-foreground mt-1">
-              No pudimos procesar el cobro de tu mensualidad. Tienes{" "}
-              <strong className="text-foreground">{graceHours}h</strong> de
-              gracia para actualizar tu método de pago antes de perder el acceso.
+      <div className="sticky top-0 z-40 w-full bg-red-600 text-white shadow-lg">
+        <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-4 px-4 py-2.5 sm:px-6">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Clock className="size-4 shrink-0" />
+            <p className="truncate text-sm font-medium">
+              Tu suscripción ha vencido. Tu cuenta será suspendida en un periodo de{" "}
+              <strong>{formatRemaining(graceHours)}</strong>. Renueva tu plan de suscripción para seguir usando el Hub sin interrupciones.
             </p>
           </div>
-          <div className="flex flex-col items-center gap-2.5 w-full">
+          <div className="flex shrink-0 items-center gap-2">
             <Button
-              onClick={() => {
-                setActive(false);
-                window.location.href = "/dashboard/cuenta";
-              }}
-              className="w-full h-10 rounded-xl text-sm font-medium"
+              onClick={checkStatus}
+              disabled={checking}
+              size="sm"
+              className="h-8 gap-1.5 rounded-lg border border-red-500 bg-red-700 text-white text-xs font-semibold hover:bg-red-800 disabled:opacity-50 shadow-xs"
             >
-              <CreditCard className="mr-2 size-4" />
-              Actualizar método de pago
+              <RefreshCw className={cn("size-3.5", checking && "animate-spin")} />
+              Verificar estado
+            </Button>
+            <Button
+              onClick={goToTienda}
+              size="sm"
+              className="h-8 gap-1.5 rounded-lg bg-white text-red-700 text-xs font-semibold hover:bg-red-50 shadow-xs"
+            >
+              <Store className="size-3.5" />
+                  Actualizar método de pago
             </Button>
             <Button
               variant="ghost"
+              size="sm"
               onClick={() => {
                 setActive(false);
                 window.location.href = "/logout";
               }}
-              className="w-full h-8 text-xs text-muted-foreground gap-1.5 hover:bg-muted"
+              className="h-8 text-xs text-red-100 hover:text-white hover:bg-red-700"
             >
               <LogOut className="size-3" />
-              Cerrar Sesión
             </Button>
           </div>
         </div>
@@ -78,46 +147,44 @@ export default function SubscriptionRequiredOverlay() {
     );
   }
 
+  // ── Expired: orange banner ──
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-background/95 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="mx-auto flex max-w-sm flex-col items-center gap-6 px-6 text-center">
-        <div className="flex size-14 items-center justify-center rounded-2xl bg-red-500/10 ring-1 ring-red-500/20">
-          <AlertTriangle className="size-6 text-red-500" />
-        </div>
-        <div className="flex flex-col items-center gap-1">
-          <h2 className="text-lg font-semibold tracking-tight text-foreground">
-            Suscripción Vencida
-          </h2>
-          <p className="max-w-[34ch] text-sm leading-relaxed text-muted-foreground mt-1">
-            No pudimos procesar el cobro de tu mensualidad. Para seguir usando
-            el Hub de Contabilidad, actualiza tu método de pago o liquida tus
-            facturas pendientes.
-          </p>
-          <p className="text-xs text-muted-foreground/70 font-medium mt-2">
-            Fintral Factura sigue siendo 100% gratuito.
+    <div className="sticky top-0 z-40 w-full bg-orange-600 text-white shadow-lg">
+      <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-4 px-4 py-2.5 sm:px-6">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <AlertTriangle className="size-4 shrink-0" />
+          <p className="truncate text-sm font-medium">
+            Tu suscripción ha vencido. Para seguir usando el Hub de Contabilidad, elige un plan y actualiza tu método de pago.
           </p>
         </div>
-        <div className="flex flex-col items-center gap-2.5 w-full">
+        <div className="flex shrink-0 items-center gap-2">
           <Button
-            onClick={() => {
-              setActive(false);
-              window.location.href = "/dashboard/cuenta";
-            }}
-            className="w-full h-10 rounded-xl text-sm font-medium"
+            onClick={checkStatus}
+            disabled={checking}
+            size="sm"
+            className="h-8 gap-1.5 rounded-lg border border-orange-500 bg-orange-700 text-white text-xs font-semibold hover:bg-orange-800 disabled:opacity-50 shadow-xs"
           >
-            <CreditCard className="mr-2 size-4" />
+            <RefreshCw className={cn("size-3.5", checking && "animate-spin")} />
+            Verificar estado
+          </Button>
+          <Button
+            onClick={goToTienda}
+            size="sm"
+            className="h-8 gap-1.5 rounded-lg bg-white text-orange-700 text-xs font-semibold hover:bg-orange-50 shadow-xs"
+          >
+            <Store className="size-3.5" />
             Actualizar método de pago
           </Button>
           <Button
             variant="ghost"
+            size="sm"
             onClick={() => {
               setActive(false);
               window.location.href = "/logout";
             }}
-            className="w-full h-8 text-xs text-muted-foreground gap-1.5 hover:bg-muted"
+            className="h-8 text-xs text-orange-100 hover:text-white hover:bg-orange-700"
           >
             <LogOut className="size-3" />
-            Cerrar Sesión
           </Button>
         </div>
       </div>

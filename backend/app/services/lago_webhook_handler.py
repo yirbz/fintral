@@ -13,6 +13,7 @@ from app.models.billing_webhook_event import BillingWebhookEvent
 from app.models.mio_payment_order import MioPaymentOrder
 from app.models.organization import Organization
 from app.models.organization_subscription import OrganizationSubscription
+from app.models.user import User
 from app.models.user_subscription import UserSubscription
 from app.services.lago_service import LagoService
 from app.services.mio_service import MioService
@@ -69,6 +70,14 @@ class LagoWebhookHandler:
                 await self._handle_subscription_started(payload.get("subscription", {}))
             elif event_type == "subscription.terminated":
                 await self._handle_subscription_terminated(payload.get("subscription", {}))
+            elif event_type == "invoice.payment_overdue":
+                await self._handle_invoice_payment_overdue(payload.get("invoice", {}))
+            elif event_type == "payment_request.created":
+                await self._handle_payment_request_created(payload.get("payment_request", {}))
+            elif event_type == "subscription.termination_alert":
+                await self._handle_subscription_termination_alert(payload.get("subscription", {}))
+            elif event_type == "subscription.updated":
+                await self._handle_subscription_updated(payload.get("subscription", {}))
             else:
                 logger.info(f"Unhandled Lago webhook event type: {event_type}")
 
@@ -141,109 +150,8 @@ class LagoWebhookHandler:
                 item_names.append(f"{units}x {fee_name}")
             description = "Fintral: " + ", ".join(item_names)
 
-        # Process card payments
+        # Process card payments via MIO hosted checkout
         if payment_method == "card" and total_cents > 0:
-            # If user has a saved active card token, charge it directly!
-            if user:
-                from app.models.user_card_token import UserCardToken
-                card_token_obj = (
-                    self.db.query(UserCardToken)
-                    .filter(UserCardToken.user_id == user.id, UserCardToken.is_active)
-                    .first()
-                )
-                
-                if card_token_obj:
-                    # Token found: Direct server-to-server payment
-                    logger.info(f"Attempting direct charge for user {user.id} using saved token...")
-                    try:
-                        # MIO card charges carry a 5% transaction fee
-                        charge_cents = int(total_cents * 1.05)
-                        charge_res = await self.mio.charge_token(
-                            amount_cents=charge_cents,
-                            card_token=card_token_obj.card_token,
-                            description=description
-                        )
-                        
-                        if charge_res.get("status") == "SUCCESS":
-                            logger.info(f"Direct charge SUCCESS for user {user.id}. Recording payment in Lago...")
-                            # Save successful payment order
-                            db_order = MioPaymentOrder(
-                                order_uuid=f"mio-direct-{uuid.uuid4().hex[:12]}",
-                                lago_invoice_id=lago_invoice_id,
-                                user_id=user.id,
-                                plan_id=sub.plan_id if sub else None,
-                                amount_cents=charge_cents,
-                                status="SUCCESS",
-                                payment_id=charge_res.get("payment_id"),
-                                authorization_code=charge_res.get("authorization_code"),
-                                reference_number=charge_res.get("reference_number")
-                            )
-                            self.db.add(db_order)
-                            
-                            # Record in Lago
-                            paid_at = utc_now().strftime("%Y-%m-%d")
-                            await self.lago.record_payment(
-                                invoice_id=lago_invoice_id,
-                                amount_cents=total_cents,
-                                reference=charge_res.get("reference_number") or charge_res.get("payment_id") or "direct-token-charge",
-                                paid_at=paid_at
-                            )
-                            
-                            # Activate subscription locally
-                            if sub:
-                                sub.status = "active"
-                                sub.updated_at = utc_now()
-                            
-                            self.db.commit()
-                            
-                            # Send receipt email
-                            try:
-                                from app.services.email_service import send_purchase_invoice_email
-                                amount_dop = float(charge_cents) / 100.0
-                                fee_amount = amount_dop * 0.05 / 1.05
-                                subtotal_dop = amount_dop - fee_amount
-                                items_list = [{
-                                    "label": description,
-                                    "quantity": 1,
-                                    "total": subtotal_dop
-                                }]
-                                send_purchase_invoice_email(
-                                    customer_email=user.email,
-                                    customer_name=user.full_name or user.email,
-                                    items=items_list,
-                                    total=amount_dop,
-                                    currency="DOP",
-                                    payment_method="card",
-                                    fee_amount=fee_amount
-                                )
-                            except Exception as e:
-                                logger.error(f"Failed to send success receipt email: {e}")
-                            return
-                        else:
-                            logger.warning(f"Direct charge DECLINED for user {user.id}. Fallback to dunning...")
-                    except Exception as charge_err:
-                        logger.error(f"Error during direct token charge for user {user.id}: {charge_err}. Fallback to dunning...")
-                    
-                    # Direct charge failed: set status to past_due
-                    if sub:
-                        sub.status = "past_due"
-                        sub.updated_at = utc_now()
-                        self.db.commit()
-                        
-                    # Send dunning email notification
-                    try:
-                        from app.services.email_service import send_dunning_email
-                        send_dunning_email(
-                            customer_email=user.email,
-                            customer_name=user.full_name or user.email,
-                            amount_dop=float(total_cents * 1.05) / 100.0,
-                            reason="La tarjeta guardada fue declinada o no pudo procesar el cargo."
-                        )
-                    except Exception as email_err:
-                        logger.error(f"Failed to send dunning email alert: {email_err}")
-                    return
-
-            # Fallback to hosted order generation (no token or organization payment)
             webhook_url = settings.MIO_WEBHOOK_URL or "https://api.fintral.com/api/mio/webhook"
             success_url = settings.MIO_SUCCESS_REDIRECT or "https://app.fintral.com/billing/success"
             failed_url = settings.MIO_FAILED_REDIRECT or "https://app.fintral.com/billing/failed"
@@ -370,6 +278,126 @@ class LagoWebhookHandler:
                     except ValueError:
                         pass
             
+            self.db.flush()
+
+    async def _handle_invoice_payment_overdue(self, invoice: dict[str, Any]) -> None:
+        """Fired when an invoice becomes overdue in Lago.
+
+        Creates a payment request for overdue invoices with bank transfer info.
+        """
+        lago_invoice_id = invoice.get("lago_id")
+        customer = invoice.get("customer", {})
+        ext_id_str = customer.get("external_id")
+
+        if not ext_id_str:
+            logger.warning(f"No customer external_id in overdue invoice {lago_invoice_id}")
+            return
+
+        org = self.db.query(Organization).filter(Organization.id == ext_id_str).first()
+        if not org:
+            logger.info(f"No org found for {ext_id_str} on overdue invoice")
+            return
+
+        # Notify user via email about overdue payment
+        try:
+            from app.services.email_service import send_dunning_email
+            send_dunning_email(
+                customer_email=org.email_contact or "administracion@fintral.com",
+                customer_name=org.name,
+                amount_dop=float(invoice.get("total_amount_cents", 0)) / 100.0,
+                reason="Factura vencida. Por favor realiza el pago para evitar la suspensión del servicio.",
+            )
+            logger.info(f"Sent dunning email for overdue invoice {lago_invoice_id} to org {org.id}")
+        except Exception as e:
+            logger.error(f"Failed to send dunning email: {e}")
+
+    async def _handle_payment_request_created(self, payment_request: dict[str, Any]) -> None:
+        """Fired when a payment request is created in Lago (dunning step)."""
+        pr_id = payment_request.get("lago_id")
+        customer = payment_request.get("customer", {})
+        ext_id_str = customer.get("external_id")
+
+        if not ext_id_str:
+            return
+
+        logger.info(f"Payment request {pr_id} created for customer {ext_id_str}")
+
+        # Payment request created — MIO will send email notifications via dunning flow
+        user = self.db.query(User).filter(User.id == ext_id_str).first()
+        if user:
+            logger.info(f"User {user.id} has a payment request pending — email notification will be sent")
+
+    async def _handle_subscription_termination_alert(self, subscription: dict[str, Any]) -> None:
+        """Fired 45 and 15 days before a subscription ends.
+
+        Sends reminder email to the customer.
+        """
+        external_id = subscription.get("external_id")
+        termination_date = subscription.get("ending_at")
+        days_remaining = subscription.get("remaining_days", 0)
+
+        if not external_id:
+            return
+
+        # Look up customer
+        org_sub = (
+            self.db.query(OrganizationSubscription)
+            .filter(OrganizationSubscription.lago_subscription_id == external_id)
+            .first()
+        )
+        if org_sub and org_sub.organization:
+            org = org_sub.organization
+            try:
+                from app.services.email_service import send_dunning_email
+                send_dunning_email(
+                    customer_email=org.email_contact or "administracion@fintral.com",
+                    customer_name=org.name,
+                    amount_dop=0,
+                    reason=f"Tu suscripción terminará en {days_remaining} días ({termination_date}). Renueva para mantener el servicio activo.",
+                )
+                logger.info(f"Sent termination alert to org {org.id}: {days_remaining} days remaining")
+            except Exception as e:
+                logger.error(f"Failed to send termination alert: {e}")
+
+    async def _handle_subscription_updated(self, subscription: dict[str, Any]) -> None:
+        """Fired when a subscription is updated in Lago (e.g., plan change, billing time change)."""
+        external_id = subscription.get("external_id")
+        plan_code = subscription.get("plan_code")
+        billing_time = subscription.get("billing_time")
+        status = subscription.get("status")
+
+        if not external_id:
+            return
+
+        # Sync local subscription
+        org_sub = (
+            self.db.query(OrganizationSubscription)
+            .filter(OrganizationSubscription.lago_subscription_id == external_id)
+            .first()
+        )
+        if org_sub:
+            if plan_code:
+                org_sub.lago_plan_code = plan_code
+            if billing_time:
+                org_sub.billing_time = billing_time
+            if status:
+                org_sub.status = status
+            org_sub.updated_at = utc_now()
+            self.db.flush()
+            logger.info(f"Synced subscription update for {external_id}: plan={plan_code}, billing={billing_time}, status={status}")
+            return
+
+        user_sub = (
+            self.db.query(UserSubscription)
+            .filter(UserSubscription.lago_subscription_id == external_id)
+            .first()
+        )
+        if user_sub:
+            if plan_code:
+                user_sub.lago_plan_code = plan_code
+            if status:
+                user_sub.status = status
+            user_sub.updated_at = utc_now()
             self.db.flush()
 
     async def _handle_subscription_started(self, subscription: dict[str, Any]) -> None:

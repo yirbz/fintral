@@ -41,7 +41,6 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/hooks/use-session";
-import { useCustomerPortal } from "@/hooks/use-customer-portal";
 
 function isOwnerOrAdmin(role: string | undefined) {
   return role === "owner" || role === "admin";
@@ -242,13 +241,6 @@ function PlanUsageSection({
   const role = session?.role;
   const orgId = session?.organization?.id;
   const canManage = isOwnerOrAdmin(role);
-  const { openPortal, loading: portalLoading } = useCustomerPortal();
-
-  const handleOpenPortal = () => {
-    if (orgId) {
-      openPortal(orgId);
-    }
-  };
 
   const { data: usageDaily } = useQuery({
     queryKey: ["plans", "usage-daily"],
@@ -298,25 +290,7 @@ function PlanUsageSection({
                 </p>
               </div>
 
-              {data?.subscription?.paddle_subscription_id &&
-                data?.subscription?.paddle_collection_mode === "automatic" &&
-                canManage && (
-                  <Button
-                    type="button"
-                    onClick={handleOpenPortal}
-                    disabled={portalLoading}
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5 text-xs shrink-0 ml-4"
-                  >
-                    {portalLoading ? (
-                      <Loader2 className="size-3.5 animate-spin" />
-                    ) : (
-                      <CreditCard className="size-3.5" />
-                    )}
-                    Gestionar pago
-                  </Button>
-                )}
+
             </div>
           </div>
 

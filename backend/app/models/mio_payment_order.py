@@ -17,6 +17,7 @@ class MioPaymentOrder(Base):
     organization_id = Column(GUID, ForeignKey("organizations.id"), nullable=True)
     user_id = Column(GUID, ForeignKey("users.id"), nullable=True)
     plan_id = Column(GUID, ForeignKey("subscription_plans.id"), nullable=True)
+    cart_items_json = Column(JSON, nullable=True)  # items del carrito para provisionar después del pago
     
     amount_cents = Column(Integer, nullable=False)
     currency = Column(String(10), default="DOP", nullable=False)

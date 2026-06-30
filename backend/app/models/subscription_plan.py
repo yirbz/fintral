@@ -19,13 +19,10 @@ class SubscriptionPlan(Base):
     # ── Pricing ──────────────────────────────────────────────────────
     price_monthly_cents = Column(Integer, nullable=False)       # 2900 = $29.00
     currency = Column(String(3), default="USD")
-    price_usd = Column(Numeric(10, 2), nullable=True)           # USD price for Paddle checkout
+    price_usd = Column(Numeric(10, 2), nullable=True)           # USD price for reference
     price_dop = Column(Numeric(10, 2), nullable=True)           # DOP price for MIO/Lago checkout
     lago_plan_code = Column(String(100), nullable=True)         # Lago plan identifier
 
-    paddle_product_id = Column(String(64), nullable=True)
-    paddle_price_id_monthly = Column(String(64), nullable=True)
-    paddle_price_id_annual = Column(String(64), nullable=True)
     extra_entity_price_cents = Column(Integer, default=0)       # DEPRECATED — always 0
     extra_billing_entity_price_cents = Column(Integer, default=0)  # DEPRECATED — always 0
     entity_slot_price_cents = Column(Integer, default=0)        # RD$600 / extra entity slot beyond plan limit
@@ -40,6 +37,7 @@ class SubscriptionPlan(Base):
     # ── Resource limits ──────────────────────────────────────────────
     max_users = Column(Integer, nullable=False, default=1)
     max_entities = Column(Integer, nullable=False, default=1)
+    max_products = Column(Integer, nullable=False, default=0)  # 0 = unlimited
 
     # Monthly hard caps
     max_ecf_monthly = Column(Integer, nullable=False, default=0)
@@ -111,6 +109,7 @@ class SubscriptionPlan(Base):
             "limits": {
                 "max_users": self.max_users,
                 "max_entities": self.max_entities,
+                "max_products": self.max_products,
                 "max_ecf_monthly": self.max_ecf_monthly,
                 "max_ai_queries_monthly": self.max_ai_queries_monthly,
                 "max_ocr_docs_monthly": self.max_ocr_docs_monthly,

@@ -1411,6 +1411,202 @@ class VoidInvoiceRequest(BaseModel):
     reason: Optional[str] = None
 
 
+async def _issue_credit_note_for_correction(
+    db,
+    invoice,
+    tenant_id,
+    org_id,
+    organization,
+) -> "Invoice":
+    """
+    Emitir una Nota de Crédito (E34) para corrección de una factura electrónica.
+    Reutiliza la lógica existente de void_invoice pero sin marcar la original como cancelada.
+    """
+    from app.models import EcfSequence
+    from app.services.alanube import AlanubeService
+
+    sequence = (
+        db.query(EcfSequence)
+        .filter(
+            EcfSequence.tenant_id == tenant_id,
+            EcfSequence.organization_id == org_id,
+            EcfSequence.ecf_type == 34,
+            EcfSequence.is_active.is_(True),
+        )
+        .first()
+    )
+    if not sequence:
+        raise HTTPException(status_code=400, detail="No hay secuencia E34 activa para Notas de Crédito")
+    if sequence.current_number >= sequence.end_number:
+        raise HTTPException(status_code=400, detail="Secuencia E34 agotada")
+
+    sequence.current_number += 1
+    encf = f"{sequence.prefix}34{sequence.current_number:010d}"
+
+    sender_rnc = re.sub(r"[^0-9]", "", organization.tax_id or "") or "132109122"
+    sender_name = organization.name or "Fintral"
+
+    items = []
+    if invoice.line_items:
+        for li in invoice.line_items:
+            items.append({
+                "description": li.get("name", "") or li.get("description", ""),
+                "quantity": float(li.get("quantity", 1)),
+                "unit_price": float(li.get("unit_price", 0)),
+                "discount_rate": float(li.get("discount_rate", 0)),
+                "tax_rate": float(li.get("tax_rate", 18)),
+                "good_service_indicator": int(li.get("good_service_indicator", 1)),
+            })
+
+    if not items:
+        items.append({
+            "description": "Anulación por corrección",
+            "quantity": 1,
+            "unit_price": invoice.total_amount or 0,
+            "discount_rate": 0,
+            "tax_rate": 18,
+            "good_service_indicator": 1,
+        })
+
+    buyer_rnc = invoice.rnc_comprador or "132109122"
+    buyer_name = "Consumidor Final"
+    buyer_address = ""
+
+    raw_data = {}
+    if invoice.raw_extracted_data:
+        try:
+            raw_data = json.loads(invoice.raw_extracted_data)
+            buyer_name = raw_data.get("buyer_name", "Consumidor Final")
+            buyer_address = raw_data.get("buyer_address", "")
+        except Exception:
+            pass
+
+    from app.routers.billing import EmitLineItem, _build_emit_alanube_payload
+
+    emit_items = [EmitLineItem(**it) for it in items]
+
+    alanube_payload, subtotal, itbis_total, total_amount = _build_emit_alanube_payload(
+        encf=encf,
+        sequence=sequence,
+        ecf_type=34,
+        sender_rnc=sender_rnc,
+        sender_name=sender_name,
+        buyer_name=buyer_name,
+        buyer_rnc=buyer_rnc,
+        items=emit_items,
+        income_type=1,
+        payment_type=1,
+        reference_ecf=invoice.invoice_number,
+        reference_date=invoice.invoice_date.date() if invoice.invoice_date else None,
+        modification_code=1,
+        sender_address=organization.fiscal_address,
+        sender_municipality=organization.municipality,
+        sender_province=organization.province,
+        sender_phone=[organization.phone] if organization.phone else None,
+        sender_email=organization.email_contact,
+        sender_website=organization.website,
+        sender_economic_activity=organization.economic_activity,
+        buyer_address=buyer_address,
+        stamp_date=datetime.utcnow().date().isoformat(),
+    )
+
+    alanube_payload["idDoc"]["creditNoteIndicator"] = 0
+
+    child_raw_data = {
+        "ecf_type": "34",
+        "parent_invoice_id": str(invoice.id),
+        "modified_ncf": invoice.invoice_number,
+        "modification_reason": "01",
+        "buyer_name": buyer_name,
+        "buyer_rnc": buyer_rnc,
+        "correction": True,
+    }
+
+    child_line_items = [
+        {
+            "line": idx + 1,
+            "name": it.description,
+            "quantity": it.quantity,
+            "unit_price": it.unit_price,
+            "discount_rate": it.discount_rate,
+            "tax_rate": it.tax_rate,
+            "total": round((it.quantity * it.unit_price * (1 - it.discount_rate / 100)) * (1 + it.tax_rate / 100), 2),
+        }
+        for idx, it in enumerate(emit_items)
+    ]
+
+    child_invoice = Invoice(
+        tenant_id=tenant_id,
+        organization_id=org_id,
+        filename=f"Nota de Crédito - {invoice.invoice_number or ''}",
+        file_type="xml",
+        vendor_name=sender_name,
+        vendor_tax_id=sender_rnc,
+        rnc_comprador=buyer_rnc,
+        invoice_number=encf,
+        invoice_date=datetime.utcnow(),
+        total_amount=total_amount,
+        tax_amount=itbis_total,
+        currency="DOP",
+        transaction_type="income",
+        source_type="billing",
+        ecf_type="34",
+        is_electronic=True,
+        processed=False,
+        status="draft",
+        parent_invoice_id=invoice.id,
+        modified_ncf=invoice.invoice_number,
+        modification_reason="01",
+        line_items_data=json.dumps(child_line_items, ensure_ascii=False),
+        raw_extracted_data=json.dumps(child_raw_data, ensure_ascii=False),
+    )
+    db.add(child_invoice)
+    db.flush()
+
+    alanube_service = AlanubeService(
+        db=db,
+        tenant_id=tenant_id,
+        organization_id=org_id,
+    )
+    try:
+        res = await alanube_service.emit_document(
+            ecf_type=34,
+            payload=alanube_payload,
+            company_id=organization.alanube_company_id,
+        )
+
+        track_id = res.get("id") or res.get("trackId")
+        pdf_url = res.get("pdfUrl") or res.get("pdf_url")
+        xml_url = res.get("xmlUrl") or res.get("xml_url")
+        security_code = res.get("securityCode") or res.get("security_code")
+        legal_status = res.get("legalStatus") or res.get("legal_status") or "ACCEPTED"
+
+        child_raw_data.update({
+            "security_code": security_code,
+            "track_id": track_id,
+            "legal_status": legal_status,
+            "pdf_url": pdf_url,
+            "xml_url": xml_url,
+            "qr_url": f"https://dgii.gov.do/consulta/ecf?rnc={sender_rnc}&encf={encf}&trackId={track_id}" if track_id else None,
+        })
+        child_invoice.raw_extracted_data = json.dumps(child_raw_data, ensure_ascii=False)
+        child_invoice.file_path = xml_url
+        child_invoice.processed_path = pdf_url
+        child_invoice.status = "verified"
+        child_invoice.processed = True
+        child_invoice.updated_at = datetime.utcnow()
+
+        db.commit()
+        db.refresh(child_invoice)
+
+    except Exception:
+        db.rollback()
+        logger.exception("Error emitiendo Nota de Crédito para corrección")
+        raise HTTPException(status_code=502, detail="Error al emitir la Nota de Crédito para corrección")
+
+    return child_invoice
+
+
 @router.post("/invoices/{invoice_id}/void")
 async def void_invoice(
     invoice_id: str,

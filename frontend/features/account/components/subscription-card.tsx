@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { CreditCard, ArrowRightLeft, ExternalLink, Calendar, HelpCircle } from "lucide-react";
-import { PlanSummary, SubscriptionSummary, toggleSubscriptionAutoRenew, cancelUserSubscription } from "@/lib/api/plans";
+import { toggleSubscriptionAutoRenew, cancelUserSubscription } from "@/lib/api/plans";
 import { SubscriptionBadge } from "./subscription-badge";
 import { PriceDisplay } from "@/components/ui/price-display";
 import { Button } from "@/components/ui/button";
@@ -20,18 +20,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
-interface SubscriptionCardProps {
-  plan: PlanSummary | null;
-  subscription: SubscriptionSummary | null;
-  orgId: string;
-}
-
-export function SubscriptionCard({
-  plan,
-  subscription,
-  orgId,
-}: SubscriptionCardProps) {
-  const { subscription: userSub, refetch: refetchUserSub } = useUserSubscription();
+export function SubscriptionCard() {
+  const { subscription: userSub, plan: userPlan, isLoading, refetch: refetchUserSub } = useUserSubscription();
   const [isTogglingAutoRenew, setIsTogglingAutoRenew] = useState(false);
   const [isCanceling, setIsCanceling] = useState(false);
 
@@ -61,7 +51,7 @@ export function SubscriptionCard({
     }
   };
 
-  if (!subscription || !plan) {
+  if (!userSub || !userPlan) {
     return (
       <div className="bg-white dark:bg-slate-900 border border-brand-hairline dark:border-slate-800 rounded-2xl p-6 text-center space-y-4">
         <div className="p-3 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 size-12 mx-auto flex items-center justify-center">
@@ -72,7 +62,7 @@ export function SubscriptionCard({
             Sin plan activo
           </h3>
           <p className="text-sm text-brand-ink-mute dark:text-slate-400 max-w-sm mx-auto">
-            Aún no tienes una suscripción activa para esta organización.
+            Aún no tienes un plan de suscripción activo.
           </p>
         </div>
         <Button asChild className="h-11 py-3 px-7 min-w-[120px] rounded-xl text-sm font-semibold active:scale-[0.98] transition-all duration-100">
@@ -100,8 +90,7 @@ export function SubscriptionCard({
     }
   };
 
-  const isAutomatic = subscription.paddle_collection_mode === "automatic";
-  const nextBillingDate = subscription.billing_cycle_end;
+  const nextBillingDate = userSub.billing_cycle_end;
 
   return (
     <div className="bg-white dark:bg-slate-900 border border-brand-hairline dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden transition-all duration-200 hover:shadow-brand">
@@ -113,11 +102,11 @@ export function SubscriptionCard({
               Plan Actual
             </span>
             <h3 className="text-2xl font-light text-brand-ink dark:text-white">
-              {plan.display_name}
+              {userPlan.display_name}
             </h3>
           </div>
           <div>
-            <SubscriptionBadge status={subscription.status} size="md" />
+            <SubscriptionBadge status={userSub.status} size="md" />
           </div>
         </div>
 
@@ -128,7 +117,7 @@ export function SubscriptionCard({
               Precio del plan
             </span>
             <PriceDisplay
-              amountDop={plan.price_monthly}
+              amountDop={userPlan.price_monthly}
               period="mes"
               size="lg"
             />

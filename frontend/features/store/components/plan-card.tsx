@@ -37,8 +37,10 @@ export function PlanCard({
   const activeMonthlyPriceDop = discountedPrice(rawMonthlyPrice, commitMonths);
   const activeTotalPriceDop = activeMonthlyPriceDop * commitMonths;
 
-  // Check if this plan is an upgrade compared to current plan
+  // Check if this plan is an upgrade/downgrade compared to current plan
   const isUpgrade = currentPlan && plan.price_monthly > currentPlan.price_monthly;
+  const isDowngrade = currentPlan && plan.price_monthly < currentPlan.price_monthly;
+  const currentPlanName = currentPlan?.display_name;
 
   // Set CTA text and state
   let ctaText = "Elegir este plan";
@@ -76,6 +78,18 @@ export function PlanCard({
         </span>
       )}
 
+      {/* Upgrade/Downgrade badges with proration info */}
+      {isUpgrade && currentPlanName && (
+        <span className="absolute top-4 right-4 text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full">
+          Mejorar
+        </span>
+      )}
+      {isDowngrade && currentPlanName && (
+        <span className="absolute top-4 right-4 text-[10px] font-semibold bg-sky-500/10 text-sky-600 dark:text-sky-400 px-2 py-0.5 rounded-full">
+          Cambiar
+        </span>
+      )}
+
       {/* Plan Header */}
       <div className="space-y-4">
         <div>
@@ -110,6 +124,24 @@ export function PlanCard({
           )}
         </div>
 
+        {/* Proration info between pricing and features */}
+        {isUpgrade && currentPlanName && (
+          <div className="mt-2 space-y-1 rounded-lg bg-amber-50 dark:bg-amber-950/20 p-2 text-center">
+            <p className="text-[10px] font-medium text-amber-800 dark:text-amber-300">Actualizar plan</p>
+            <p className="text-[10px] text-amber-700 dark:text-amber-400">
+              Crédito del ciclo actual se aplicará automáticamente
+            </p>
+          </div>
+        )}
+        {isDowngrade && currentPlanName && (
+          <div className="mt-2 space-y-1 rounded-lg bg-sky-50 dark:bg-sky-950/20 p-2 text-center">
+            <p className="text-[10px] font-medium text-sky-800 dark:text-sky-300">Cambiar a este plan</p>
+            <p className="text-[10px] text-sky-700 dark:text-sky-400">
+              El cambio aplicará al siguiente ciclo de facturación
+            </p>
+          </div>
+        )}
+
         {/* Features List */}
         <div className="space-y-2.5 pt-2">
           {features.slice(0, 7).map((feature) => (
@@ -140,7 +172,7 @@ export function PlanCard({
               isFeatured ? "border-slate-700 hover:bg-slate-800 hover:text-white text-white" : ""
             )}
           >
-            <a href="mailto:soporte@fintral.app?subject=Quiero%20información%20del%20plan%20Enterprise">
+            <a href="mailto:support@fintral.app?subject=Quiero%20información%20del%20plan%20Enterprise">
               <span>Contactar ventas</span>
               <ArrowUpRight className="size-3.5" />
             </a>

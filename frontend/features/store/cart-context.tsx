@@ -2,21 +2,32 @@
 
 import { createContext, useContext, useReducer, useCallback, useEffect, useState, type ReactNode } from "react";
 
+export type CartItemType =
+  | "plan_change"
+  | "addon"
+  | "renewal"
+  | "overage"
+  | "ecf_blocks"
+  | "entity_slot"
+  | "user_slot";
+
 export interface CartItemState {
   id: string; // unique per cart entry
-  type: "plan_change" | "addon" | "renewal" | "overage" | "ecf_blocks" | "entity_slot" | "user_slot";
+  type: CartItemType;
   plan_name?: string;
   addon_type?: string;
   quantity: number;
   months?: number;
   price_cents: number;
   label: string;
+  targetOrgId?: string;
 }
 
 type CartAction =
   | { type: "ADD_ITEM"; payload: CartItemState }
   | { type: "REMOVE_ITEM"; payload: { id: string } }
   | { type: "UPDATE_QUANTITY"; payload: { id: string; quantity: number } }
+  | { type: "UPDATE_TARGET_ORG"; payload: { id: string; targetOrgId: string } }
   | { type: "INIT_ITEMS"; payload: CartItemState[] }
   | { type: "CLEAR" };
 
@@ -33,7 +44,8 @@ function cartReducer(state: CartState, action: CartAction): CartState {
         (i) =>
           i.type === action.payload.type &&
           i.plan_name === action.payload.plan_name &&
-          i.addon_type === action.payload.addon_type,
+          i.addon_type === action.payload.addon_type &&
+          i.targetOrgId === action.payload.targetOrgId,
       );
       if (existingIdx >= 0) {
         const items = [...state.items];
@@ -53,6 +65,12 @@ function cartReducer(state: CartState, action: CartAction): CartState {
           i.id === action.payload.id ? { ...i, quantity: action.payload.quantity } : i,
         ),
       };
+    case "UPDATE_TARGET_ORG":
+      return {
+        items: state.items.map((i) =>
+          i.id === action.payload.id ? { ...i, targetOrgId: action.payload.targetOrgId } : i,
+        ),
+      };
     case "CLEAR":
       return { items: [] };
     default:
@@ -65,6 +83,7 @@ interface CartContextValue {
   addItem: (item: Omit<CartItemState, "id">) => void;
   removeItem: (id: string) => void;
   updateQuantity: (id: string, quantity: number) => void;
+  updateTargetOrgId: (id: string, targetOrgId: string) => void;
   clearCart: () => void;
   itemCount: number;
   isEmpty: boolean;
@@ -118,6 +137,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "UPDATE_QUANTITY", payload: { id, quantity } });
   }, []);
 
+  const updateTargetOrgId = useCallback((id: string, targetOrgId: string) => {
+    dispatch({ type: "UPDATE_TARGET_ORG", payload: { id, targetOrgId } });
+  }, []);
+
   const clearCart = useCallback(() => {
     dispatch({ type: "CLEAR" });
   }, []);
@@ -131,6 +154,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         addItem,
         removeItem,
         updateQuantity,
+        updateTargetOrgId,
         clearCart,
         itemCount,
         isEmpty: state.items.length === 0,

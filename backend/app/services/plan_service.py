@@ -21,7 +21,9 @@ from app.models import (
     OrganizationSubscription,
     UsageRecord,
     UsageAlert,
+    UserOrganization,
 )
+from app.models.user_subscription import UserSubscription
 from app.services.usage_tracker import UsageTracker, _current_cycle
 
 logger = logging.getLogger(__name__)
@@ -64,6 +66,7 @@ class PlanService:
                 OrganizationSubscription.billing_cycle_start <= today,
                 OrganizationSubscription.billing_cycle_end >= today,
             )
+            .order_by(OrganizationSubscription.created_at.desc())
             .first()
         )
 
@@ -282,11 +285,89 @@ class PlanService:
             sub.canceled_at = datetime.utcnow()
             self.db.commit()
 
-    def purchase_addon(self, org_id, addon_type: str, quantity: int = 1) -> OrganizationSubscription:
-        """Purchase addon blocks for the current cycle."""
+    def get_user_subscription(self, user_id) -> tuple[Optional['UserSubscription'], Optional['SubscriptionPlan']]:
+        """Get active subscription + plan for a user."""
+        sub = (
+            self.db.query(UserSubscription)
+            .filter(
+                UserSubscription.user_id == user_id,
+                UserSubscription.status.in_(["active", "trialing"]),
+            )
+            .order_by(UserSubscription.created_at.desc())
+            .first()
+        )
+        if sub:
+            return sub, sub.plan
+        return None, None
+
+    def get_user_entity_limits(self, user_id) -> dict:
+        """Return max entities for a user based on their plan + entity_slot addons."""
+        sub, plan = self.get_user_subscription(user_id)
+        if not plan:
+            return {"max_entities": 0, "current_entity_count": 0, "allowed": False}
+
+        max_entities = plan.max_entities + (sub.addon_entity_slots or 0)
+
+        from app.models.organization import Organization
+        current_count = (
+            self.db.query(UserOrganization)
+            .join(Organization)
+            .filter(
+                UserOrganization.user_id == user_id,
+                Organization.is_active == True,
+                Organization.is_deleted == False
+            )
+            .count()
+        )
+
+        return {
+            "max_entities": max_entities,
+            "current_entity_count": current_count,
+            "remaining": max_entities - current_count,
+            "allowed": current_count < max_entities,
+        }
+
+    def check_entity_limit(self, user_id) -> None:
+        """Raise PlanLimitExceeded if user has reached their entity limit."""
+        limits = self.get_user_entity_limits(user_id)
+        if not limits["allowed"]:
+            raise PlanLimitExceeded(
+                "max_entities_reached",
+                {
+                    "max_entities": limits["max_entities"],
+                    "current_count": limits["current_entity_count"],
+                    "remaining": limits["remaining"],
+                },
+            )
+
+    def purchase_addon(self, org_id, addon_type: str, quantity: int = 1, user_id: str | None = None) -> OrganizationSubscription:
+        """Purchase addon blocks for the current cycle.
+
+        entity_slot targets UserSubscription (user-level capacity).
+        Other addons target OrganizationSubscription (org-level).
+        """
         sub, plan = self.get_plan_for_org(org_id)
         if not sub or not plan:
             raise ValueError("No active subscription")
+
+        if addon_type == "entity_slot":
+            if not user_id:
+                raise ValueError("user_id required for entity_slot addon")
+            user_sub = (
+                self.db.query(UserSubscription)
+                .filter(
+                    UserSubscription.user_id == user_id,
+                    UserSubscription.status.in_(["active", "trialing"]),
+                )
+                .order_by(UserSubscription.created_at.desc())
+                .first()
+            )
+            if not user_sub:
+                raise ValueError("No active user subscription")
+            user_sub.addon_entity_slots = (user_sub.addon_entity_slots or 0) + quantity
+            self.db.commit()
+            self.db.refresh(user_sub)
+            return sub
 
         if addon_type == "ecf":
             sub.addon_ecf_blocks = (sub.addon_ecf_blocks or 0) + quantity
@@ -294,8 +375,6 @@ class PlanService:
             sub.addon_ai_blocks = (sub.addon_ai_blocks or 0) + quantity
         elif addon_type == "storage":
             sub.addon_storage_blocks = (sub.addon_storage_blocks or 0) + quantity
-        elif addon_type == "entity_slot":
-            sub.addon_entity_slots = (sub.addon_entity_slots or 0) + quantity
         elif addon_type == "user_slot":
             sub.addon_user_slots = (sub.addon_user_slots or 0) + quantity
         elif addon_type == "entity":
@@ -311,7 +390,7 @@ class PlanService:
 
     # ── Direct addon purchase (post-pay, charged to monthly statement) ─
 
-    def purchase_addon_direct(self, org_id, addon_type: str, quantity: int = 1, label: str = "") -> dict:
+    def purchase_addon_direct(self, org_id, addon_type: str, quantity: int = 1, label: str = "", user_id: str | None = None) -> dict:
         """Purchase addon blocks directly (post-pay, added to monthly statement).
 
         Activates the addon immediately and creates a MonthlyCharge.
@@ -340,9 +419,26 @@ class PlanService:
         unit_price_cents = getattr(plan, price_field, 0)
         if not unit_price_cents:
             raise ValueError(f"Addon type '{addon_type}' has no price configured")
-        total_price_cents = unit_price_cents * quantity
+        # Calculate proration for slot-based addons
+        from math import ceil
+        from app.utils.dates import utc_now
+        
+        final_unit_price_cents = unit_price_cents
+        proration_label = ""
+        
+        if addon_type in ("entity_slot", "user_slot", "ai", "storage") and sub.billing_cycle_start and sub.billing_cycle_end:
+            now = utc_now()
+            cycle_end = sub.billing_cycle_end
+            cycle_start = sub.billing_cycle_start
+            if now < cycle_end:
+                total_cycle_days = max((cycle_end - cycle_start).days, 1)
+                days_remaining = max((cycle_end - now).days, 1)
+                final_unit_price_cents = ceil(unit_price_cents * days_remaining / total_cycle_days)
+                proration_label = f" (proporcional por {days_remaining} días restantes)"
+                
+        total_price_cents = final_unit_price_cents * quantity
 
-        self.purchase_addon(org_id, addon_type, quantity)
+        self.purchase_addon(org_id, addon_type, quantity, user_id=user_id)
 
         cycle = _current_cycle()
         charge = MonthlyCharge(
@@ -350,9 +446,9 @@ class PlanService:
             cycle=cycle,
             charge_type=addon_type,
             quantity=quantity,
-            unit_price_cents=unit_price_cents,
+            unit_price_cents=final_unit_price_cents,
             total_price_cents=total_price_cents,
-            label=label or default_label,
+            label=(label or default_label) + proration_label,
             paid=False,
         )
         self.db.add(charge)
@@ -383,21 +479,68 @@ class PlanService:
         )
         return unpaid > 0
 
-    def get_statement(self, org_id, cycle: int = None) -> dict:
-        """Get the monthly statement for a given cycle."""
+    def get_statement(self, org_id, cycle: int = None, user_id: str = None) -> dict:
+        """Get the monthly statement for a given cycle.
+
+        The statement is always user-scoped: if the currently active org has
+        no plan, we fall back to the user's primary org (the one with an active
+        OrganizationSubscription), so the statement is visible regardless of
+        which org is selected in the session.
+        """
         from app.models import MonthlyCharge
+        from app.models.user_subscription import UserSubscription
+        from app.models.user_organization import UserOrganization
+        from datetime import date as _date
 
         if cycle is None:
             cycle = _current_cycle()
 
         sub, plan = self.get_plan_for_org(org_id)
+
+        # If the active org has no plan, search the user's other orgs
+        billing_org_id = org_id
+        if not plan and user_id:
+            today = _date.today()
+            user_org_ids = (
+                self.db.query(UserOrganization.organization_id)
+                .filter(UserOrganization.user_id == user_id)
+                .subquery()
+            )
+            fallback_sub = (
+                self.db.query(OrganizationSubscription)
+                .filter(
+                    OrganizationSubscription.organization_id.in_(user_org_ids),
+                    OrganizationSubscription.status.in_(["active", "trialing"]),
+                    OrganizationSubscription.billing_cycle_start <= today,
+                    OrganizationSubscription.billing_cycle_end >= today,
+                )
+                .order_by(OrganizationSubscription.created_at.desc())
+                .first()
+            )
+            if fallback_sub:
+                sub = fallback_sub
+                plan = fallback_sub.plan
+                billing_org_id = fallback_sub.organization_id
+
+        # User subscription for account-level recurring info
+        user_sub = None
+        user_plan = None
+        if user_id:
+            user_sub = (
+                self.db.query(UserSubscription)
+                .filter(UserSubscription.user_id == user_id)
+                .order_by(UserSubscription.created_at.desc())
+                .first()
+            )
+            user_plan = user_sub.plan if user_sub else None
+
         if not plan:
             return {"error": "No active plan"}
 
         charges = (
             self.db.query(MonthlyCharge)
             .filter(
-                MonthlyCharge.organization_id == org_id,
+                MonthlyCharge.organization_id == billing_org_id,
                 MonthlyCharge.cycle == cycle,
             )
             .all()
@@ -405,21 +548,89 @@ class PlanService:
 
         recurring_charges = []
         if sub:
-            if sub.addon_entity_slots and plan.entity_slot_price_cents:
+            from sqlalchemy import func
+            
+            # Count paid slots for the current cycle to avoid double charging
+            paid_entity_slots = (
+                self.db.query(func.sum(MonthlyCharge.quantity))
+                .filter(
+                    MonthlyCharge.organization_id == billing_org_id,
+                    MonthlyCharge.cycle == cycle,
+                    MonthlyCharge.charge_type == "entity_slot",
+                    MonthlyCharge.paid.is_(True),
+                )
+                .scalar()
+            ) or 0
+
+            paid_user_slots = (
+                self.db.query(func.sum(MonthlyCharge.quantity))
+                .filter(
+                    MonthlyCharge.organization_id == billing_org_id,
+                    MonthlyCharge.cycle == cycle,
+                    MonthlyCharge.charge_type == "user_slot",
+                    MonthlyCharge.paid.is_(True),
+                )
+                .scalar()
+            ) or 0
+
+            paid_ai_blocks = (
+                self.db.query(func.sum(MonthlyCharge.quantity))
+                .filter(
+                    MonthlyCharge.organization_id == billing_org_id,
+                    MonthlyCharge.cycle == cycle,
+                    MonthlyCharge.charge_type == "ai",
+                    MonthlyCharge.paid.is_(True),
+                )
+                .scalar()
+            ) or 0
+
+            paid_storage_blocks = (
+                self.db.query(func.sum(MonthlyCharge.quantity))
+                .filter(
+                    MonthlyCharge.organization_id == billing_org_id,
+                    MonthlyCharge.cycle == cycle,
+                    MonthlyCharge.charge_type == "storage",
+                    MonthlyCharge.paid.is_(True),
+                )
+                .scalar()
+            ) or 0
+
+            unpaid_entity_slots = max(sub.addon_entity_slots - paid_entity_slots, 0)
+            unpaid_user_slots = max(sub.addon_user_slots - paid_user_slots, 0)
+            unpaid_ai_blocks = max(sub.addon_ai_blocks - paid_ai_blocks, 0)
+            unpaid_storage_blocks = max(sub.addon_storage_blocks - paid_storage_blocks, 0)
+
+            if unpaid_entity_slots > 0 and plan.entity_slot_price_cents:
                 recurring_charges.append({
                     "type": "entity_slot_recurring",
-                    "label": f"{sub.addon_entity_slots} espacio{'s' if sub.addon_entity_slots > 1 else ''} de entidad",
+                    "label": f"{unpaid_entity_slots} espacio{'s' if unpaid_entity_slots > 1 else ''} de entidad",
                     "unit_price_cents": plan.entity_slot_price_cents,
-                    "quantity": sub.addon_entity_slots,
-                    "total_price_cents": plan.entity_slot_price_cents * sub.addon_entity_slots,
+                    "quantity": unpaid_entity_slots,
+                    "total_price_cents": plan.entity_slot_price_cents * unpaid_entity_slots,
                 })
-            if sub.addon_user_slots and plan.user_slot_price_cents:
+            if unpaid_user_slots > 0 and plan.user_slot_price_cents:
                 recurring_charges.append({
                     "type": "user_slot_recurring",
-                    "label": f"{sub.addon_user_slots} espacio{'s' if sub.addon_user_slots > 1 else ''} de usuario",
+                    "label": f"{unpaid_user_slots} espacio{'s' if unpaid_user_slots > 1 else ''} de usuario",
                     "unit_price_cents": plan.user_slot_price_cents,
-                    "quantity": sub.addon_user_slots,
-                    "total_price_cents": plan.user_slot_price_cents * sub.addon_user_slots,
+                    "quantity": unpaid_user_slots,
+                    "total_price_cents": plan.user_slot_price_cents * unpaid_user_slots,
+                })
+            if unpaid_ai_blocks > 0 and plan.addon_ai_block_price_cents:
+                recurring_charges.append({
+                    "type": "ai_block_recurring",
+                    "label": f"{unpaid_ai_blocks} bloque{'s' if unpaid_ai_blocks > 1 else ''} de IA",
+                    "unit_price_cents": plan.addon_ai_block_price_cents,
+                    "quantity": unpaid_ai_blocks,
+                    "total_price_cents": plan.addon_ai_block_price_cents * unpaid_ai_blocks,
+                })
+            if unpaid_storage_blocks > 0 and plan.addon_storage_block_price_cents:
+                recurring_charges.append({
+                    "type": "storage_block_recurring",
+                    "label": f"{unpaid_storage_blocks} bloque{'s' if unpaid_storage_blocks > 1 else ''} de almacenamiento",
+                    "unit_price_cents": plan.addon_storage_block_price_cents,
+                    "quantity": unpaid_storage_blocks,
+                    "total_price_cents": plan.addon_storage_block_price_cents * unpaid_storage_blocks,
                 })
 
         charge_list = [
@@ -431,23 +642,184 @@ class PlanService:
                 "unit_price_cents": c.unit_price_cents,
                 "total_price_cents": c.total_price_cents,
                 "paid": c.paid,
+                "paid_at": c.paid_at.isoformat() if getattr(c, "paid_at", None) else None,
                 "created_at": c.created_at.isoformat() if c.created_at else None,
                 "is_recurring": False,
             }
             for c in charges
         ] + [
-            {**r, "id": None, "paid": False, "created_at": None, "is_recurring": True}
+            {**r, "id": None, "paid": False, "paid_at": None, "created_at": None, "is_recurring": True}
             for r in recurring_charges
         ]
 
-        total_cents = sum(c["total_price_cents"] for c in charge_list)
+        # total_cents = only unpaid charges (what the client still owes)
+        # paid_total_cents = what has already been paid this cycle
+        total_cents = sum(c["total_price_cents"] for c in charge_list if not c["paid"])
+        paid_total_cents = sum(c["total_price_cents"] for c in charge_list if c["paid"])
+
+        # Build recurring summary for upcoming cycle
+        next_billing = None
+        recurring_source = user_sub or sub
+        recurring_plan = user_plan or plan
+        if recurring_source and recurring_source.billing_cycle_end:
+            next_billing = recurring_source.billing_cycle_end.isoformat()
+
+        recurring_items = []
+        recurring_total_cents = 0
+
+        # Plan subscription
+        if recurring_source and getattr(recurring_source, "status", None) in ("active", "trialing"):
+            plan_price = recurring_plan.price_monthly_cents if recurring_plan else 0
+            recurring_items.append({
+                "type": "plan",
+                "label": f"Plan {recurring_plan.display_name if recurring_plan else plan.display_name}",
+                "price_cents": plan_price,
+                "quantity": 1,
+            })
+            recurring_total_cents += plan_price
+
+        # Recurring addons — entity_slot is per-user, others are per-org
+        # Recurring addons — entity_slot is per-user, others are per-org
+        entity_slots = user_sub.addon_entity_slots if user_sub else (sub.addon_entity_slots if sub else 0)
+        pending_cancel_entity_slots = user_sub.pending_cancel_entity_slots if user_sub else (sub.pending_cancel_entity_slots if sub else 0)
+        net_entity_slots = max(entity_slots - pending_cancel_entity_slots, 0)
+        if entity_slots > 0 and recurring_plan and recurring_plan.entity_slot_price_cents:
+            recurring_items.append({
+                "type": "entity_slot",
+                "label": "Espacio de entidad adicional",
+                "price_cents": recurring_plan.entity_slot_price_cents,
+                "quantity": net_entity_slots,
+                "original_quantity": entity_slots,
+                "pending_cancel": pending_cancel_entity_slots,
+            })
+            recurring_total_cents += recurring_plan.entity_slot_price_cents * net_entity_slots
+
+        # Org-level addons (shown when same as billing org)
+        if sub and sub.organization_id == billing_org_id:
+            addon_map = {
+                "user_slot": (
+                    sub.addon_user_slots,
+                    sub.pending_cancel_user_slots,
+                    plan.user_slot_price_cents if plan else 0,
+                    "Espacio de usuario adicional"
+                ),
+                "ai": (
+                    sub.addon_ai_blocks,
+                    sub.pending_cancel_ai_blocks,
+                    plan.addon_ai_block_price_cents if plan else 0,
+                    "Bloque de consultas IA"
+                ),
+                "storage": (
+                    sub.addon_storage_blocks,
+                    sub.pending_cancel_storage_blocks,
+                    plan.addon_storage_block_price_cents if plan else 0,
+                    "Bloque de almacenamiento"
+                ),
+            }
+            for addon_type, (count, pending_cancel, price_cents, label) in addon_map.items():
+                net_count = max(count - pending_cancel, 0)
+                if count > 0 and price_cents > 0:
+                    recurring_items.append({
+                        "type": addon_type,
+                        "label": label,
+                        "price_cents": price_cents,
+                        "quantity": net_count,
+                        "original_quantity": count,
+                        "pending_cancel": pending_cancel,
+                    })
+                    recurring_total_cents += price_cents * net_count
+
+        # Build addon_detail: for each addon type, show which orgs/users it applies to
+        addon_detail: dict = {}
+        if user_id:
+            from app.models.user_organization import UserOrganization
+            from app.models.organization import Organization
+
+            user_org_rows = (
+                self.db.query(UserOrganization, Organization)
+                .join(Organization, Organization.id == UserOrganization.organization_id)
+                .filter(UserOrganization.user_id == user_id)
+                .all()
+            )
+
+            # entity_slot: per org — how many extra entities allowed and how many used
+            entity_slot_orgs = []
+            user_slot_orgs = []
+
+            for uo, org in user_org_rows:
+                org_sub = (
+                    self.db.query(OrganizationSubscription)
+                    .filter(
+                        OrganizationSubscription.organization_id == org.id,
+                        OrganizationSubscription.status.in_(["active", "trialing"]),
+                    )
+                    .order_by(OrganizationSubscription.created_at.desc())
+                    .first()
+                )
+                if not org_sub:
+                    continue
+                if org_sub.addon_entity_slots > 0:
+                    entity_slot_orgs.append({
+                        "org_id": str(org.id),
+                        "org_name": org.name,
+                        "tax_id": org.tax_id,
+                        "role": uo.role,
+                        "slots": org_sub.addon_entity_slots,
+                    })
+                if org_sub.addon_user_slots > 0:
+                    user_slot_orgs.append({
+                        "org_id": str(org.id),
+                        "org_name": org.name,
+                        "tax_id": org.tax_id,
+                        "role": uo.role,
+                        "slots": org_sub.addon_user_slots,
+                    })
+
+            # entity_slot from UserSubscription (user-level capacity)
+            user_entity_slots = user_sub.addon_entity_slots if user_sub else 0
+
+            # ai/storage — org-level on billing_org_id sub
+            ai_blocks = sub.addon_ai_blocks if sub else 0
+            storage_blocks = sub.addon_storage_blocks if sub else 0
+
+            addon_detail = {
+                "entity_slot": {
+                    "total": sum(o["slots"] for o in entity_slot_orgs) + user_entity_slots,
+                    "user_level_slots": user_entity_slots,
+                    "orgs": entity_slot_orgs,
+                    "pending_cancel": user_sub.pending_cancel_entity_slots if user_sub else 0,
+                },
+                "user_slot": {
+                    "total": sum(o["slots"] for o in user_slot_orgs),
+                    "orgs": user_slot_orgs,
+                    "pending_cancel": sub.pending_cancel_user_slots if sub else 0,
+                },
+                "ai": {
+                    "total_blocks": ai_blocks,
+                    "org_id": str(billing_org_id) if billing_org_id else None,
+                    "pending_cancel": sub.pending_cancel_ai_blocks if sub else 0,
+                },
+                "storage": {
+                    "total_blocks": storage_blocks,
+                    "org_id": str(billing_org_id) if billing_org_id else None,
+                    "pending_cancel": sub.pending_cancel_storage_blocks if sub else 0,
+                },
+            }
 
         return {
             "cycle": cycle,
             "plan_name": plan.display_name,
             "plan_price_cents": plan.price_monthly_cents if sub and sub.status == "active" else 0,
+            "next_billing_date": next_billing,
+            "billing_org_id": str(billing_org_id),
+            "recurring": {
+                "items": recurring_items,
+                "total_cents": recurring_total_cents,
+            },
             "charges": charge_list,
             "total_cents": total_cents,
+            "paid_total_cents": paid_total_cents,
+            "addon_detail": addon_detail,
         }
 
     def pay_statement(self, org_id, cycle: int, payment_proof_id: str) -> dict:
@@ -472,6 +844,150 @@ class PlanService:
 
         self.db.commit()
         return {"message": f"Estado de cuenta del ciclo {cycle} pagado", "count": len(charges)}
+
+    def cancel_addon(
+        self,
+        org_id,
+        addon_type: str,
+        quantity: int = 1,
+        user_id: str | None = None,
+    ) -> dict:
+        """Cancel (reduce) active addon slots, effective next billing cycle.
+
+        Increments the pending_cancel counter on the active OrganizationSubscription (or
+        UserSubscription for entity_slot). The resource remains available
+        for the remainder of the current cycle.
+        """
+        if addon_type not in ("entity_slot", "user_slot", "ai", "storage"):
+            raise ValueError(f"Addon type '{addon_type}' cannot be cancelled")
+
+        if quantity < 1:
+            raise ValueError("La cantidad a cancelar debe ser al menos 1")
+
+        sub, plan = self.get_plan_for_org(org_id)
+
+        if addon_type == "entity_slot":
+            if not user_id:
+                raise ValueError("Se requiere user_id para cancelar entity_slot")
+            from app.models.user_subscription import UserSubscription
+            user_sub = (
+                self.db.query(UserSubscription)
+                .filter(UserSubscription.user_id == user_id)
+                .order_by(UserSubscription.created_at.desc())
+                .first()
+            )
+            if not user_sub:
+                raise ValueError("No hay suscripción de usuario activa")
+            current_active = user_sub.addon_entity_slots or 0
+            current_pending = user_sub.pending_cancel_entity_slots or 0
+            if current_pending + quantity > current_active:
+                raise ValueError(
+                    f"No puedes cancelar {quantity} empresa(s) — ya tienes {current_pending} marcadas para cancelación de un total de {current_active}"
+                )
+            user_sub.pending_cancel_entity_slots = current_pending + quantity
+            self.db.commit()
+            return {
+                "addon_type": addon_type,
+                "cancelled": quantity,
+                "pending_cancel": user_sub.pending_cancel_entity_slots,
+                "remaining_active": current_active,
+                "remaining": current_active - (current_pending + quantity),
+            }
+
+        # For org-level addons (user_slot, ai, storage)
+        if not sub:
+            raise ValueError("No hay suscripción organizacional activa")
+
+        field_map = {
+            "user_slot": "pending_cancel_user_slots",
+            "ai": "pending_cancel_ai_blocks",
+            "storage": "pending_cancel_storage_blocks",
+        }
+        active_field_map = {
+            "user_slot": "addon_user_slots",
+            "ai": "addon_ai_blocks",
+            "storage": "addon_storage_blocks",
+        }
+        field = field_map[addon_type]
+        active_field = active_field_map[addon_type]
+        current_active = getattr(sub, active_field) or 0
+        current_pending = getattr(sub, field) or 0
+
+        if current_pending + quantity > current_active:
+            label_map = {
+                "user_slot": "usuario(s) adicional(es)",
+                "ai": "bloque(s) de IA",
+                "storage": "bloque(s) de almacenamiento",
+            }
+            raise ValueError(
+                f"No puedes cancelar {quantity} {label_map[addon_type]} — ya tienes {current_pending} marcados para cancelación de un total de {current_active}"
+            )
+        setattr(sub, field, current_pending + quantity)
+        self.db.commit()
+        return {
+            "addon_type": addon_type,
+            "cancelled": quantity,
+            "pending_cancel": getattr(sub, field),
+            "remaining_active": current_active,
+            "remaining": current_active - (current_pending + quantity),
+        }
+
+    def reactivate_addon(
+        self,
+        org_id,
+        addon_type: str,
+        quantity: int = 1,
+        user_id: str | None = None,
+    ) -> dict:
+        """Undo a pending cancellation, restoring slot counts for the next cycle."""
+        if addon_type not in ("entity_slot", "user_slot", "ai", "storage"):
+            raise ValueError(f"Addon type '{addon_type}' cannot be reactivated")
+
+        if quantity < 1:
+            raise ValueError("La cantidad a reactivar debe ser al menos 1")
+
+        sub, plan = self.get_plan_for_org(org_id)
+
+        if addon_type == "entity_slot":
+            if not user_id:
+                raise ValueError("Se requiere user_id para reactivar entity_slot")
+            from app.models.user_subscription import UserSubscription
+            user_sub = (
+                self.db.query(UserSubscription)
+                .filter(UserSubscription.user_id == user_id)
+                .order_by(UserSubscription.created_at.desc())
+                .first()
+            )
+            if not user_sub:
+                raise ValueError("No hay suscripción de usuario activa")
+            current_pending = user_sub.pending_cancel_entity_slots or 0
+            user_sub.pending_cancel_entity_slots = max(0, current_pending - quantity)
+            self.db.commit()
+            return {
+                "addon_type": addon_type,
+                "reactivated": quantity,
+                "pending_cancel": user_sub.pending_cancel_entity_slots,
+            }
+
+        # For org-level addons (user_slot, ai, storage)
+        if not sub:
+            raise ValueError("No hay suscripción organizacional activa")
+
+        field_map = {
+            "user_slot": "pending_cancel_user_slots",
+            "ai": "pending_cancel_ai_blocks",
+            "storage": "pending_cancel_storage_blocks",
+        }
+        field = field_map[addon_type]
+        current_pending = getattr(sub, field) or 0
+        setattr(sub, field, max(0, current_pending - quantity))
+        self.db.commit()
+        return {
+            "addon_type": addon_type,
+            "reactivated": quantity,
+            "pending_cancel": getattr(sub, field),
+        }
+
 
     # ── Internal helpers ────────────────────────────────────────────
 

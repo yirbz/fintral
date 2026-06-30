@@ -9,9 +9,7 @@ interface AddonSectionProps {
   plan: PlanSummary | null;
   addons: AddonsSummary | undefined;
   cartItems: any[];
-  onAddPrepayToCart: (quantity: number, pricePerBlockDop: number) => void;
-  onPurchaseDirect: (type: string, label: string, priceDop: number) => Promise<void>;
-  isDirectLoading: boolean;
+  onAddPrepayToCart: (type: string, quantity: number, pricePerBlockDop: number, label: string) => void;
 }
 
 export function AddonSection({
@@ -19,11 +17,7 @@ export function AddonSection({
   addons,
   cartItems,
   onAddPrepayToCart,
-  onPurchaseDirect,
-  isDirectLoading,
 }: AddonSectionProps) {
-  const [confirmItem, setConfirmItem] = useState<AddonItem | null>(null);
-
   const ecfBlockPriceDop = (plan?.addon_ecf_block_price ?? 950.00) * 100;
   const aiBlockPriceDop = (plan?.addon_ai_block_price ?? 600.00) * 100;
   const storageBlockPriceDop = (plan?.addon_storage_block_price ?? 300.00) * 100;
@@ -43,51 +37,43 @@ export function AddonSection({
       label: "Bloques de IA",
       description: `Consultas de IA adicionales. ${addons?.ai_block_size || 500} consultas por bloque.`,
       priceDopCents: aiBlockPriceDop,
-      isPrepay: false,
+      isPrepay: true,
       currentCount: addons?.ai_blocks || 0,
+      disabled: !plan,
     },
     {
       type: "storage",
       label: "Almacenamiento",
       description: `Almacenamiento adicional. ${(addons?.storage_block_mb || 10240) / 1024} GB por bloque.`,
       priceDopCents: storageBlockPriceDop,
-      isPrepay: false,
+      isPrepay: true,
       currentCount: addons?.storage_blocks || 0,
+      disabled: !plan,
     },
     {
       type: "entity_slot",
       label: "Slot de Empresa",
       description: "Invita una empresa o entidad adicional a tu cuenta Fintral.",
       priceDopCents: entitySlotPriceDop,
-      isPrepay: false,
+      isPrepay: true,
       currentCount: plan ? (plan as any).addon_entity_slots || 0 : 0, // Fallback check
+      disabled: !plan,
     },
     {
       type: "user_slot",
       label: "Slot de Usuario",
       description: "Permite que un usuario colaborador adicional acceda a tu cuenta.",
       priceDopCents: userSlotPriceDop,
-      isPrepay: false,
+      isPrepay: true,
       currentCount: plan ? (plan as any).addon_user_slots || 0 : 0, // Fallback check
+      disabled: !plan,
     },
   ];
 
   const handleAction = (item: AddonItem) => {
-    if (item.isPrepay) {
-      onAddPrepayToCart(1, item.priceDopCents / 100);
-    } else {
-      setConfirmItem(item);
-    }
+    if (item.disabled) return;
+    onAddPrepayToCart(item.type, 1, item.priceDopCents / 100, item.label);
   };
-
-  const handleConfirmDirect = async () => {
-    if (!confirmItem) return;
-    const item = confirmItem;
-    setConfirmItem(null);
-    await onPurchaseDirect(item.type, item.label, item.priceDopCents);
-  };
-
-  const isEcfInCart = cartItems.some((i) => i.type === "ecf_blocks");
 
   return (
     <div className="space-y-4">
@@ -101,28 +87,19 @@ export function AddonSection({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
-        {list.map((addon) => (
-          <AddonCard
-            key={addon.type}
-            addon={addon}
-            onAction={() => handleAction(addon)}
-            isLoading={isDirectLoading}
-            inCart={addon.type === "ecf_blocks" && isEcfInCart}
-          />
-        ))}
+        {list.map((addon) => {
+          const inCart = cartItems.some((i) => i.type === addon.type);
+          return (
+            <AddonCard
+              key={addon.type}
+              addon={addon}
+              onAction={() => handleAction(addon)}
+              isLoading={false}
+              inCart={inCart}
+            />
+          );
+        })}
       </div>
-
-      <ConfirmAddonDialog
-        open={!!confirmItem}
-        onOpenChange={(open) => {
-          if (!open) setConfirmItem(null);
-        }}
-        label={confirmItem?.label || ""}
-        priceDopCents={confirmItem?.priceDopCents || 0}
-        confirmLabel="Comprar complemento"
-        onConfirm={handleConfirmDirect}
-        isLoading={isDirectLoading}
-      />
     </div>
   );
 }

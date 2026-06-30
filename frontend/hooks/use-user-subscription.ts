@@ -20,6 +20,7 @@ export function useUserSubscription() {
   return {
     ...query,
     subscription: query.data?.subscription ?? null,
+    plan: query.data?.plan ?? null,
     hasActiveSubscription: query.data?.has_active_subscription ?? false,
     trialRemainingDays: query.data?.subscription?.trial_remaining_days ?? 0,
     isTrialing: query.data?.subscription?.status === "trialing",

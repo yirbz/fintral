@@ -1,10 +1,10 @@
-"use client"
+"use client";
 
-import { NavDocuments } from "@/components/nav-documents"
-import { NavMain } from "@/components/nav-main"
-import { NavSecondary } from "@/components/nav-secondary"
-import { NavUser } from "@/components/nav-user"
-import { LogoMark } from "@/components/ui/logo"
+import { NavDocuments } from "@/components/nav-documents";
+import { NavMain } from "@/components/nav-main";
+import { NavSecondary } from "@/components/nav-secondary";
+import { NavUser } from "@/components/nav-user";
+import { LogoMark } from "@/components/ui/logo";
 import {
   Sidebar,
   SidebarContent,
@@ -14,7 +14,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
-} from "@/components/ui/sidebar"
+} from "@/components/ui/sidebar";
 import {
   LayoutDashboardIcon,
   FileTextIcon,
@@ -40,13 +40,14 @@ import {
   Edit3 as Edit3Icon,
   Store as StoreIcon,
   Receipt as ReceiptIcon,
-} from "lucide-react"
+} from "lucide-react";
 
 const data = {
   user: {
     name: "Ana Martínez",
     email: "ana@fintral.com",
-    avatar: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>",
+    avatar:
+      "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>",
   },
   navMain: [
     {
@@ -65,7 +66,7 @@ const data = {
       icon: <PlusCircleIcon />,
     },
     {
-      title: "Papelera",
+      title: "Archivo",
       url: "/dashboard/invoices/trash",
       icon: <Trash2Icon />,
     },
@@ -109,104 +110,128 @@ const data = {
     },
   ],
   documents: [
-    { name: "Exportaciones", url: "/dashboard/exports", icon: <DatabaseIcon /> },
+    {
+      name: "Exportaciones",
+      url: "/dashboard/exports",
+      icon: <DatabaseIcon />,
+    },
     {
       name: "Contabilidad",
       icon: <CoinsIcon />,
       children: [
-        { name: "Cuentas Bancarias", url: "/dashboard/accounts", icon: <Building2Icon /> },
-        { name: "Cuentas por Cobrar (CXC)", url: "/dashboard/cxc", icon: <TrendingUpIcon /> },
-        { name: "Cuentas por Pagar (CXP)", url: "/dashboard/cxp", icon: <TrendingDownIcon /> },
+        {
+          name: "Cuentas Bancarias",
+          url: "/dashboard/accounts",
+          icon: <Building2Icon />,
+        },
+        {
+          name: "Cuentas por Cobrar (CXC)",
+          url: "/dashboard/cxc",
+          icon: <TrendingUpIcon />,
+        },
+        {
+          name: "Cuentas por Pagar (CXP)",
+          url: "/dashboard/cxp",
+          icon: <TrendingDownIcon />,
+        },
       ],
     },
     {
       name: "DGII",
       icon: <BarChart3Icon />,
       children: [
-        { name: "Crear reportes", url: "/dashboard/dgii", icon: <BarChart3Icon /> },
+        {
+          name: "Crear reportes",
+          url: "/dashboard/dgii",
+          icon: <BarChart3Icon />,
+        },
         { name: "Envíos", url: "/dashboard/dgii/envios", icon: <SendIcon /> },
       ],
     },
-    { name: "Historial", url: "/dashboard/history", icon: <FileSpreadsheetIcon /> },
+    {
+      name: "Historial",
+      url: "/dashboard/history",
+      icon: <FileSpreadsheetIcon />,
+    },
   ],
-}
+};
 
-import { useEffect, useState, useRef } from "react"
-import { usePathname } from "next/navigation"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { useSession } from "@/hooks/use-session"
-import { useRealtime } from "@/hooks/use-realtime"
-import { getPendingUploadCount } from "@/lib/api/invoices"
-import { TrialRemainingBadge } from "@/components/trial-remaining-badge"
+import { useEffect, useState, useRef } from "react";
+import { usePathname } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSession } from "@/hooks/use-session";
+import { useRealtime } from "@/hooks/use-realtime";
+import { getPendingUploadCount } from "@/lib/api/invoices";
+import { TrialRemainingBadge } from "@/components/trial-remaining-badge";
 
 function getLink(path: string) {
   if (typeof window === "undefined") {
-    return `/billing${path === "/" ? "" : path}`
+    return `/billing${path === "/" ? "" : path}`;
   }
-  const isSub = window.location.hostname.startsWith("factura.")
+  const isSub = window.location.hostname.startsWith("factura.");
   if (isSub) {
-    return path
+    return path;
   }
-  return `/billing${path === "/" ? "" : path}`
+  return `/billing${path === "/" ? "" : path}`;
 }
 
 function getHubUrl() {
   if (typeof window !== "undefined") {
-    const host = window.location.host
+    const host = window.location.host;
     if (host.startsWith("factura.localhost")) {
-      return `http://${host.replace("factura.localhost", "localhost")}/dashboard`
+      return `http://${host.replace("factura.localhost", "localhost")}/dashboard`;
     }
     if (host.startsWith("factura.")) {
-      return `https://${host.replace("factura.", "")}/dashboard`
+      return `https://${host.replace("factura.", "")}/dashboard`;
     }
   }
-  return "/dashboard"
+  return "/dashboard";
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
-  const session = useSession()
-  const pathname = usePathname()
-  const { setOpenMobile } = useSidebar()
-  const [user, setUser] = useState(data.user)
-  const [isBillingSubdomain, setIsBillingSubdomain] = useState(false)
+  const session = useSession();
+  const pathname = usePathname();
+  const { setOpenMobile } = useSidebar();
+  const [user, setUser] = useState(data.user);
+  const [isBillingSubdomain, setIsBillingSubdomain] = useState(false);
 
   // Automatically close sidebar on mobile when navigating
   useEffect(() => {
-    setOpenMobile(false)
-  }, [pathname, setOpenMobile])
+    setOpenMobile(false);
+  }, [pathname, setOpenMobile]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       setIsBillingSubdomain(
         window.location.hostname.startsWith("factura.") ||
-        window.location.pathname.startsWith("/billing")
-      )
+          window.location.pathname.startsWith("/billing"),
+      );
     }
-  }, [])
+  }, []);
 
-  const queryClient = useQueryClient()
-  const realtime = useRealtime()
-  const lastEventRef = useRef<string>("")
+  const queryClient = useQueryClient();
+  const realtime = useRealtime();
+  const lastEventRef = useRef<string>("");
 
-  const {data: pendingQuery_data} = useQuery({
+  const { data: pendingQuery_data } = useQuery({
     queryKey: ["pending-upload-count"],
     queryFn: getPendingUploadCount,
     refetchOnWindowFocus: true,
     staleTime: 60_000,
     enabled: !isBillingSubdomain,
-  })
+  });
 
   // Invalidate count on relevant real-time events (no polling)
   useEffect(() => {
-    const latest = realtime.events[0]
-    if (!latest) return
-    const eventKey = `${latest.type}:${latest.timestamp}`
-    if (eventKey === lastEventRef.current) return
-    lastEventRef.current = eventKey
+    const latest = realtime.events[0];
+    if (!latest) return;
+    const eventKey = `${latest.type}:${latest.timestamp}`;
+    if (eventKey === lastEventRef.current) return;
+    lastEventRef.current = eventKey;
     if (["invoice_uploaded", "processing_complete"].includes(latest.type)) {
-      queryClient.invalidateQueries({ queryKey: ["pending-upload-count"] })
+      queryClient.invalidateQueries({ queryKey: ["pending-upload-count"] });
     }
-  }, [realtime.events, queryClient])
+  }, [realtime.events, queryClient]);
 
   // Dynamic nav items
   const billingNavMain = [
@@ -219,11 +244,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       title: "Facturas",
       url: getLink("/invoices"),
       icon: <FileTextIcon />,
-    },
-    {
-      title: "Nueva Factura",
-      url: getLink("/quick"),
-      icon: <PlusCircleIcon />,
     },
     {
       title: "Corregir Facturas",
@@ -250,26 +270,26 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: getLink("/settings"),
       icon: <Settings2Icon />,
     },
-  ]
+  ];
 
   const billingDocuments = [
     {
       name: "Volver a Fintral Hub",
       url: getHubUrl(),
       icon: <ArrowLeftRightIcon />,
-    }
-  ]
+    },
+  ];
 
   const navMain = isBillingSubdomain
     ? billingNavMain
     : data.navMain.map((item) =>
         item.url === "/dashboard/upload"
           ? { ...item, badge: pendingQuery_data?.count ?? undefined }
-          : item
-      )
+          : item,
+      );
 
-  const documents = isBillingSubdomain ? billingDocuments : data.documents
-  const navSecondary: any[] = []
+  const documents = isBillingSubdomain ? billingDocuments : data.documents;
+  const navSecondary: any[] = [];
 
   useEffect(() => {
     if (session.data?.user) {
@@ -277,9 +297,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         name: session.data.user.full_name,
         email: session.data.user.email,
         avatar: "",
-      })
+      });
     }
-  }, [session.data])
+  }, [session.data]);
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>
@@ -314,5 +334,5 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavUser user={user} isBilling={isBillingSubdomain} />
       </SidebarFooter>
     </Sidebar>
-  )
+  );
 }

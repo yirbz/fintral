@@ -13,6 +13,7 @@ export interface AddonItem {
   isPrepay: boolean;
   quantityLabel?: string;
   currentCount?: number;
+  disabled?: boolean;
 }
 
 interface AddonCardProps {
@@ -37,6 +38,7 @@ export function AddonCard({
   inCart = false,
 }: AddonCardProps) {
   const Icon = iconMap[addon.type] || FileText;
+  const disabled = addon.disabled;
 
   return (
     <div className="bg-white dark:bg-slate-900 border border-brand-hairline dark:border-slate-800 rounded-2xl p-6 shadow-xs hover:border-brand-primary/30 hover:shadow-brand transition-all duration-200 flex flex-col justify-between">
@@ -74,9 +76,11 @@ export function AddonCard({
       <div className="mt-5 space-y-2">
         {/* Helper info tag */}
         <span className="block text-[10px] text-brand-ink-mute dark:text-slate-400 leading-none">
-          {addon.isPrepay 
-            ? "Añadir para pagar hoy" 
-            : "Pago diferido (cargado al mes)"
+          {disabled
+            ? "Requiere un plan activo"
+            : addon.isPrepay
+              ? "Añadir para pagar hoy"
+              : "Pago diferido (cargado al mes)"
           }
         </span>
 
@@ -97,7 +101,7 @@ export function AddonCard({
           <Button
             variant="outline"
             onClick={onAction}
-            disabled={isLoading}
+            disabled={isLoading || disabled}
             className="w-full h-11 py-3 px-7 min-w-[120px] rounded-xl text-sm gap-1.5 active:scale-[0.98] transition-all duration-100 font-semibold hover:bg-brand-canvas-soft dark:hover:bg-slate-800"
           >
             {isLoading ? (

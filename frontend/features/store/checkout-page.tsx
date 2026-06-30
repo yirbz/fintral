@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CreditCard, Banknote, Loader2, Info, Upload, CheckCircle2, X, Lock } from "lucide-react";
+import { ArrowLeft, CreditCard, Banknote, Loader2, Info, Upload, CheckCircle2, X, Lock, Building2, ChevronDown, ChevronUp, Plus, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
@@ -12,14 +13,46 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { useCart } from "./cart-context";
 import { useSession } from "@/hooks/use-session";
-import { calculateCart, uploadPaymentProof, getBankDetails, type CartItem as ApiCartItem } from "@/lib/api/plans";
+import { calculateCart, uploadPaymentProof, getBankDetails, processCart, type CartItem as ApiCartItem } from "@/lib/api/plans";
+import { listUserOrganizations, createOrganization, type UserOrg } from "@/lib/api/organizations";
 import { cn } from "@/lib/utils";
+
+// ── Types ──────────────────────────────────────────────────────────────────
+interface NewOrgForm {
+  name: string;
+  tax_id: string;
+  phone: string;
+  email_contact: string;
+  fiscal_address: string;
+  municipality: string;
+  province: string;
+}
+
+const EMPTY_NEW_ORG: NewOrgForm = {
+  name: "",
+  tax_id: "",
+  phone: "",
+  email_contact: "",
+  fiscal_address: "",
+  municipality: "",
+  province: "",
+};
+
+// Org selection state per entity_slot cart item
+type EntitySlotChoice =
+  | { mode: "none" }                                   // not chosen yet
+  | { mode: "existing"; orgId: string }                // existing inactive org
+  | { mode: "new"; form: NewOrgForm };                 // fill new org details
 
 export function CheckoutPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { items, clearCart, isEmpty } = useCart();
+  const { items, clearCart, isEmpty, updateTargetOrgId } = useCart();
   const { data: session, isLoading: sessionLoading } = useSession();
+  const { data: userOrgs } = useQuery({
+    queryKey: ["user-orgs"],
+    queryFn: () => listUserOrganizations(true), // include inactive so user can re-activate
+  });
   const orgId = session?.organization?.id;
   const role = session?.role;
   const canManage = role === "owner" || role === "admin";
@@ -28,6 +61,15 @@ export function CheckoutPage() {
   const [notes, setNotes] = useState("");
   const [uploading, setUploading] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"card" | "transfer">("card");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [showTransferForm, setShowTransferForm] = useState(false);
+
+  // Entity slot org choices keyed by cart item id
+  const [entitySlotChoices, setEntitySlotChoices] = useState<Record<string, EntitySlotChoice>>({});
+
+  const setEntitySlotChoice = useCallback((itemId: string, choice: EntitySlotChoice) => {
+    setEntitySlotChoices((prev) => ({ ...prev, [itemId]: choice }));
+  }, []);
 
   const cartItems: ApiCartItem[] = useMemo(
     () =>
@@ -39,6 +81,7 @@ export function CheckoutPage() {
         months: i.months,
         price_cents: i.price_cents,
         label: i.label,
+        target_org_id: i.targetOrgId,
       })),
     [items]
   );
@@ -61,7 +104,7 @@ export function CheckoutPage() {
   const hasPlanChange = !!planChangeItem;
   const ecfBlockItem = items.find((i) => i.type === "ecf_blocks");
   const hasEcfBlocks = !!ecfBlockItem;
-  const showCardPayment = hasPlanChange || hasEcfBlocks;
+  const showCardPayment = true;
 
   const [loadingCheckout, setLoadingCheckout] = useState(false);
 
@@ -70,6 +113,93 @@ export function CheckoutPage() {
     queryFn: getBankDetails,
     staleTime: 1000 * 60 * 30,
   });
+
+  const handleProcessCart = async (paymentMethod: "card" | "transfer") => {
+    if (!cartItems || cartItems.length === 0) {
+      toast.error("Tu carrito está vacío");
+      return;
+    }
+
+    // ── Validate & pre-create orgs for entity_slot items ──────────────
+    const entitySlotItems = items.filter((i) => i.type === "entity_slot");
+    const resolvedOrgIds: Record<string, string> = {};
+
+    for (const slotItem of entitySlotItems) {
+      const choice = entitySlotChoices[slotItem.id] ?? { mode: "none" };
+
+      if (choice.mode === "none") {
+        toast.error("Debes asignar una empresa a cada Slot de Empresa antes de continuar.");
+        return;
+      }
+
+      if (choice.mode === "existing") {
+        if (!choice.orgId) {
+          toast.error("Selecciona una empresa existente o crea una nueva.");
+          return;
+        }
+        resolvedOrgIds[slotItem.id] = choice.orgId;
+      }
+
+      if (choice.mode === "new") {
+        const { name, tax_id, phone, email_contact, fiscal_address, municipality, province } = choice.form;
+        if (!name.trim()) {
+          toast.error("El nombre de la empresa es requerido.");
+          return;
+        }
+        // Pre-create the org as inactive — gets activated when payment succeeds
+        try {
+          const created = await createOrganization({
+            name: name.trim(),
+            tax_id: tax_id.trim() || undefined,
+            phone: phone.trim() || undefined,
+            email_contact: email_contact.trim() || undefined,
+            fiscal_address: fiscal_address.trim() || undefined,
+            municipality: municipality.trim() || undefined,
+            province: province.trim() || undefined,
+            is_active: false,
+          });
+          resolvedOrgIds[slotItem.id] = created.id;
+        } catch (err: any) {
+          toast.error("Error al registrar la empresa: " + (err.message || "Intenta de nuevo"));
+          return;
+        }
+      }
+    }
+
+    // Bind resolved org IDs to the cart items
+    for (const [itemId, orgTargetId] of Object.entries(resolvedOrgIds)) {
+      updateTargetOrgId(itemId, orgTargetId);
+    }
+
+    // Rebuild cartItems with resolved org IDs
+    const finalCartItems: ApiCartItem[] = items.map((i) => ({
+      type: i.type,
+      plan_name: i.plan_name,
+      addon_type: i.addon_type,
+      quantity: i.quantity,
+      months: i.months,
+      price_cents: i.price_cents,
+      label: i.label,
+      target_org_id: resolvedOrgIds[i.id] ?? i.targetOrgId,
+    }));
+
+    setIsProcessing(true);
+
+    try {
+      const result = await processCart(finalCartItems, paymentMethod);
+
+      if (paymentMethod === "card" && result.checkout_url) {
+        window.location.href = result.checkout_url;
+      } else if (paymentMethod === "transfer") {
+        setShowTransferForm(true);
+        toast.success("Revisa los datos de transferencia");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Error al procesar el pago");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   async function handleCardPayment() {
     if (!orgId) return;
@@ -194,6 +324,69 @@ export function CheckoutPage() {
     );
   }
 
+  if (isProcessing) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20">
+        <Loader2 className="size-8 animate-spin text-brand-primary" />
+        <p className="mt-4 text-sm text-brand-ink-mute">Procesando tu pago...</p>
+      </div>
+    );
+  }
+
+  if (showTransferForm) {
+    return (
+      <div className="animate-in fade-in duration-300 max-w-md mx-auto mt-8">
+        <div className="rounded-2xl border border-brand-hairline dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-4">
+          <h2 className="text-lg font-medium text-brand-ink dark:text-white">Transferencia Bancaria</h2>
+          <div className="space-y-2">
+            <p className="text-xs text-brand-ink-mute dark:text-slate-400">
+              <span className="font-medium text-brand-ink dark:text-slate-200">Banco:</span>{" "}
+              {bankDetails?.bank_name || "Banco Popular Dominicano"}
+            </p>
+            <p className="text-xs text-brand-ink-mute dark:text-slate-400">
+              <span className="font-medium text-brand-ink dark:text-slate-200">Titular:</span>{" "}
+              {bankDetails?.account_holder || "Fintral SRL"}
+            </p>
+            <p className="text-xs text-brand-ink-mute dark:text-slate-400">
+              <span className="font-medium text-brand-ink dark:text-slate-200">Cuenta:</span>{" "}
+              {bankDetails?.account_number || "123-456789-01"}
+            </p>
+            <p className="text-xs font-medium text-brand-ink dark:text-white">
+              Monto exacto a transferir:{" "}
+              <span className="text-brand-primary">
+                {finalTotal.toLocaleString("es-DO", { style: "currency", currency: "DOP" })}
+              </span>
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-xs font-medium text-brand-ink dark:text-white">Comprobante de pago</Label>
+            <Input
+              type="file"
+              accept="image/png,image/jpeg,application/pdf"
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              className="rounded-xl border-brand-hairline dark:border-slate-800"
+            />
+            <p className="text-[10px] text-brand-ink-mute">
+              Formatos: PNG, JPG, PDF. Máximo 10MB.
+            </p>
+          </div>
+          <Button
+            className="w-full h-11 rounded-xl text-sm font-semibold bg-brand-primary text-white hover:bg-brand-primary-deep active:scale-[0.98] transition-all duration-100"
+            onClick={(e) => handleSubmit(e as any)}
+            disabled={uploading || !file}
+          >
+            {uploading ? (
+              <Loader2 className="size-4 animate-spin mr-2" />
+            ) : (
+              <Banknote className="size-4 mr-2" />
+            )}
+            Enviar comprobante
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (isEmpty) {
     return (
       <div className="max-w-md mx-auto mt-16 p-6 text-center border border-brand-hairline dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl shadow-xs space-y-4">
@@ -254,26 +447,60 @@ export function CheckoutPage() {
             ) : (
               <div className="space-y-4">
                 <div className="space-y-3">
-                  {items.map((item) => (
-                    <div key={item.id} className="flex justify-between items-start gap-4">
-                      <div className="space-y-0.5">
-                        <p className="text-xs font-medium text-brand-ink dark:text-white">
-                          {item.label || item.type}
-                        </p>
-                        {item.quantity > 1 && (
-                          <p className="text-[10px] text-brand-ink-mute dark:text-slate-400">
-                            Cantidad: {item.quantity}
+                  {items.map((item, index) => {
+                    const calcItem = cartCalc?.items?.[index];
+                    const displayLabel = calcItem?.label || item.label || item.type;
+                    // calcItem.total is already divided by 100 on the backend
+                    const displayPrice = calcItem ? calcItem.total : ((item.price_cents * item.quantity * (item.months || 1)) / 100);
+
+                    return (
+                      <div key={item.id} className="flex justify-between items-start gap-4">
+                        <div className="space-y-0.5 flex-1">
+                          <p className="text-xs font-medium text-brand-ink dark:text-white">
+                            {displayLabel}
                           </p>
-                        )}
+                          {item.quantity > 1 && (
+                            <p className="text-[10px] text-brand-ink-mute dark:text-slate-400">
+                              Cantidad: {item.quantity}
+                            </p>
+                          )}
+                          {item.type === "entity_slot" && (
+                            <EntitySlotOrgSelector
+                              itemId={item.id}
+                              choice={entitySlotChoices[item.id] ?? { mode: "none" }}
+                              inactiveOrgs={(userOrgs ?? []).filter((o) => !o.is_active && !o.is_deleted)}
+                              onChange={(choice) => setEntitySlotChoice(item.id, choice)}
+                            />
+                          )}
+                          {(item.type === "ecf_blocks" || item.type === "user_slot") && userOrgs && userOrgs.filter(o => o.is_active).length > 0 && (
+                            <div className="mt-2 space-y-1 max-w-[220px]">
+                              <label className="text-[10px] font-medium text-brand-ink-mute">
+                                Asignar a la entidad:
+                              </label>
+                              <select
+                                value={item.targetOrgId || orgId || ""}
+                                onChange={(e) => updateTargetOrgId(item.id, e.target.value)}
+                                className="block w-full text-[11px] rounded-lg border border-brand-hairline dark:border-slate-800 bg-white dark:bg-slate-900 p-1.5 text-brand-ink dark:text-white focus:border-brand-primary focus:outline-none"
+                              >
+                                <option value="">-- Seleccionar Entidad --</option>
+                                {userOrgs.filter(o => o.is_active).map((org) => (
+                                  <option key={org.id} value={org.id}>
+                                    {org.name} {org.tax_id ? `(${org.tax_id})` : ""}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+                        <span className="text-xs font-mono font-medium text-brand-ink dark:text-white tabular-nums shrink-0">
+                          {displayPrice.toLocaleString("es-DO", {
+                            style: "currency",
+                            currency,
+                          })}
+                        </span>
                       </div>
-                      <span className="text-xs font-mono font-medium text-brand-ink dark:text-white tabular-nums shrink-0">
-                        {((item.price_cents * item.quantity * (item.months || 1)) / 100).toLocaleString("es-DO", {
-                          style: "currency",
-                          currency,
-                        })}
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {months > 1 && (
@@ -321,7 +548,7 @@ export function CheckoutPage() {
             <div className="space-y-1">
               <h4 className="text-xs font-semibold text-brand-ink dark:text-white">Pago 100% seguro</h4>
               <p className="text-[11px] text-brand-ink-mute dark:text-slate-400 leading-normal">
-                Todas las transacciones de tarjeta son encriptadas y procesadas por Paddle.com, nuestro socio de facturación oficial de conformidad con los estándares PCI-DSS.
+                Todas las transacciones de tarjeta son encriptadas y procesadas de forma segura en conformidad con los estándares PCI-DSS.
               </p>
             </div>
           </div>
@@ -377,11 +604,11 @@ export function CheckoutPage() {
 
                     <div className="max-w-xs mx-auto">
                       <Button
-                        onClick={handleCardPayment}
+                        onClick={() => handleProcessCart("card")}
                         className="w-full h-11 py-3 px-7 min-w-[120px] rounded-xl text-sm font-semibold bg-brand-primary text-white hover:bg-brand-primary-deep active:scale-[0.98] transition-all duration-100"
-                        disabled={loadingCheckout}
+                        disabled={isProcessing}
                       >
-                        {loadingCheckout ? (
+                        {isProcessing ? (
                           <>
                             <Loader2 className="size-4 animate-spin mr-2" />
                             Redirigiendo a MIO...
@@ -583,6 +810,228 @@ function TransferForm({
           {uploading ? "Enviando comprobante..." : `Enviar comprobante de ${total.toLocaleString("es-DO", { style: "currency", currency })}`}
         </Button>
       </form>
+    </div>
+  );
+}
+
+// ── EntitySlotOrgSelector ──────────────────────────────────────────────────────
+// Component for binding an organization to a Slot de Empresa purchase.
+// Users can either select an existing inactive org to reactivate, or
+// provide details for a brand-new organization that will be created
+// as inactive and activated only after successful payment.
+
+interface EntitySlotOrgSelectorProps {
+  itemId: string;
+  choice: EntitySlotChoice;
+  inactiveOrgs: UserOrg[];
+  onChange: (choice: EntitySlotChoice) => void;
+}
+
+function EntitySlotOrgSelector({ itemId, choice, inactiveOrgs, onChange }: EntitySlotOrgSelectorProps) {
+  const hasInactive = inactiveOrgs.length > 0;
+  const [formOpen, setFormOpen] = useState(false);
+
+  const updateNewForm = (patch: Partial<NewOrgForm>) => {
+    const current = choice.mode === "new" ? choice.form : EMPTY_NEW_ORG;
+    onChange({ mode: "new", form: { ...current, ...patch } });
+  };
+
+  const chooseExisting = (orgId: string) => {
+    onChange({ mode: "existing", orgId });
+  };
+
+  const chooseNew = () => {
+    onChange({ mode: "new", form: EMPTY_NEW_ORG });
+    setFormOpen(true);
+  };
+
+  const isNone = choice.mode === "none";
+  const isExisting = choice.mode === "existing";
+  const isNew = choice.mode === "new";
+
+  return (
+    <div className="mt-3 space-y-2">
+      {/* Alert if not yet chosen */}
+      {isNone && (
+        <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-500/8 border border-amber-400/30 text-amber-600 dark:text-amber-400">
+          <AlertCircle className="size-3.5 shrink-0 mt-0.5" />
+          <p className="text-[10px] leading-normal">
+            Debes asignar una empresa a este slot antes de continuar.
+          </p>
+        </div>
+      )}
+
+      {/* Mode picker */}
+      <div className="flex flex-wrap gap-1.5">
+        {hasInactive && (
+          <button
+            type="button"
+            onClick={() => {
+              const firstOrg = inactiveOrgs[0];
+              onChange({ mode: "existing", orgId: firstOrg?.id ?? "" });
+            }}
+            className={cn(
+              "flex items-center gap-1.5 text-[10px] font-medium px-2.5 py-1.5 rounded-lg border transition-all",
+              isExisting
+                ? "bg-brand-primary/10 border-brand-primary/40 text-brand-primary dark:text-sky-400"
+                : "bg-white dark:bg-slate-900 border-brand-hairline dark:border-slate-700 text-brand-ink-mute dark:text-slate-400 hover:border-brand-primary/40"
+            )}
+          >
+            <Building2 className="size-3" />
+            Empresa existente
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={chooseNew}
+          className={cn(
+            "flex items-center gap-1.5 text-[10px] font-medium px-2.5 py-1.5 rounded-lg border transition-all",
+            isNew
+              ? "bg-brand-primary/10 border-brand-primary/40 text-brand-primary dark:text-sky-400"
+              : "bg-white dark:bg-slate-900 border-brand-hairline dark:border-slate-700 text-brand-ink-mute dark:text-slate-400 hover:border-brand-primary/40"
+          )}
+        >
+          <Plus className="size-3" />
+          Nueva empresa
+        </button>
+      </div>
+
+      {/* Existing org picker */}
+      {isExisting && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-brand-ink-mute dark:text-slate-400">
+            Selecciona una empresa inactiva para reactivar con este slot:
+          </p>
+          <select
+            value={(choice as any).orgId ?? ""}
+            onChange={(e) => chooseExisting(e.target.value)}
+            className="block w-full text-[11px] rounded-lg border border-brand-hairline dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-brand-ink dark:text-white focus:border-brand-primary focus:outline-none"
+          >
+            <option value="">-- Seleccionar empresa --</option>
+            {inactiveOrgs.map((org) => (
+              <option key={org.id} value={org.id}>
+                {org.name} {org.tax_id ? `(${org.tax_id})` : ""} — inactiva
+              </option>
+            ))}
+          </select>
+          {(choice as any).orgId && (
+            <div className="flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="size-3" />
+              Se reactivará al confirmar el pago
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* New org form */}
+      {isNew && (
+        <div className="rounded-xl border border-brand-hairline dark:border-slate-700 bg-brand-canvas-soft/20 dark:bg-slate-900/50 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setFormOpen((v) => !v)}
+            className="w-full flex items-center justify-between px-3 py-2.5 text-[11px] font-medium text-brand-ink dark:text-white hover:bg-brand-canvas-soft/40 dark:hover:bg-slate-800/40 transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <Building2 className="size-3.5 text-brand-primary" />
+              {(choice as any).form?.name?.trim() || "Datos de la nueva empresa"}
+            </span>
+            {formOpen ? <ChevronUp className="size-3.5 text-brand-ink-mute" /> : <ChevronDown className="size-3.5 text-brand-ink-mute" />}
+          </button>
+
+          {formOpen && (
+            <div className="px-3 pb-3 space-y-2 border-t border-brand-hairline dark:border-slate-700/60 pt-2.5">
+              <p className="text-[10px] text-brand-ink-mute dark:text-slate-400 leading-normal">
+                La empresa se registrará como <em>inactiva</em> y se activará automáticamente tras confirmar el pago.
+              </p>
+
+              <div className="space-y-2">
+                {/* Name — required */}
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-medium text-brand-ink dark:text-slate-300">
+                    Nombre de la empresa <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    placeholder="Empresa SRL"
+                    value={(choice as any).form.name}
+                    onChange={(e) => updateNewForm({ name: e.target.value })}
+                    className="h-8 text-xs rounded-lg border-brand-hairline dark:border-slate-700 focus:border-brand-primary"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-medium text-brand-ink dark:text-slate-300">RNC / Cédula</Label>
+                    <Input
+                      placeholder="123-456789-0"
+                      value={(choice as any).form.tax_id}
+                      onChange={(e) => updateNewForm({ tax_id: e.target.value })}
+                      className="h-8 text-xs rounded-lg border-brand-hairline dark:border-slate-700 focus:border-brand-primary"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-medium text-brand-ink dark:text-slate-300">Teléfono</Label>
+                    <Input
+                      placeholder="809-000-0000"
+                      value={(choice as any).form.phone}
+                      onChange={(e) => updateNewForm({ phone: e.target.value })}
+                      className="h-8 text-xs rounded-lg border-brand-hairline dark:border-slate-700 focus:border-brand-primary"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-medium text-brand-ink dark:text-slate-300">Email de contacto</Label>
+                  <Input
+                    placeholder="admin@empresa.com"
+                    type="email"
+                    value={(choice as any).form.email_contact}
+                    onChange={(e) => updateNewForm({ email_contact: e.target.value })}
+                    className="h-8 text-xs rounded-lg border-brand-hairline dark:border-slate-700 focus:border-brand-primary"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-medium text-brand-ink dark:text-slate-300">Dirección fiscal</Label>
+                  <Input
+                    placeholder="Av. Principal No. 1, Sector"
+                    value={(choice as any).form.fiscal_address}
+                    onChange={(e) => updateNewForm({ fiscal_address: e.target.value })}
+                    className="h-8 text-xs rounded-lg border-brand-hairline dark:border-slate-700 focus:border-brand-primary"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-medium text-brand-ink dark:text-slate-300">Municipio</Label>
+                    <Input
+                      placeholder="Santo Domingo"
+                      value={(choice as any).form.municipality}
+                      onChange={(e) => updateNewForm({ municipality: e.target.value })}
+                      className="h-8 text-xs rounded-lg border-brand-hairline dark:border-slate-700 focus:border-brand-primary"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-medium text-brand-ink dark:text-slate-300">Provincia</Label>
+                    <Input
+                      placeholder="Distrito Nacional"
+                      value={(choice as any).form.province}
+                      onChange={(e) => updateNewForm({ province: e.target.value })}
+                      className="h-8 text-xs rounded-lg border-brand-hairline dark:border-slate-700 focus:border-brand-primary"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {(choice as any).form?.name?.trim() && (
+                <div className="flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 pt-1">
+                  <CheckCircle2 className="size-3" />
+                  Se creará y activará al confirmar el pago
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
