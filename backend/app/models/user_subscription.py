@@ -1,6 +1,6 @@
 """UserSubscription — per-user Fintral Hub subscription, managed via Lago billing engine."""
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 from uuid_utils import uuid7
 
@@ -28,6 +28,10 @@ class UserSubscription(Base):
     # trialing | active | past_due | canceled | expired
 
     trial_ends_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Addon capacity
+    addon_entity_slots = Column(Integer, default=0)
+    pending_cancel_entity_slots = Column(Integer, default=0, nullable=False)
 
     # Lago billing engine fields
     lago_subscription_id = Column(String(64), nullable=True, index=True)

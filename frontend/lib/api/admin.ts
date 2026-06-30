@@ -449,7 +449,7 @@ export const adminPaymentProofsApi = {
     const qs = statusFilter ? `?status_filter=${statusFilter}` : "";
     return apiFetch<AdminPaymentProof[]>(`/api/admin/payment-proofs${qs}`);
   },
-  verify: (proofId: string, action: "verified" | "rejected", adminNotes?: string) =>
+  verify: (proofId: string, action: "verified" | "rejected" | "revoked", adminNotes?: string) =>
     apiFetch<AdminPaymentProof>(`/api/admin/payment-proofs/${proofId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },

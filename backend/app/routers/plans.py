@@ -15,6 +15,7 @@ from sqlalchemy import case, func
 
 from app.dependencies.tenant import TenantContext, require_tenant
 from app.models import Invoice, PendingUpload, SubscriptionPlan, PaymentProof
+from app.utils.dates import utc_now
 from app.services.plan_service import PlanService
 from app.services.usage_tracker import _current_cycle
 from app.services.exchange_rate_service import get_bpd_usd_rate
@@ -398,7 +399,12 @@ async def purchase_addon(payload: AddonPurchaseRequest, ctx: TenantContext = Dep
     """Purchase addon blocks for current cycle."""
     svc = PlanService(ctx.db)
     try:
-        sub = svc.purchase_addon(ctx.org_id, payload.addon_type, payload.quantity)
+        sub = svc.purchase_addon(
+            ctx.org_id,
+            payload.addon_type,
+            payload.quantity,
+            user_id=str(ctx.user.id) if payload.addon_type == "entity_slot" else None,
+        )
         return {"message": f"Add-on {payload.addon_type} adquirido", "subscription_id": str(sub.id)}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -427,6 +433,7 @@ class CartItem(BaseModel):
     price_cents: int = 0
     label: str | None = None
     organization_id: str | None = None  # for entity-level purchases
+    target_org_id: str | None = None  # for user_slot / ecf_blocks targeting a specific org
 
 
 class CalculateCartRequest(BaseModel):
@@ -439,6 +446,10 @@ class CartBreakdownItem(BaseModel):
     quantity: int
     unit_price: float
     total: float
+    prorated: bool = False
+    days_remaining: int | None = None
+    cycle_days: int | None = None
+    original_unit_price: float | None = None
 
 
 class CalculateCartResponse(BaseModel):
@@ -449,6 +460,7 @@ class CalculateCartResponse(BaseModel):
     months: int = 1
     discount: float = 0.0
     monthly_total: float = 0.0
+    has_prorated_items: bool = False
 
 
 @router.post("/calculate-cart")
@@ -457,12 +469,42 @@ async def calculate_cart(
     ctx: TenantContext = Depends(require_tenant),
 ):
     """Calculate total price for a cart of items in DOP."""
+    from app.models.organization_subscription import OrganizationSubscription
+    from app.utils.dates import utc_now
+    from math import ceil as math_ceil
+
     breakdowm: list[CartBreakdownItem] = []
     total = 0.0
     currency = "DOP"
 
     months = max((item.months or 1) for item in payload.items) if payload.items else 1
     discount = DISCOUNT_TIERS.get(months, 0.0)
+
+    # Fetch active subscription for proration
+    org_id = str(ctx.organization.id)
+    current_sub = (
+        ctx.db.query(OrganizationSubscription)
+        .filter(
+            OrganizationSubscription.organization_id == org_id,
+            OrganizationSubscription.status.in_(["active", "trialing"]),
+        )
+        .order_by(OrganizationSubscription.created_at.desc())
+        .first()
+    )
+
+    def get_proration(unit_price_cents: int) -> tuple[int, int, int]:
+        """Returns (prorated_cents, days_remaining, cycle_days)."""
+        if not current_sub or not current_sub.billing_cycle_end or not current_sub.billing_cycle_start:
+            return unit_price_cents, 30, 30
+        now = utc_now()
+        cycle_end = current_sub.billing_cycle_end
+        cycle_start = current_sub.billing_cycle_start
+        if now >= cycle_end:
+            return unit_price_cents, 30, 30
+        total_cycle_days = max((cycle_end - cycle_start).days, 1)
+        days_remaining = max((cycle_end - now).days, 1)
+        prorated = math_ceil(unit_price_cents * days_remaining / total_cycle_days)
+        return prorated, days_remaining, total_cycle_days
 
     for item in payload.items:
         months = item.months or 1
@@ -474,27 +516,88 @@ async def calculate_cart(
                 .first()
             )
             if plan:
-                unit_price = plan.price_monthly_cents / 100.0
+                new_price_cents = plan.price_monthly_cents or (int(plan.price_dop * 100) if plan.price_dop else 0)
                 label = item.label or f"Plan {plan.display_name}"
             else:
-                unit_price = item.price_cents / 100.0
+                new_price_cents = item.price_cents
                 label = item.label or f"Plan {item.plan_name}"
+
+            unit_price = new_price_cents / 100.0
+            
+            # Prorate plan upgrade cost: New Plan Price - (Old Plan Price * Days Left / Total Cycle Days)
+            if current_sub and current_sub.plan and current_sub.billing_cycle_start and current_sub.billing_cycle_end:
+                now = utc_now()
+                cycle_end = current_sub.billing_cycle_end
+                cycle_start = current_sub.billing_cycle_start
+                if now < cycle_end:
+                    total_cycle_days = max((cycle_end - cycle_start).days, 1)
+                    days_remaining = max((cycle_end - now).days, 1)
+                    
+                    old_plan_price_cents = current_sub.plan.price_monthly_cents or (int(current_sub.plan.price_dop * 100) if current_sub.plan.price_dop else 0)
+                    credit_cents = math_ceil(old_plan_price_cents * days_remaining / total_cycle_days)
+                    
+                    net_price_cents = max(new_price_cents - credit_cents, 0)
+                    unit_price = net_price_cents / 100.0
+                    label = f"{label} (Crédito de RD$ {credit_cents/100:.2f} aplicado por {days_remaining} días restantes)"
+
+            line_total = unit_price * item.quantity * months
+            discounted = round(line_total * (1 - discount), 2)
+            total += discounted
+            breakdowm.append(CartBreakdownItem(
+                type=item.type,
+                label=label,
+                quantity=item.quantity * months,
+                unit_price=round(unit_price * (1 - discount), 2),
+                total=discounted,
+            ))
+        elif item.type in ("entity_slot", "user_slot", "ai", "storage"):
+            original_price_cents = item.price_cents
+            prorated_cents, days_rem, cycle_days = get_proration(original_price_cents)
+            unit_price = prorated_cents / 100.0
+            
+            if item.type == "entity_slot":
+                base_label = "Empresa adicional"
+            elif item.type == "user_slot":
+                base_label = "Usuario adicional"
+            elif item.type == "ai":
+                base_label = "Bloque de IA"
+            elif item.type == "storage":
+                base_label = "Bloque de Almacenamiento"
+            else:
+                base_label = item.label or item.type
+
+            label = f"{base_label} (proporcional por {days_rem} días restantes)"
+            # Prorated charge covers remainder of current period only — no months multiplier
+            line_total = unit_price * item.quantity
+            discounted = round(line_total * (1 - discount), 2)
+            total += discounted
+            breakdowm.append(CartBreakdownItem(
+                type=item.type,
+                label=label,
+                quantity=item.quantity,
+                unit_price=unit_price,
+                total=discounted,
+                prorated=True,
+                days_remaining=days_rem,
+                cycle_days=cycle_days,
+                original_unit_price=round(original_price_cents / 100.0, 2),
+            ))
         else:
             unit_price = item.price_cents / 100.0
             label = item.label or item.type
-
-        line_total = unit_price * item.quantity * months
-        discounted = round(line_total * (1 - discount), 2)
-        total += discounted
-        breakdowm.append(CartBreakdownItem(
-            type=item.type,
-            label=label,
-            quantity=item.quantity * months,
-            unit_price=round(unit_price * (1 - discount), 2),
-            total=discounted,
-        ))
+            line_total = unit_price * item.quantity * months
+            discounted = round(line_total * (1 - discount), 2)
+            total += discounted
+            breakdowm.append(CartBreakdownItem(
+                type=item.type,
+                label=label,
+                quantity=item.quantity * months,
+                unit_price=round(unit_price * (1 - discount), 2),
+                total=discounted,
+            ))
 
     monthly_total = round(total / months, 2) if months > 0 else 0
+    has_prorated = any(i.prorated for i in breakdowm)
 
     return CalculateCartResponse(
         items=breakdowm,
@@ -504,6 +607,7 @@ async def calculate_cart(
         months=months,
         discount=discount,
         monthly_total=monthly_total,
+        has_prorated_items=has_prorated,
     )
 
 
@@ -539,6 +643,7 @@ class CartItemResponse(BaseModel):
     price_cents: int = 0
     label: str | None = None
     organization_id: str | None = None
+    target_org_id: str | None = None
 
 
 class PaymentProofResponse(BaseModel):
@@ -555,6 +660,9 @@ class PaymentProofResponse(BaseModel):
     notes: str | None
     admin_notes: str | None
     created_at: str | None
+    organization_id: str | None = None
+    organization_name: str | None = None
+    scope: str = "org"  # "user" for account-level, "org" for entity-level
 
 
 @router.post("/payment-proof")
@@ -632,6 +740,21 @@ async def upload_payment_proof(
 
     d = proof.to_dict()
 
+    # ── Send confirmation email to user ──────────────────────────
+    try:
+        from app.services.email_service import send_payment_proof_received_email
+        user_email = ctx.user.email
+        user_name = ctx.user.full_name or ctx.user.email
+        if user_email:
+            send_payment_proof_received_email(
+                customer_email=user_email,
+                customer_name=user_name,
+                amount=d["amount"],
+                currency=d["currency"],
+            )
+    except Exception:
+        logger.exception("Error sending payment proof received email")
+
     # ── Notify admin via Telegram & email ──────────────────────────
     try:
         from app.services.alert_hooks import alert_manager, Alert
@@ -683,22 +806,66 @@ async def upload_payment_proof(
 
 @router.get("/payment-proofs", response_model=List[PaymentProofResponse])
 async def list_payment_proofs(ctx: TenantContext = Depends(require_tenant)):
-    """List payment proofs for the current organization."""
-    proofs = (
+    """List payment proofs for the current user (account-level) and current organization (entity-level)."""
+    org_proofs = (
         ctx.db.query(PaymentProof)
         .filter(PaymentProof.organization_id == ctx.org_id)
         .order_by(PaymentProof.created_at.desc())
         .all()
     )
+    user_proofs = (
+        ctx.db.query(PaymentProof)
+        .filter(
+            PaymentProof.user_id == ctx.user.id,
+            PaymentProof.organization_id != ctx.org_id,
+        )
+        .order_by(PaymentProof.created_at.desc())
+        .all()
+    )
+
+    # Merge and deduplicate by id
+    seen = set()
     results = []
-    for p in proofs:
+    for p in org_proofs + user_proofs:
+        pid = str(p.id)
+        if pid in seen:
+            continue
+        seen.add(pid)
+
         d = p.to_dict()
+
+        # Determine scope: "user" for account-level, "org" for entity-level
+        items_raw = d.get("items") or []
+        has_org_items = any(
+            i.get("type") in ("ecf_blocks", "user_slot")
+            for i in items_raw
+        )
+        has_user_items = any(
+            i.get("type") in ("plan_change", "entity_slot", "addon", "renewal", "overage")
+            for i in items_raw
+        )
+        if not items_raw:
+            # Legacy proofs without items — treat as user-level (plan payment)
+            scope = "user"
+        elif has_org_items and not has_user_items:
+            scope = "org"
+        elif has_user_items and not has_org_items:
+            scope = "user"
+        else:
+            # Mixed — default to user, mark org items individually in frontend
+            scope = "user"
+
+        org_name = None
+        if p.organization_id and p.organization_id == ctx.org_id:
+            org_name = ctx.organization.name
+
         items_list = None
         if d.get("items"):
             try:
                 items_list = [CartItemResponse(**i) for i in d["items"]]
             except Exception:
                 items_list = None
+
         results.append(PaymentProofResponse(
             id=d["id"],
             plan_name=d["plan_name"],
@@ -711,6 +878,9 @@ async def list_payment_proofs(ctx: TenantContext = Depends(require_tenant)):
             notes=d["notes"],
             admin_notes=d["admin_notes"],
             created_at=d["created_at"],
+            organization_id=d["organization_id"],
+            organization_name=org_name,
+            scope=scope,
         ))
     return results
 
@@ -727,7 +897,13 @@ async def purchase_addon_direct(
     """Purchase addon blocks directly (post-pay, added to monthly statement)."""
     svc = PlanService(ctx.db)
     try:
-        result = svc.purchase_addon_direct(ctx.org_id, addon_type, quantity, label)
+        result = svc.purchase_addon_direct(
+            ctx.org_id,
+            addon_type,
+            quantity,
+            label,
+            user_id=str(ctx.user.id) if addon_type == "entity_slot" else None,
+        )
         return {"success": True, **result}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -740,7 +916,7 @@ async def get_statement(
 ):
     """Get the monthly statement for a given cycle."""
     svc = PlanService(ctx.db)
-    return svc.get_statement(ctx.org_id, cycle)
+    return svc.get_statement(ctx.org_id, cycle, ctx.user.id)
 
 
 @router.post("/pay-statement")
@@ -752,6 +928,130 @@ async def pay_statement(
     """Mark all charges for a cycle as paid."""
     svc = PlanService(ctx.db)
     return svc.pay_statement(ctx.org_id, cycle, payment_proof_id)
+
+
+class PayStatementCardRequest(BaseModel):
+    cycle: int
+
+
+@router.post("/pay-statement/card")
+async def pay_statement_card(
+    payload: PayStatementCardRequest,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """Initiate a MIO card payment checkout for unpaid charges in a cycle."""
+    from app.models import MonthlyCharge
+    from app.models.mio_payment_order import MioPaymentOrder
+    from app.services.mio_service import MioService
+    from app.config import settings
+
+    # 1. Fetch unpaid charges
+    charges = (
+        ctx.db.query(MonthlyCharge)
+        .filter(
+            MonthlyCharge.organization_id == ctx.org_id,
+            MonthlyCharge.cycle == payload.cycle,
+            MonthlyCharge.paid == False,  # noqa: E712
+        )
+        .all()
+    )
+    if not charges:
+        raise HTTPException(status_code=400, detail="No hay cargos pendientes para este ciclo.")
+
+    total_cents = sum(c.total_price_cents for c in charges)
+    if total_cents <= 0:
+        raise HTTPException(status_code=400, detail="El monto a pagar debe ser mayor a cero.")
+
+    # 2. Add 5% card fee
+    fee_cents = int(total_cents * 0.05)
+    total_with_fee = total_cents + fee_cents
+
+    # 3. Create MIO checkout order
+    mio = MioService()
+    webhook_url = settings.MIO_WEBHOOK_URL or "https://api.fintral.com/api/mio/webhook"
+    success_url = settings.MIO_SUCCESS_REDIRECT or "https://app.fintral.com/billing/success"
+    failed_url = settings.MIO_FAILED_REDIRECT or "https://app.fintral.com/billing/failed"
+
+    mio_order = await mio.create_order(
+        amount_cents=total_with_fee,
+        description=f"Fintral: Pago de Estado de Cuenta Ciclo {payload.cycle}",
+        webhook_url=webhook_url,
+        success_url=success_url,
+        failed_url=failed_url,
+    )
+
+    # 4. Save order to database
+    # Cancel previous pending MIO checkouts for this user to prevent clutter
+    ctx.db.query(MioPaymentOrder).filter(
+        MioPaymentOrder.user_id == ctx.user.id,
+        MioPaymentOrder.status == "PENDING"
+    ).update({"status": "EXPIRED", "updated_at": utc_now()})
+
+    db_order = MioPaymentOrder(
+        order_uuid=mio_order["order_uuid"],
+        organization_id=ctx.org_id,
+        user_id=ctx.user.id,
+        amount_cents=total_with_fee,
+        status="PENDING",
+        checkout_url=mio_order["checkout_url"],
+        cart_items_json=[{
+            "type": "statement_payment",
+            "cycle": payload.cycle,
+            "organization_id": str(ctx.org_id),
+        }],
+    )
+    ctx.db.add(db_order)
+    ctx.db.commit()
+
+    return {
+        "payment_method": "card",
+        "checkout_url": mio_order["checkout_url"],
+        "order_uuid": mio_order["order_uuid"],
+    }
+
+
+@router.delete("/addon")
+async def cancel_addon(
+    addon_type: str = Query(..., description="Type: entity_slot | user_slot | ai | storage"),
+    quantity: int = Query(1, ge=1, description="Quantity to cancel"),
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """Cancel (reduce) active addon slots. Effective from the next billing cycle.
+
+    The resource remains available for the remainder of the current period.
+    """
+    svc = PlanService(ctx.db)
+    try:
+        result = svc.cancel_addon(
+            org_id=ctx.org_id,
+            addon_type=addon_type,
+            quantity=quantity,
+            user_id=ctx.user.id,
+        )
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/addon/reactivate")
+async def reactivate_addon(
+    addon_type: str = Query(..., description="Type: entity_slot | user_slot | ai | storage"),
+    quantity: int = Query(1, ge=1, description="Quantity to reactivate"),
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """Undo a pending cancellation, restoring slot counts for the next cycle."""
+    svc = PlanService(ctx.db)
+    try:
+        result = svc.reactivate_addon(
+            org_id=ctx.org_id,
+            addon_type=addon_type,
+            quantity=quantity,
+            user_id=ctx.user.id,
+        )
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
 
 
 @router.get("/unpaid-previous")
@@ -874,6 +1174,86 @@ async def checkout_prepaid_ecf(
         raise HTTPException(status_code=500, detail="Error interno al procesar compra prepago")
 
 
+class CartItemRequest(BaseModel):
+    type: str  # plan_change | ecf_blocks | entity_slot | user_slot | renewal
+    plan_name: str | None = None
+    block_type: str | None = None
+    quantity: int = 1
+    price_cents: int | None = None
+    commitment_months: int = 1
+    label: str | None = None
+    target_org_id: str | None = None
+
+
+class ProcessCartRequest(BaseModel):
+    items: list[CartItemRequest]
+    payment_method: str = "card"
+    idempotency_key: str | None = None
+
+
+@router.post("/checkout/process-cart")
+async def checkout_process_cart(
+    payload: ProcessCartRequest,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """Process a complete mixed cart through Lago v2 billing.
+
+    Supports plan changes (with proration), e-CF blocks, and recurring addons
+    (entity_slot, user_slot) in a single transaction.
+
+    Returns MIO checkout URL for card payments; instructions for bank transfers.
+    """
+    from app.services.billing_checkout_service import BillingCheckoutService
+
+    checkout_svc = BillingCheckoutService(ctx.db)
+    result = await checkout_svc.process_complete_cart(
+        org_id=str(ctx.org_id),
+        user_id=str(ctx.user.id),
+        items=[item.model_dump() for item in payload.items],
+        payment_method=payload.payment_method,
+    )
+    return result
+
+
+class PreviewChangeRequest(BaseModel):
+    plan_name: str
+    commitment_months: int = 1
+
+
+@router.post("/preview-change")
+async def preview_plan_change(
+    payload: PreviewChangeRequest,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """Preview the cost of changing plans mid-cycle using Lago's automatic proration.
+
+    Returns prorated credit, new amount due, and next billing date.
+    """
+    from app.services.billing_checkout_service import BillingCheckoutService
+
+    checkout_svc = BillingCheckoutService(ctx.db)
+    result = await checkout_svc.preview_plan_change(
+        org_id=str(ctx.org_id),
+        new_plan_name=payload.plan_name,
+        commitment_months=payload.commitment_months,
+    )
+    return result
+
+
+@router.get("/next-billing")
+async def next_billing_info(
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """Get the next billing date and estimated amount for the organization."""
+    from app.services.billing_checkout_service import BillingCheckoutService
+
+    checkout_svc = BillingCheckoutService(ctx.db)
+    result = await checkout_svc.get_next_billing_info(
+        org_id=str(ctx.org_id),
+    )
+    return result
+
+
 # ── User Subscription management & Refunds ──────────────────────────
 
 class ToggleAutoRenewRequest(BaseModel):
@@ -977,33 +1357,22 @@ async def request_subscription_refund(
     ctx.db.add(req)
     ctx.db.commit()
     
-    # Send email notification to support via Resend
     try:
-        import resend
-        from app.config import RESEND_API_KEY, BILLING_EMAIL_FROM
-        if RESEND_API_KEY:
-            resend.api_key = RESEND_API_KEY
-            support_email = "soporte@fintral.app"
-            html = f"""
-            <h3>Nueva Solicitud de Reembolso Recibida</h3>
-            <p><strong>Usuario:</strong> {ctx.user.full_name or ctx.user.email} ({ctx.user.email})</p>
-            <p><strong>ID Orden MIO:</strong> {order.id}</p>
-            <p><strong>UUID Orden MIO:</strong> {order.order_uuid}</p>
-            <p><strong>Monto:</strong> RD$ {float(order.amount_cents) / 100.0:.2f}</p>
-            <p><strong>Referencia MIO:</strong> {order.reference_number}</p>
-            <p><strong>Motivo:</strong> {payload.reason}</p>
-            <p><strong>Notas:</strong> {payload.notes or 'Sin notas adicionales'}</p>
-            <p>Por favor revise y procese este reembolso en la consola de MIO / GeoPagos.</p>
-            """
-            resend.Emails.send({
-                "from": BILLING_EMAIL_FROM,
-                "to": [support_email],
-                "subject": f"Solicitud de Reembolso: {ctx.user.email}",
-                "html": html
-            })
+        from app.services.email_service import send_refund_request_email
+        send_refund_request_email(
+            admin_email="support@fintral.app",
+            user_email=ctx.user.email,
+            user_name=ctx.user.full_name or ctx.user.email,
+            order_id=str(order.id),
+            order_uuid=order.order_uuid,
+            amount_cents=order.amount_cents,
+            reference_number=order.reference_number,
+            reason=payload.reason,
+            notes=payload.notes or "Sin notas adicionales",
+        )
     except Exception as e:
-        logger.error(f"Failed to send refund request support email: {e}")
-        
+        logger.error("Failed to send refund request support email: %s", e)
+
     return {
         "message": "Solicitud de reembolso recibida. Evaluaremos su caso en un plazo máximo de 48 horas.",
         "refund_request_id": str(req.id)
@@ -1022,23 +1391,25 @@ class TransactionItem(BaseModel):
     reference: str | None = None
     receipt_url: str | None = None
     refund_requested: bool = False
+    items: list[CartItemResponse] | None = None
+    paid_by: str | None = None
 
 
 @router.get("/transactions", response_model=List[TransactionItem])
-async def list_transactions(ctx: TenantContext = Depends(require_tenant)):
-    """Get all billing transaction items (card payments and bank transfer proofs) for the user/organization."""
+async def list_transactions(scope: str = "user", ctx: TenantContext = Depends(require_tenant)):
+    """Get all billing transaction items (card payments and bank transfer proofs) for the user or organization."""
     from app.models.mio_payment_order import MioPaymentOrder
     from app.models.refund_request import RefundRequest
     from app.models.payment_proof import PaymentProof
 
-    # 1. Fetch MIO card payment orders
+    # 1. Fetch MIO card payment orders for the current user
     card_orders = (
         ctx.db.query(MioPaymentOrder)
         .filter(MioPaymentOrder.user_id == ctx.user.id)
         .all()
     )
     
-    # 2. Fetch refund requests to check which orders have one
+    # 2. Fetch refund requests for the current user
     refund_requests = (
         ctx.db.query(RefundRequest)
         .filter(RefundRequest.user_id == ctx.user.id)
@@ -1046,10 +1417,10 @@ async def list_transactions(ctx: TenantContext = Depends(require_tenant)):
     )
     refund_order_ids = {r.payment_order_id for r in refund_requests}
 
-    # 3. Fetch bank transfer proofs
+    # 3. Fetch bank transfer proofs for the current user
     transfer_proofs = (
         ctx.db.query(PaymentProof)
-        .filter(PaymentProof.organization_id == ctx.org_id)
+        .filter(PaymentProof.user_id == ctx.user.id)
         .all()
     )
 
@@ -1057,34 +1428,87 @@ async def list_transactions(ctx: TenantContext = Depends(require_tenant)):
 
     # Map MIO orders
     for order in card_orders:
-        transactions.append(TransactionItem(
-            id=f"card_{order.id}",
-            db_id=order.id,
-            type="card",
-            date=order.created_at,
-            description="Pago con Tarjeta - Fintral Hub",
-            amount=float(order.amount_cents) / 100.0,
-            currency="DOP",
-            status=order.status, # SUCCESS or PENDING or FAILED
-            reference=order.reference_number or order.authorization_code,
-            receipt_url=order.checkout_url,
-            refund_requested=order.id in refund_order_ids
-        ))
+        items_list = None
+        if order.cart_items_json:
+            try:
+                raw_items = order.cart_items_json
+                if isinstance(raw_items, str):
+                    import json
+                    raw_items = json.loads(raw_items)
+                items_list = [CartItemResponse(**i) for i in raw_items]
+            except Exception:
+                items_list = None
+
+        # Check if the order contains an entity slot purchase
+        has_entity_slot = False
+        if items_list:
+            has_entity_slot = any(i.type == "entity_slot" for i in items_list)
+
+        # In org scope, include if it matches organization_id OR if it's an entity slot purchase
+        if scope == "org":
+            include_order = (order.organization_id == ctx.org_id) or has_entity_slot
+        else:
+            include_order = True
+
+        if include_order:
+            paid_by_email = order.user.email if order.user else None
+            transactions.append(TransactionItem(
+                id=f"card_{order.id}",
+                db_id=order.id,
+                type="card",
+                date=order.created_at,
+                description="Pago con Tarjeta - Fintral Hub",
+                amount=float(order.amount_cents) / 100.0,
+                currency="DOP",
+                status=order.status, # SUCCESS or PENDING or FAILED
+                reference=order.reference_number or order.authorization_code,
+                receipt_url=order.checkout_url,
+                refund_requested=order.id in refund_order_ids,
+                items=items_list,
+                paid_by=paid_by_email,
+            ))
 
     # Map transfer proofs
     for proof in transfer_proofs:
-        transactions.append(TransactionItem(
-            id=f"transfer_{proof.id}",
-            type="transfer",
-            date=proof.created_at,
-            description=f"Transferencia - Plan {proof.plan_name}",
-            amount=float(proof.amount),
-            currency=proof.currency,
-            status=proof.status.upper(), # PENDING, VERIFIED, REJECTED
-            reference=None,
-            receipt_url=proof.file_url,
-            refund_requested=False
-        ))
+        proof_dict = proof.to_dict()
+        items_list = None
+        if proof.items_json:
+            try:
+                raw_items = proof.items_json
+                if isinstance(raw_items, str):
+                    import json
+                    raw_items = json.loads(raw_items)
+                items_list = [CartItemResponse(**i) for i in raw_items]
+            except Exception:
+                items_list = None
+
+        # Check if the proof contains an entity slot purchase
+        has_entity_slot = False
+        if items_list:
+            has_entity_slot = any(i.type == "entity_slot" for i in items_list)
+
+        # In org scope, include if it matches organization_id OR if it's an entity slot purchase
+        if scope == "org":
+            include_proof = (proof.organization_id == ctx.org_id) or has_entity_slot
+        else:
+            include_proof = True
+
+        if include_proof:
+            paid_by_email = proof.user.email if proof.user else None
+            transactions.append(TransactionItem(
+                id=f"transfer_{proof.id}",
+                type="transfer",
+                date=proof.created_at,
+                description=f"Transferencia - Plan {proof.plan_name}",
+                amount=float(proof.amount),
+                currency=proof.currency,
+                status=proof.status.upper(), # PENDING, VERIFIED, REJECTED
+                reference=None,
+                receipt_url=proof_dict.get("file_url"),
+                refund_requested=False,
+                items=items_list,
+                paid_by=paid_by_email,
+            ))
 
     # Sort by date descending
     transactions.sort(key=lambda t: t.date, reverse=True)

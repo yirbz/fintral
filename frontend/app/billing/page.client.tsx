@@ -54,7 +54,6 @@ function getStatusBadge(status: string) {
 export default function BillingDashboard() {
   const [invoices, setInvoices] = useState<BillingInvoice[]>([]);
   const [loading, setLoading] = useState(true);
-  const [transmittingId, setTransmittingId] = useState<string | null>(null);
   const [isEcfAuthorized, setIsEcfAuthorized] = useState<boolean>(false);
   const [certificationStatus, setCertificationStatus] = useState("none");
   const [isCertificationCompleted, setIsCertificationCompleted] =
@@ -97,35 +96,6 @@ export default function BillingDashboard() {
     fetchVerificationStatus();
   }, []);
 
-  const handleTransmit = async (id: string) => {
-    try {
-      setTransmittingId(id);
-      toast.info(
-        isEcfAuthorized
-          ? "Timbrando factura ante la DGII..."
-          : "Emitiendo factura..."
-      );
-      const result = await billingApi.transmitInvoice(id);
-
-      if (isEcfAuthorized) {
-        toast.success(
-          `Factura timbrada con éxito. NCF: ${result.invoice.invoice_number}`
-        );
-      } else {
-        toast.success(
-          `Factura emitida con éxito. NCF: ${result.invoice.invoice_number}`
-        );
-      }
-      fetchInvoices();
-    } catch (err: any) {
-      toast.error(
-        "Error: " + (err.message || "Error desconocido")
-      );
-    } finally {
-      setTransmittingId(null);
-    }
-  };
-
   // Metrics derived data
   const totalInvoiced = invoices
     .filter((inv) => inv.status === "verified")
@@ -153,28 +123,16 @@ export default function BillingDashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {isEcfAuthorized ? (
-            <Link href={isBillingSubdomain ? "/emit" : "/billing/emit"} passHref>
-              <Button className="h-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-xs gap-1.5 px-3">
-                <Zap className="size-3.5" />
-                Nueva e-CF
-              </Button>
-            </Link>
-          ) : (
-            <Link href={isBillingSubdomain ? "/quick" : "/billing/quick"} passHref>
-              <Button className="h-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-xs gap-1.5 px-3">
-                <PlusCircle className="size-3.5" />
-                Nueva factura
-              </Button>
-            </Link>
-          )}
           <Link href={isBillingSubdomain ? "/quick" : "/billing/quick"} passHref>
-            <Button
-              variant="outline"
-              className="h-8 rounded-md border-border text-foreground hover:bg-muted text-xs gap-1.5 px-3"
-            >
+            <Button variant="outline" className="h-8 rounded-md text-xs gap-1.5 px-3">
+              <Zap className="size-3.5 text-emerald-600" />
+              Factura Rápida (POS)
+            </Button>
+          </Link>
+          <Link href={isBillingSubdomain ? "/emit" : "/billing/emit"} passHref>
+            <Button className="h-8 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs gap-1.5 px-3">
               <FileText className="size-3.5" />
-              {isEcfAuthorized ? "Rápida (clásico)" : "Rápida"}
+              Factura Detallada (A4)
             </Button>
           </Link>
         </div>
@@ -235,8 +193,6 @@ export default function BillingDashboard() {
         invoices={invoices}
         loading={loading}
         isEcfAuthorized={isEcfAuthorized}
-        transmittingId={transmittingId}
-        onTransmit={handleTransmit}
       />
 
       {/* ── Correction Section ── */}

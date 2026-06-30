@@ -273,13 +273,14 @@ def _bootstrap_lago_via_db(database_url: str) -> bool:
                         (str(_uuid.uuid4()), org_id, LAGO_API_KEY),
                     )
                 logger.info("  • Created API key in api_keys table")
-            # Force ALL api_keys for this org to use our expected value
-            # (Lago's seed may have created a key with a different name/value)
+            # Ensure exactly one api_key with our expected value
+            # Delete duplicates first (Lago seed + previous bootstrap creates extras)
+            cur.execute("DELETE FROM api_keys WHERE organization_id = %s AND value != %s", (org_id, LAGO_API_KEY))
             cur.execute(
                 "UPDATE api_keys SET value = %s WHERE organization_id = %s",
                 (LAGO_API_KEY, org_id),
             )
-            logger.info("  • Updated all API keys for org to match LAGO_API_KEY")
+            logger.info("  • Ensured exactly one API key for org")
         except psycopg2.errors.UndefinedTable:
             logger.info("  • api_keys table does not exist (older Lago version) — using legacy api_key column")
 
@@ -398,6 +399,12 @@ async def seed_lago_plans() -> None:
          "amount_cents": 299900, "amount_currency": "DOP", "pay_in_advance": True},
         {"code": "despacho", "name": "Plan Despacho", "interval": "monthly",
          "amount_cents": 799900, "amount_currency": "DOP", "pay_in_advance": True},
+        {"code": "inicial_12m", "name": "Plan Inicial (12 meses)", "interval": "yearly",
+         "amount_cents": 1078920, "amount_currency": "DOP", "pay_in_advance": True},
+        {"code": "profesional_12m", "name": "Plan Profesional (12 meses)", "interval": "yearly",
+         "amount_cents": 3238920, "amount_currency": "DOP", "pay_in_advance": True},
+        {"code": "despacho_12m", "name": "Plan Despacho (12 meses)", "interval": "yearly",
+         "amount_cents": 8638920, "amount_currency": "DOP", "pay_in_advance": True},
     ]
     addons = [
         {"code": "ecf_block_100", "name": "Bloque 100 ECF",
@@ -406,6 +413,10 @@ async def seed_lago_plans() -> None:
          "amount_cents": 200000, "amount_currency": "DOP"},
         {"code": "ecf_block_1000", "name": "Bloque 1000 ECF",
          "amount_cents": 350000, "amount_currency": "DOP"},
+        {"code": "entity_slot", "name": "Slot de Empresa Adicional",
+         "amount_cents": 60000, "amount_currency": "DOP"},
+        {"code": "user_slot", "name": "Slot de Usuario Adicional",
+         "amount_cents": 30000, "amount_currency": "DOP"},
     ]
 
     async with httpx.AsyncClient(timeout=15, headers=headers) as client:
@@ -448,6 +459,55 @@ async def seed_lago_plans() -> None:
                     logger.info("  • Created add-on: %s", a["name"])
                 except Exception as e:
                     logger.warning("Failed to create add-on '%s': %s", a["name"], e)
+
+
+async def seed_lago_invoice_custom_section() -> None:
+    """Create invoice custom section with bank transfer details."""
+    from app import config as settings
+
+    if not LAGO_API_KEY:
+        return
+
+    base_url = LAGO_API_URL.rstrip("/") + "/api/v1"
+    headers = {"Authorization": f"Bearer {LAGO_API_KEY}", "Content-Type": "application/json"}
+
+    section_data = {
+        "invoice_custom_section": {
+            "name": "Datos de Transferencia Bancaria",
+            "code": "bank_transfer_details",
+            "display_name": "Transferencia Bancaria",
+            "details": (
+                f"<b>Banco:</b> {settings.BANK_NAME}<br/>"
+                f"<b>Titular:</b> {settings.BANK_ACCOUNT_HOLDER}<br/>"
+                f"<b>Cuenta:</b> {settings.BANK_ACCOUNT_NUMBER}<br/>"
+                f"<b>Moneda:</b> DOP<br/>"
+                f"<b>Método:</b> Transferencia bancaria / Depósito<br/>"
+                f"Luego de realizar el pago, envía el comprobante a soporte."
+            ),
+        }
+    }
+
+    async with httpx.AsyncClient(timeout=15, headers=headers) as client:
+        try:
+            resp = await client.get(f"{base_url}/invoice_custom_sections")
+            resp.raise_for_status()
+            existing = resp.json().get("invoice_custom_sections", [])
+            if any(s.get("code") == "bank_transfer_details" for s in existing):
+                logger.info("  • Invoice custom section already exists")
+                return
+        except Exception as e:
+            logger.warning("  • Failed to fetch invoice custom sections: %s", e)
+            return
+
+        try:
+            resp = await client.post(
+                f"{base_url}/invoice_custom_sections",
+                json=section_data,
+            )
+            resp.raise_for_status()
+            logger.info("  • Created invoice custom section with bank transfer details")
+        except Exception as e:
+            logger.warning("  • Failed to create invoice custom section: %s", e)
 
 
 async def setup_lago_infrastructure() -> None:
@@ -513,4 +573,5 @@ async def setup_lago_infrastructure() -> None:
         logger.info("✓ Lago connection established after bootstrap")
 
     await seed_lago_plans()
+    await seed_lago_invoice_custom_section()
     logger.info("✓ Lago infrastructure setup complete")

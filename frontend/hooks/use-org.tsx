@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSession } from "@/hooks/use-session";
+import { useSession, saveSession } from "@/hooks/use-session";
 import {
   listUserOrganizations,
   switchOrganization,
@@ -70,6 +70,22 @@ function OrgLoadingFallback() {
   );
 }
 
+function isOnPublicPage(): boolean {
+  if (typeof window === "undefined") return true;
+  const path = window.location.pathname;
+  return (
+    path === "/" ||
+    path.startsWith("/login") ||
+    path.startsWith("/logout") ||
+    path.startsWith("/signup") ||
+    path.startsWith("/plans") ||
+    path.startsWith("/upload/public") ||
+    path.startsWith("/forgot") ||
+    path.startsWith("/docs") ||
+    path.startsWith("/verify")
+  );
+}
+
 export function OrgProvider({ children }: { children: React.ReactNode }) {
   // ── All hooks first (unconditional, per Rules of Hooks) ──
   const [mounted, setMounted] = useState(false);
@@ -80,9 +96,9 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
     return loadStoredOrg();
   });
 
-  const { data: orgsQuery_data, isLoading: orgsQuery_isLoading } = useQuery({
+  const { data: orgsQuery_data, isLoading: orgsQuery_isLoading } = useQuery<UserOrg[]>({
     queryKey: ["user-organizations"],
-    queryFn: listUserOrganizations,
+    queryFn: () => listUserOrganizations(),
     enabled: !!session && mounted,
     staleTime: 30_000,
   });
@@ -91,7 +107,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
 
   // Resolve active org: validate stored against actual orgs → session → first org → never null
   useEffect(() => {
-    if (sessionLoading || !session) return;
+    if (sessionLoading || !session || orgsQuery_isLoading) return;
 
     // Only trust stored ID if it actually exists in the user's org list
     const storedIsValid = activeOrgId && userOrgs.some((o) => o.id === activeOrgId);
@@ -105,7 +121,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
       setActiveOrgId(resolvedId);
       saveStoredOrg(resolvedId);
     }
-  }, [session, sessionLoading, activeOrgId, userOrgs]);
+  }, [session, sessionLoading, activeOrgId, userOrgs, orgsQuery_isLoading]);
 
   // After hydration, enable client-side data fetching
   useEffect(() => {
@@ -121,7 +137,8 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
     async (orgId: string) => {
       if (orgId === activeOrgId) return;
       try {
-        await switchOrganization(orgId);
+        const session = await switchOrganization(orgId);
+        saveSession(session);
         saveStoredOrg(orgId);
         window.location.reload();
       } catch (err) {
@@ -157,14 +174,14 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Loading session
-  if (sessionLoading || !session) {
+  if (!isOnPublicPage() && (sessionLoading || !session)) {
     return <OrgLoadingFallback />;
   }
 
   const isReady = !!activeOrgId;
 
   // No orgs at all
-  if (!isReady && userOrgs.length === 0) {
+  if (!isOnPublicPage() && !isReady && userOrgs.length === 0) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3 max-w-sm text-center">
@@ -178,12 +195,12 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Still resolving org
-  if (!isReady && orgsQuery_isLoading) {
+  if (!isOnPublicPage() && !isReady && orgsQuery_isLoading) {
     return <OrgLoadingFallback />;
   }
 
   // Final guard: auto-select first org if somehow still null
-  if (!isReady && userOrgs.length > 0) {
+  if (!isOnPublicPage() && !isReady && userOrgs.length > 0) {
     const fallbackId = userOrgs[0].id;
     setActiveOrgId(fallbackId);
     saveStoredOrg(fallbackId);

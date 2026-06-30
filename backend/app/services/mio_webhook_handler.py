@@ -46,6 +46,12 @@ class MioWebhookHandler:
         try:
             if event_type == "TRANSACTION_COMPLETED":
                 await self._handle_transaction_completed(payload)
+            elif event_type in ("TRANSACTION_FAILED", "PAYMENT_FAILED"):
+                await self._handle_order_status_update(payload, "FAILED")
+            elif event_type in ("CHECKOUT_EXPIRED", "ORDER_EXPIRED"):
+                await self._handle_order_status_update(payload, "EXPIRED")
+            elif event_type in ("TRANSACTION_CANCELLED", "PAYMENT_CANCELLED"):
+                await self._handle_order_status_update(payload, "CANCELLED")
             else:
                 logger.info(f"Unhandled MIO webhook event type: {event_type}")
 
@@ -101,43 +107,59 @@ class MioWebhookHandler:
         
         logger.info(f"MIO Order {order_uuid} successfully paid. Recording payment in Lago...")
 
-        # Register card token for recurring payments if present
-        card_token = (
-            payment_data.get("card_token")
-            or payment_data.get("token")
-            or payment_data.get("card", {}).get("token")
-            or payload.get("card_token")
-        )
-
-        if card_token and order.user_id:
+        # Provision cart items if present on the order
+        if order.cart_items_json:
             try:
-                from app.models.user_card_token import UserCardToken
+                cart_items = order.cart_items_json
+                if isinstance(cart_items, str):
+                    import json
+                    cart_items = json.loads(cart_items)
+                
+                if cart_items and isinstance(cart_items, list):
+                    from app.services.billing_checkout_service import BillingCheckoutService
+                    checkout_svc = BillingCheckoutService(self.db)
+                    await checkout_svc.provision_completed_cart(
+                        org_id=str(order.organization_id) if order.organization_id else str(order.user_id),
+                        user_id=str(order.user_id) if order.user_id else "",
+                        items=cart_items,
+                    )
+                    logger.info(f"Provisioned {len(cart_items)} cart items from MIO order {order_uuid}")
 
-                card_brand = payment_data.get("card_brand") or payment_data.get("brand") or payment_data.get("card", {}).get("brand") or "Visa"
-                last_four = payment_data.get("last_four") or payment_data.get("last4") or payment_data.get("card", {}).get("last_four") or "4242"
-                expiry_month = payment_data.get("expiry_month") or payment_data.get("card", {}).get("expiry_month")
-                expiry_year = payment_data.get("expiry_year") or payment_data.get("card", {}).get("expiry_year")
+                    # Check if there is a plan change or renewal item in the cart and provision user subscription
+                    plan_change_item = next((i for i in cart_items if isinstance(i, dict) and i.get("type") in ("plan_change", "renewal")), None)
+                    if plan_change_item and order.user_id:
+                        plan_name = plan_change_item.get("plan_name")
+                        if plan_name:
+                            await checkout_svc.provision_user_subscription(
+                                user_id=str(order.user_id),
+                                plan_name=plan_name,
+                                payment_method="card"
+                            )
+                            logger.info(f"Provisioned mixed-cart user subscription for user {order.user_id} to plan {plan_name}")
 
-                # Deactivate previous active card tokens for this user
-                self.db.query(UserCardToken).filter(
-                    UserCardToken.user_id == order.user_id,
-                    UserCardToken.is_active
-                ).update({"is_active": False, "updated_at": utc_now()})
-
-                # Insert the new card token
-                new_token = UserCardToken(
-                    user_id=order.user_id,
-                    card_token=card_token,
-                    card_brand=card_brand,
-                    last_four=last_four,
-                    expiry_month=expiry_month,
-                    expiry_year=expiry_year,
-                    is_active=True
-                )
-                self.db.add(new_token)
-                logger.info(f"Registered new payment card token {card_token} for user {order.user_id}")
+                    # Check if there is a statement payment item
+                    statement_item = next((i for i in cart_items if isinstance(i, dict) and i.get("type") == "statement_payment"), None)
+                    if statement_item:
+                        cycle = statement_item.get("cycle")
+                        org_id = statement_item.get("organization_id")
+                        if cycle and org_id:
+                            from app.models.monthly_charge import MonthlyCharge
+                            charges = (
+                                self.db.query(MonthlyCharge)
+                                .filter(
+                                    MonthlyCharge.organization_id == org_id,
+                                    MonthlyCharge.cycle == cycle,
+                                    MonthlyCharge.paid == False,  # noqa: E712
+                                )
+                                .all()
+                            )
+                            now = utc_now()
+                            for c in charges:
+                                c.paid = True
+                                c.paid_at = now
+                            logger.info(f"Marked {len(charges)} statement charges as paid via MIO order {order_uuid} for org {org_id} cycle {cycle}")
             except Exception as e:
-                logger.error(f"Failed to persist user card token in DB: {e}")
+                logger.error(f"Failed to provision cart items from MIO order {order_uuid}: {e}")
 
         # Provision user subscription if it's a user subscription payment order
         if order.user_id and order.plan_id:
@@ -213,20 +235,45 @@ class MioWebhookHandler:
             elif order.organization_id:
                 org = self.db.query(Organization).filter(Organization.id == order.organization_id).first()
                 if org:
-                    if amount_dop == 525.0:  # 500 + 5% fee
-                        label = "Fintral Factura: Bloque prepagado de 100 e-CFs"
-                    elif amount_dop == 2100.0:  # 2000 + 5% fee
-                        label = "Fintral Factura: Bloque prepagado de 500 e-CFs"
-                    elif amount_dop == 3675.0:  # 3500 + 5% fee
-                        label = "Fintral Factura: Bloque prepagado de 1000 e-CFs"
-                    else:
-                        label = "Fintral Factura: Bloque prepagado e-CF"
+                    # Map price to e-CF block label
+                    ecf_labels = {
+                        525.0: "Fintral Factura: Bloque prepagado de 100 e-CFs",
+                        2100.0: "Fintral Factura: Bloque prepagado de 500 e-CFs",
+                        3675.0: "Fintral Factura: Bloque prepagado de 1000 e-CFs",
+                    }
+                    label = ecf_labels.get(amount_dop, "Fintral Factura: Compra de bloques e-CF")
+                    
+                    # If cart_items_json exists, use its descriptions instead
+                    if order.cart_items_json:
+                        items_desc = []
+                        for ci in (order.cart_items_json if isinstance(order.cart_items_json, list) else []):
+                            if isinstance(ci, dict):
+                                ct = ci.get("type", "")
+                                qty = ci.get("quantity", 1)
+                                if ct == "ecf_blocks":
+                                    target = ci.get("target_org_id", "")
+                                    items_desc.append(f"{qty}x Bloque e-CF" + (f" (org {target[:8]}...)" if target else ""))
+                                elif ct == "entity_slot":
+                                    items_desc.append(f"{qty}x Slot Empresa")
+                                elif ct == "user_slot":
+                                    target = ci.get("target_org_id", "")
+                                    items_desc.append(f"{qty}x Slot Usuario" + (f" (org {target[:8]}...)" if target else ""))
+                                elif ct == "plan_change":
+                                    items_desc.append(f"Plan {ci.get('plan_name', '')}")
+                        if items_desc:
+                            label = "Fintral: " + ", ".join(items_desc)
 
-                    items_list = [{
-                        "label": label,
-                        "quantity": 1,
-                        "total": subtotal_dop
-                    }]
+                        items_list = [{
+                            "label": label,
+                            "quantity": 1,
+                            "total": subtotal_dop,
+                        }]
+                    else:
+                        items_list = [{
+                            "label": label,
+                            "quantity": 1,
+                            "total": subtotal_dop
+                        }]
                     email_sent = send_purchase_invoice_email(
                         customer_email=org.email_contact or "administracion@fintral.com",
                         customer_name=org.name,
@@ -246,3 +293,31 @@ class MioWebhookHandler:
 
         # Trigger websocket notification or user update
         self.db.flush()
+
+    async def _handle_order_status_update(self, payload: Dict[str, Any], new_status: str) -> None:
+        """Process transaction failures, cancellations, and expirations from MIO webhooks."""
+        order_uuid = payload.get("order_uuid") or payload.get("data", {}).get("attributes", {}).get("uuid")
+        if not order_uuid:
+            order_uuid = payload.get("uuid")
+            
+        if not order_uuid:
+            logger.warning("MIO webhook status update missing order UUID, skipping status update")
+            return
+
+        from app.models.mio_payment_order import MioPaymentOrder
+
+        order = self.db.query(MioPaymentOrder).filter(MioPaymentOrder.order_uuid == order_uuid).first()
+        if not order:
+            logger.warning(f"MIO payment order with UUID {order_uuid} not found in database for status update")
+            return
+
+        if order.status == "SUCCESS":
+            logger.info(f"MIO order {order_uuid} is already SUCCESS, skipping status update to {new_status}")
+            return
+
+        order.status = new_status
+        order.webhook_payload = payload
+        order.updated_at = utc_now()
+        logger.info(f"MIO Order {order_uuid} status updated to {new_status} via webhook")
+        self.db.flush()
+

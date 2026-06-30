@@ -44,7 +44,7 @@ function clearCachedSession() {
   } catch { /* noop */ }
 }
 
-export { clearCachedSession };
+export { clearCachedSession, saveSession };
 
 export function setRememberPreference(remember: boolean) {
   if (typeof window === "undefined") return;

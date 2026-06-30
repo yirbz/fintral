@@ -36,7 +36,12 @@ class LagoService:
         }
 
     async def _request(
-        self, method: str, path: str, json_data: Dict[str, Any] | None = None, params: Dict[str, Any] | None = None
+        self,
+        method: str,
+        path: str,
+        json_data: Dict[str, Any] | None = None,
+        params: Dict[str, Any] | None = None,
+        log_errors: bool = True,
     ) -> Dict[str, Any]:
         """Make an asynchronous request to the Lago API."""
         url = f"{self.base_url}/{path.lstrip('/')}"
@@ -53,9 +58,14 @@ class LagoService:
                 
                 # Check for HTTP errors
                 if response.is_error:
-                    logger.error(
-                        f"Lago API Error [{response.status_code}] on {method} {url}: {response.text}"
-                    )
+                    if log_errors:
+                        logger.error(
+                            f"Lago API Error [{response.status_code}] on {method} {url}: {response.text}"
+                        )
+                    else:
+                        logger.debug(
+                            f"Lago API Request returned [{response.status_code}] on {method} {url}: {response.text}"
+                        )
                     raise LagoAPIError(
                         message=f"Lago API error: {response.reason_phrase}",
                         status_code=response.status_code,
@@ -110,7 +120,17 @@ class LagoService:
             customer_payload["metadata"] = final_metadata[:5]  # Lago limits to 5 items
 
         payload = {"customer": customer_payload}
-        return await self._request("POST", "customers", json_data=payload)
+        try:
+            return await self._request("POST", "customers", json_data=payload, log_errors=False)
+        except LagoAPIError as e:
+            if e.status_code == 422 and e.response_body and "value_already_exist" in e.response_body:
+                logger.info(
+                    "Lago customer upsert failed with value_already_exist for external_id %s. Retrying without metadata.",
+                    external_id
+                )
+                payload["customer"].pop("metadata", None)
+                return await self._request("POST", "customers", json_data=payload)
+            raise
 
     # --- Subscriptions ---
     async def create_subscription(
@@ -119,7 +139,7 @@ class LagoService:
         plan_code: str,
         external_id: str,
         name: str | None = None,
-        billing_time: str = "calendar",
+        billing_time: str = "anniversary",
     ) -> Dict[str, Any]:
         """Create a new subscription for a customer in Lago."""
         subscription_payload = {
@@ -132,7 +152,21 @@ class LagoService:
             subscription_payload["name"] = name
 
         payload = {"subscription": subscription_payload}
-        return await self._request("POST", "subscriptions", json_data=payload)
+        try:
+            return await self._request("POST", "subscriptions", json_data=payload)
+        except LagoAPIError as exc:
+            import json
+            try:
+                err_data = json.loads(exc.response_body) if exc.response_body else {}
+                if err_data.get("code") == "validation_errors" and "value_already_exist" in str(err_data.get("error_details", {}).get("external_id", [])):
+                    logger.info("Subscription %s already exists in Lago. Recovering gracefully.", external_id)
+                    try:
+                        return await self.get_subscription(external_id)
+                    except Exception:
+                        return {"subscription": {"external_id": external_id}}
+            except Exception:
+                pass
+            raise exc
 
     async def upgrade_subscription(
         self,
@@ -158,6 +192,85 @@ class LagoService:
         """Retrieve subscription details by its external_id."""
         return await self._request("GET", f"subscriptions/{external_id}")
 
+    async def preview_subscription_change(
+        self,
+        customer_external_id: str,
+        plan_code: str,
+        subscription_external_id: str,
+    ) -> Dict[str, Any]:
+        """Preview the cost of changing a subscription mid-cycle (proration preview).
+
+        Lago calculates the prorated credit/due amount automatically.
+        """
+        payload = {
+            "subscription": {
+                "external_customer_id": customer_external_id,
+                "plan_code": plan_code,
+                "external_id": subscription_external_id,
+            }
+        }
+        return await self._request("POST", "subscriptions/preview", json_data=payload)
+
+    async def create_payment_request(
+        self,
+        customer_external_id: str,
+        lago_invoice_ids: list[str],
+        email: str | None = None,
+    ) -> Dict[str, Any]:
+        """Create a payment request for overdue invoices (dunning)."""
+        payload = {
+            "payment_request": {
+                "external_customer_id": customer_external_id,
+                "lago_invoice_ids": lago_invoice_ids,
+            }
+        }
+        if email:
+            payload["payment_request"]["email"] = email
+        return await self._request("POST", "payment_requests", json_data=payload)
+
+    async def get_upcoming_invoices(
+        self,
+        customer_external_id: str,
+    ) -> Dict[str, Any]:
+        """Get upcoming/subscription invoices for a customer."""
+        return await self._request(
+            "GET",
+            f"customers/{customer_external_id}/upcoming_invoices",
+        )
+
+    async def finalize_invoice(self, lago_id: str) -> Dict[str, Any]:
+        """Finalize a draft invoice."""
+        return await self._request("PUT", f"invoices/{lago_id}/finalize")
+
+    async def void_invoice(self, lago_id: str) -> Dict[str, Any]:
+        """Void a finalized invoice."""
+        return await self._request("PUT", f"invoices/{lago_id}/void")
+
+    async def list_invoices(
+        self,
+        customer_external_id: str | None = None,
+        status: str | None = None,
+        page: int = 1,
+        per_page: int = 20,
+    ) -> Dict[str, Any]:
+        """List invoices with optional filters."""
+        params = {"page": page, "per_page": per_page}
+        if customer_external_id:
+            params["external_customer_id"] = customer_external_id
+        if status:
+            params["status"] = status
+        return await self._request("GET", "invoices", params=params)
+
+    async def get_subscription_upcoming_charges(
+        self,
+        subscription_external_id: str,
+    ) -> Dict[str, Any]:
+        """Get upcoming charges for a subscription."""
+        return await self._request(
+            "GET",
+            f"subscriptions/{subscription_external_id}/upcoming_charges",
+        )
+
     # --- Invoices ---
     async def get_invoice(self, lago_id: str) -> Dict[str, Any]:
         """Retrieve details of a generated invoice by its Lago ID."""
@@ -171,6 +284,24 @@ class LagoService:
             }
         }
         return await self._request("PUT", f"invoices/{lago_id}", json_data=payload)
+
+    async def create_addon(
+        self,
+        code: str,
+        name: str,
+        amount_cents: int,
+        currency: str = "DOP",
+    ) -> Dict[str, Any]:
+        """Create an add-on in Lago."""
+        payload = {
+            "add_on": {
+                "code": code,
+                "name": name,
+                "amount_cents": amount_cents,
+                "amount_currency": currency,
+            }
+        }
+        return await self._request("POST", "add_ons", json_data=payload)
 
     async def create_one_off_invoice(
         self,
@@ -197,7 +328,36 @@ class LagoService:
                 "fees": fees,
             }
         }
-        return await self._request("POST", "invoices", json_data=payload)
+        try:
+            return await self._request("POST", "invoices", json_data=payload, log_errors=False)
+        except LagoAPIError as e:
+            if e.status_code == 404 and e.response_body and "add_on_not_found" in e.response_body:
+                logger.warning("Lago one-off invoice failed with add_on_not_found. Attempting to dynamically create missing add-ons.")
+                addon_defaults = {
+                    "ecf_block_100": {"name": "Bloque 100 ECF", "price": 95000},
+                    "ecf_block_500": {"name": "Bloque 500 ECF", "price": 200000},
+                    "ecf_block_1000": {"name": "Bloque 1000 ECF", "price": 350000},
+                    "entity_slot": {"name": "Slot de Empresa Adicional", "price": 60000},
+                    "user_slot": {"name": "Slot de Usuario Adicional", "price": 30000},
+                }
+                for fee in fees:
+                    code = fee.get("add_on_code")
+                    if code:
+                        defaults = addon_defaults.get(code)
+                        if defaults:
+                            try:
+                                await self.create_addon(
+                                    code=code,
+                                    name=defaults["name"],
+                                    amount_cents=defaults["price"],
+                                    currency=currency,
+                                )
+                                logger.info("Dynamically created missing Lago addon: %s", code)
+                            except Exception as create_exc:
+                                logger.error("Failed to dynamically create addon %s: %s", code, create_exc)
+                # Retry once
+                return await self._request("POST", "invoices", json_data=payload)
+            raise
 
     # --- Payments ---
     async def record_payment(

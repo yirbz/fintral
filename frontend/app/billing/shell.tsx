@@ -10,8 +10,13 @@ import { LogoLoader } from "@/components/logo-loader";
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
 import SessionExpiredOverlay from "@/components/session-expired-overlay";
+import { MobileNav } from "@/components/mobile-nav";
+import { ConnectionStatus } from "@/components/connection-status";
+import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
 
 const LOAD_TIMEOUT = 15_000;
+const MAX_RETRIES = 3;
+const RETRY_DELAYS = [1_000, 2_000, 4_000];
 
 function isBackendUnreachable(err: unknown): boolean {
   if (err instanceof TypeError) return true;
@@ -30,15 +35,12 @@ function isBackendUnreachable(err: unknown): boolean {
   return false;
 }
 
-import { MobileNav } from "@/components/mobile-nav";
-import { ConnectionStatus } from "@/components/connection-status";
-import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
-
 export function BillingShell({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [connectionFailed, setConnectionFailed] = useState(false);
   const mountedRef = useRef(true);
-  const isRedirecting = useRef(false);
+  const retryCount = useRef(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const attempt = () => {
     setConnectionFailed(false);
@@ -52,12 +54,17 @@ export function BillingShell({ children }: { children: React.ReactNode }) {
       })
       .catch((err) => {
         clearTimeout(timeout);
-        if (!mountedRef.current || isRedirecting.current) return;
+        if (!mountedRef.current) return;
+        if (isBackendUnreachable(err) && retryCount.current < MAX_RETRIES) {
+          const delay = RETRY_DELAYS[retryCount.current] ?? 4_000;
+          retryCount.current++;
+          retryTimer.current = setTimeout(attempt, delay);
+          return;
+        }
         if (isBackendUnreachable(err)) {
           setConnectionFailed(true);
         } else {
-          isRedirecting.current = true;
-          window.location.href = "/login";
+          window.location.href = "/logout";
         }
       });
   };
@@ -65,7 +72,10 @@ export function BillingShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     mountedRef.current = true;
     attempt();
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -83,7 +93,10 @@ export function BillingShell({ children }: { children: React.ReactNode }) {
           </p>
         </div>
         <Button
-          onClick={attempt}
+          onClick={() => {
+            retryCount.current = 0;
+            attempt();
+          }}
           size="sm"
           className="h-9 rounded-full px-5 text-xs font-medium"
         >

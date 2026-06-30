@@ -3,26 +3,40 @@
 import React, { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSubscription } from "@/hooks/use-subscription";
+import { useUserSubscription } from "@/hooks/use-user-subscription";
 import {
   getPaymentProofs,
   PaymentProof,
   getStatement,
   payStatement,
   uploadPaymentProof,
+  getTransactions,
+  TransactionItem,
 } from "@/lib/api/plans";
+import { EcfBalanceCard } from "@/features/billing/emit/ecf-balance-card";
 import { TrialRemainingBadge } from "@/components/trial-remaining-badge";
 import { WelcomeBanner } from "./components/welcome-banner";
+import { StatementTabContent } from "./statement-page";
+import { PaymentStatusBanner } from "./components/payment-status-banner";
 import { SubscriptionCard } from "./components/subscription-card";
 import { UsageMeters } from "./components/usage-meters";
+import { TransactionInvoiceModal } from "./components/transaction-invoice-modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Receipt,
   Calendar,
   ArrowRight,
   User,
+  Building2,
   FileText,
   CheckCircle2,
   AlertCircle,
@@ -31,6 +45,9 @@ import {
   CreditCard,
   X,
   ExternalLink,
+  Printer,
+  Download,
+  Building,
 } from "lucide-react";
 import Link from "next/link";
 import { useSession } from "@/hooks/use-session";
@@ -54,6 +71,122 @@ const TABS = [
   { id: "statement", label: "Estado de Cuenta", icon: FileText },
 ] as const;
 
+function TransactionTable({
+  title,
+  icon: Icon,
+  transactions,
+  formatDate,
+  formatAmount,
+  onSelect,
+}: {
+  title: string;
+  icon: React.ComponentType<{ className?: string }>;
+  transactions: TransactionItem[];
+  formatDate: (d: string | null) => string;
+  formatAmount: (a: number, c: string) => string;
+  onSelect: (t: TransactionItem) => void;
+}) {
+  const getStatusBadge = (status: string) => {
+    const cleanStatus = status.toLowerCase();
+    if (cleanStatus === "verified" || cleanStatus === "success" || cleanStatus === "succeeded") {
+      return (
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
+          Completado
+        </span>
+      );
+    }
+    if (cleanStatus === "rejected" || cleanStatus === "failed") {
+      return (
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400">
+          Fallido
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
+        Pendiente
+      </span>
+    );
+  };
+
+  return (
+    <div className="bg-white dark:bg-slate-900 border border-brand-hairline dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
+      <div className="px-6 py-4 border-b border-brand-hairline dark:border-slate-800/60 bg-brand-canvas-soft/40 dark:bg-slate-900/40">
+        <div className="flex items-center gap-2">
+          <Icon className="size-4 text-brand-ink-mute dark:text-slate-400" />
+          <span className="text-sm font-semibold text-brand-ink dark:text-white">{title}</span>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="border-b border-brand-hairline dark:border-slate-800/60 bg-brand-canvas-soft dark:bg-slate-900/60 text-xs text-brand-ink-mute dark:text-slate-400 font-semibold uppercase tracking-wider">
+              <th className="py-3.5 px-6">Fecha</th>
+              <th className="py-3.5 px-6">Concepto / Método</th>
+              <th className="py-3.5 px-6">Monto</th>
+              <th className="py-3.5 px-6">Estado</th>
+              <th className="py-3.5 px-6 text-right">Factura / Recibo</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-brand-hairline dark:divide-slate-800/40 text-sm">
+            {transactions.map((tx) => (
+              <tr
+                key={tx.id}
+                className="hover:bg-brand-canvas-soft/40 dark:hover:bg-slate-800/20 transition-colors"
+              >
+                <td className="py-4 px-6 text-brand-ink-secondary dark:text-slate-350 whitespace-nowrap">
+                  {formatDate(tx.date)}
+                </td>
+                <td className="py-4 px-6">
+                  <div className="space-y-1.5">
+                    <p className="font-semibold text-brand-ink dark:text-slate-200">
+                      {tx.description}
+                    </p>
+                    <div className="flex items-center gap-1.5 text-xs text-brand-ink-mute dark:text-slate-400">
+                      {tx.type === "card" ? (
+                        <>
+                          <CreditCard className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span>Tarjeta de Crédito</span>
+                        </>
+                      ) : (
+                        <>
+                          <Building className="size-3.5 text-blue-600 dark:text-blue-400" />
+                          <span>Transferencia Bancaria</span>
+                        </>
+                      )}
+                      {tx.reference && (
+                        <span className="text-[11px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-mono">
+                          Ref: {tx.reference}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </td>
+                <td className="py-4 px-6 font-medium tabular-nums text-brand-ink dark:text-slate-250 whitespace-nowrap">
+                  <div>{formatAmount(tx.amount, tx.currency)}</div>
+                </td>
+                <td className="py-4 px-6 whitespace-nowrap">
+                  {getStatusBadge(tx.status)}
+                </td>
+                <td className="py-4 px-6 text-right whitespace-nowrap">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-xs font-semibold text-brand-primary hover:text-brand-primary-deep hover:bg-brand-primary/5 active:scale-95 transition-all rounded-lg"
+                    onClick={() => onSelect(tx)}
+                  >
+                    <FileText className="size-3.5 mr-1" />
+                    Ver Factura
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | "statement" }) {
   const session = useSession();
   const orgId = session.data?.organization?.id || "";
@@ -65,6 +198,7 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
   const [activeTab, setActiveTab] = useState<"plan" | "payments" | "statement">(initialTab);
   const [hoveredTab, setHoveredTab] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
+  const [selectedTransaction, setSelectedTransaction] = useState<TransactionItem | null>(null);
 
   // Sync tab state when URL changes (e.g. back button / external links)
   useEffect(() => {
@@ -87,10 +221,17 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
   };
 
   // Queries
-  const { plan, subscription, usage, isLoading: isSubLoading } = useSubscription();
+  const { usage, isLoading: isSubLoading } = useSubscription();
+  const { subscription: userSub, plan: userPlan, isLoading: isUserSubLoading } = useUserSubscription();
   const { data: proofs, isLoading: isProofsLoading } = useQuery<PaymentProof[]>({
     queryKey: ["payment-proofs-my", orgId],
     queryFn: getPaymentProofs,
+    enabled: !!orgId,
+  });
+
+  const { data: transactions, isLoading: isTransactionsLoading } = useQuery<TransactionItem[]>({
+    queryKey: ["transactions-my", orgId],
+    queryFn: () => getTransactions("user"),
     enabled: !!orgId,
   });
 
@@ -178,9 +319,10 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
     }
   };
 
+  const isLoadingPlan = isSubLoading || isUserSubLoading;
   const isTabLoading = 
-    (activeTab === "plan" && isSubLoading) || 
-    (activeTab === "payments" && isProofsLoading) || 
+    (activeTab === "plan" && isLoadingPlan) || 
+    (activeTab === "payments" && isTransactionsLoading) || 
     (activeTab === "statement" && isStatementLoading);
 
   return (
@@ -245,6 +387,7 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
 
       {/* Content — constrained width */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 pb-8 space-y-8">
+        <PaymentStatusBanner />
       <motion.div
         layout
         className="overflow-hidden min-h-[300px]"
@@ -260,7 +403,7 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
           >
             {/* PANEL: PLAN */}
             {activeTab === "plan" && (
-              isSubLoading ? (
+              isLoadingPlan ? (
                 <div className="space-y-6 animate-in fade-in duration-200">
                   <Skeleton className="h-32 w-full rounded-2xl" />
                   <Skeleton className="h-64 w-full rounded-2xl animate-pulse" />
@@ -268,7 +411,7 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
                 </div>
               ) : (
                 <div className="space-y-6">
-                  <WelcomeBanner planName={plan?.display_name} />
+                  <WelcomeBanner planName={userPlan?.display_name} />
                   
                   {errorMsg && (
                     <div className="p-4 rounded-xl border border-red-200 bg-red-50 text-red-900 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-300 text-sm">
@@ -278,27 +421,26 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
                   
                   <TrialRemainingBadge variant="card" />
 
-                  <SubscriptionCard
-                    plan={plan}
-                    subscription={subscription}
-                    orgId={orgId}
-                  />
+                  <SubscriptionCard />
                   
-                  {subscription && (
+                  {userSub && (
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <h3 className="text-lg font-medium text-brand-ink dark:text-white">
                           Uso del período de cobro
                         </h3>
-                        {subscription.billing_cycle_end && (
+                        {userSub.billing_cycle_end && (
                           <span className="text-xs text-brand-ink-mute dark:text-slate-400">
-                            Se reinicia el {formatDate(subscription.billing_cycle_end)}
+                            Se reinicia el {formatDate(userSub.billing_cycle_end)}
                           </span>
                         )}
                       </div>
                       <UsageMeters usage={usage} />
                     </div>
                   )}
+
+                  {/* ECF pre-purchased balance card */}
+                  <EcfBalanceCard />
 
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
@@ -353,7 +495,23 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
                                     {formatDate(proof.created_at)}
                                   </td>
                                   <td className="py-4 px-5 text-brand-ink dark:text-slate-200 font-medium">
-                                    Plan {proof.plan_name}
+                                    <div className="space-y-1">
+                                      <p>Plan {proof.plan_name}</p>
+                                      {proof.items && proof.items.length > 0 && (
+                                        <div className="flex flex-wrap gap-1">
+                                          {proof.items.map((item, idx) => (
+                                            <Badge
+                                              key={idx}
+                                              variant="secondary"
+                                              className="text-[9px] px-1.5 py-0 bg-slate-100 hover:bg-slate-100 text-brand-ink-mute dark:bg-slate-800/60 dark:text-slate-350 font-normal border border-brand-hairline dark:border-slate-800 rounded-sm select-none"
+                                            >
+                                              {item.label || item.type}
+                                              {item.quantity && item.quantity > 1 ? ` (x${item.quantity})` : ""}
+                                            </Badge>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
                                   </td>
                                   <td className="py-4 px-5 font-medium tabular-nums text-brand-ink dark:text-slate-200">
                                     <div>{formatAmount(proof.amount, proof.currency)}</div>
@@ -388,15 +546,15 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
 
             {/* PANEL: PAYMENTS */}
             {activeTab === "payments" && (
-              isProofsLoading ? (
+              isTransactionsLoading ? (
                 <div className="space-y-4 animate-in fade-in duration-200">
                   <Skeleton className="h-10 w-full rounded-xl" />
                   <Skeleton className="h-64 w-full rounded-2xl animate-pulse" />
                 </div>
               ) : (
-                <div className="bg-white dark:bg-slate-900 border border-brand-hairline dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs animate-in fade-in duration-200">
-                  {!proofs || proofs.length === 0 ? (
-                    <div className="text-center py-16 px-4 space-y-4">
+                <div className="space-y-8 animate-in fade-in duration-200">
+                  {!transactions || transactions.length === 0 ? (
+                    <div className="text-center py-16 px-4 space-y-4 bg-white dark:bg-slate-900 border border-brand-hairline dark:border-slate-800 rounded-2xl">
                       <div className="p-4 rounded-full bg-brand-canvas-soft dark:bg-slate-800 text-brand-ink-mute dark:text-slate-400 size-16 mx-auto flex items-center justify-center">
                         <Receipt className="size-8" />
                       </div>
@@ -405,70 +563,21 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
                           No tienes pagos registrados
                         </h4>
                         <p className="text-xs text-brand-ink-mute dark:text-slate-400 max-w-xs mx-auto leading-normal">
-                          Aquí aparecerá el historial de tus transferencias y comprobantes de pago verificados.
+                          Aquí aparecerá el historial de tus pagos con tarjeta y transferencias bancarias verificadas.
                         </p>
                       </div>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="border-b border-brand-hairline dark:border-slate-800/60 bg-brand-canvas-soft dark:bg-slate-900/60 text-xs text-brand-ink-mute dark:text-slate-400 font-semibold uppercase tracking-wider">
-                            <th className="py-3.5 px-6">Fecha</th>
-                            <th className="py-3.5 px-6">Detalle / Concepto</th>
-                            <th className="py-3.5 px-6">Monto</th>
-                            <th className="py-3.5 px-6">Estado</th>
-                            <th className="py-3.5 px-6 text-right">Comprobante</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-brand-hairline dark:divide-slate-800/40 text-sm">
-                          {proofs.map((proof) => (
-                            <tr
-                              key={proof.id}
-                              className="hover:bg-brand-canvas-soft/40 dark:hover:bg-slate-800/20 transition-colors"
-                            >
-                              <td className="py-4 px-6 text-brand-ink-secondary dark:text-slate-350 whitespace-nowrap">
-                                {formatDate(proof.created_at)}
-                              </td>
-                              <td className="py-4 px-6">
-                                <div className="space-y-0.5">
-                                  <p className="font-semibold text-brand-ink dark:text-slate-200">
-                                    Plan {proof.plan_name}
-                                  </p>
-                                  {proof.notes && (
-                                    <p className="text-[11px] text-brand-ink-mute dark:text-slate-400 leading-normal max-w-sm truncate">
-                                      {proof.notes}
-                                    </p>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="py-4 px-6 font-medium tabular-nums text-brand-ink dark:text-slate-250 whitespace-nowrap">
-                                <div>{formatAmount(proof.amount, proof.currency)}</div>
-                                {proof.usd_amount && (
-                                  <div className="text-[10px] text-brand-ink-mute dark:text-slate-400 font-normal">
-                                    (${proof.usd_amount.toFixed(2)} USD @ {proof.exchange_rate?.toFixed(2)})
-                                  </div>
-                                )}
-                              </td>
-                              <td className="py-4 px-6 whitespace-nowrap">
-                                {getProofStatusBadge(proof.status)}
-                              </td>
-                              <td className="py-4 px-6 text-right whitespace-nowrap">
-                                <a
-                                  href={proof.file_url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs font-semibold text-brand-primary hover:text-brand-primary-deep transition-colors"
-                                >
-                                  <span>Ver archivo</span>
-                                  <ExternalLink className="size-3" />
-                                </a>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <>
+                      <TransactionTable
+                        title={session.data?.user?.email || "Mi Cuenta"}
+                        icon={User}
+                        transactions={transactions}
+                        formatDate={formatDate}
+                        formatAmount={formatAmount}
+                        onSelect={(tx) => setSelectedTransaction(tx)}
+                      />
+                    </>
                   )}
                 </div>
               )
@@ -476,244 +585,22 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
 
             {/* PANEL: STATEMENT */}
             {activeTab === "statement" && (
-              isStatementLoading ? (
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in fade-in duration-200">
-                  <div className="lg:col-span-7">
-                    <Skeleton className="h-[400px] w-full rounded-2xl animate-pulse" />
-                  </div>
-                  <div className="lg:col-span-5">
-                    <Skeleton className="h-[250px] w-full rounded-2xl animate-pulse" />
-                  </div>
-                </div>
-              ) : statementData ? (
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start animate-in fade-in duration-200">
-                  {/* Left Column: Charges list */}
-                  <div className="lg:col-span-7 space-y-6">
-                    <div className="bg-white dark:bg-slate-900 border border-brand-hairline dark:border-slate-800 rounded-2xl p-5 space-y-5">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h3 className="text-base font-semibold text-brand-ink dark:text-white leading-none">
-                            Cargos del período
-                          </h3>
-                          <p className="text-[11px] text-brand-ink-mute dark:text-slate-400 mt-1">
-                            {statementData.plan_name} · Ciclo {statementData.cycle}
-                          </p>
-                        </div>
-                        <Badge
-                          variant={statementData.charges.some((c) => !c.paid) ? "outline" : "secondary"}
-                          className={cn(
-                            "text-[10px] font-semibold",
-                            statementData.charges.some((c) => !c.paid)
-                              ? "border-amber-500/20 bg-amber-500/5 text-amber-600 dark:text-amber-400"
-                              : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/10"
-                          )}
-                        >
-                          {statementData.charges.some((c) => !c.paid) ? "Pago Pendiente" : "Completamente Pagado"}
-                        </Badge>
-                      </div>
-
-                      <div className="space-y-3">
-                        {statementData.charges.length === 0 ? (
-                          <div className="text-center py-10 px-4 space-y-2">
-                            <CheckCircle2 className="size-8 text-emerald-500 mx-auto" />
-                            <p className="text-xs font-medium text-brand-ink dark:text-white">Sin cargos en este ciclo</p>
-                            <p className="text-[10px] text-brand-ink-mute dark:text-slate-400">
-                              No se han registrado consumos adicionales en tu cuenta.
-                            </p>
-                          </div>
-                        ) : (
-                          statementData.charges.map((charge, idx) => (
-                            <div
-                              key={charge.id || `recurring-${idx}`}
-                              className="flex items-center justify-between rounded-xl border border-brand-hairline dark:border-slate-850/60 p-4"
-                            >
-                              <div className="min-w-0 flex-1 space-y-1">
-                                <p className="text-xs font-semibold text-brand-ink dark:text-slate-200 truncate">
-                                  {charge.label || LABELS[charge.charge_type] || charge.charge_type}
-                                </p>
-                                <p className="text-[11px] text-brand-ink-mute dark:text-slate-400 font-medium">
-                                  {charge.quantity} × RD$ {(charge.unit_price_cents / 100).toLocaleString("es-DO")}
-                                  {charge.is_recurring && (
-                                    <Badge
-                                      variant="outline"
-                                      className="ml-2 text-[9px] h-4.5 px-1.5 border-brand-primary/20 bg-brand-primary/5 text-brand-primary"
-                                    >
-                                      Recurrente
-                                    </Badge>
-                                  )}
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-3 shrink-0">
-                                <span className="text-xs font-mono font-medium text-brand-ink dark:text-slate-250 tabular-nums">
-                                  RD$ {(charge.total_price_cents / 100).toLocaleString("es-DO")}
-                                </span>
-                                {charge.paid ? (
-                                  <CheckCircle2 className="size-4.5 text-emerald-500 shrink-0" />
-                                ) : (
-                                  <div className="size-4.5 rounded-full border-2 border-amber-400 shrink-0" />
-                                )}
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-
-                      <Separator className="bg-brand-hairline dark:bg-slate-800/60" />
-
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-brand-ink dark:text-white">Total</span>
-                        <span className="text-lg font-mono font-bold text-brand-primary dark:text-sky-400 tabular-nums">
-                          {formatAmount(statementData.total_cents / 100, "DOP")}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Right Column: Payment forms / information cards */}
-                  <div className="lg:col-span-5 space-y-6">
-                    {statementData.charges.some((c) => !c.paid) && statementData.total_cents > 0 ? (
-                      <div className="bg-white dark:bg-slate-900 border border-brand-hairline dark:border-slate-800 rounded-2xl p-5 space-y-5">
-                        {!showPayForm ? (
-                          <div className="space-y-4">
-                            <div className="space-y-1">
-                              <h4 className="text-sm font-semibold text-brand-ink dark:text-white">¿Cómo pagar este saldo?</h4>
-                              <p className="text-xs text-brand-ink-mute dark:text-slate-400">
-                                Realiza una transferencia bancaria y adjunta el comprobante para liquidar tu cuenta.
-                              </p>
-                            </div>
-                            <Button
-                              className="w-full h-11 py-3 px-7 min-w-[120px] text-sm font-semibold gap-1.5 rounded-xl bg-brand-primary text-white hover:bg-brand-primary-deep active:scale-[0.98] transition-all duration-100"
-                              onClick={() => setShowPayForm(true)}
-                            >
-                              <CreditCard className="size-4" />
-                              Registrar comprobante de pago
-                            </Button>
-                          </div>
-                        ) : (
-                          <form onSubmit={handlePayStatement} className="space-y-4">
-                            <h4 className="text-xs font-semibold uppercase tracking-wider text-brand-ink-secondary dark:text-slate-350">
-                              Comprobante de pago
-                            </h4>
-
-                            <div
-                              className={cn(
-                                "relative rounded-xl border-2 border-dashed p-6 text-center transition-colors cursor-pointer",
-                                file
-                                  ? "border-emerald-500/50 bg-emerald-500/5 dark:border-emerald-800/40 dark:bg-emerald-950/10"
-                                  : "border-brand-hairline hover:border-brand-primary/50 dark:border-slate-800 dark:hover:border-sky-400/50 bg-brand-canvas-soft/10"
-                              )}
-                            >
-                              {file ? (
-                                <div className="flex flex-col items-center gap-2">
-                                  <CheckCircle2 className="size-6 text-emerald-500" />
-                                  <p className="text-xs font-medium text-brand-ink dark:text-white truncate max-w-[200px]">
-                                    {file.name}
-                                  </p>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="text-[10px] h-7 text-red-500 hover:text-red-650 hover:bg-red-500/10 rounded-lg mt-1"
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      setFile(null);
-                                    }}
-                                  >
-                                    <X className="size-3.5 mr-1" />
-                                    Quitar archivo
-                                  </Button>
-                                </div>
-                              ) : (
-                                <label className="flex flex-col items-center gap-2 cursor-pointer w-full h-full">
-                                  <Upload className="size-6 text-brand-ink-mute dark:text-slate-400" />
-                                  <p className="text-xs font-medium text-brand-ink dark:text-slate-200">
-                                    Seleccionar comprobante
-                                  </p>
-                                  <p className="text-[10px] text-brand-ink-mute dark:text-slate-400">
-                                    PNG, JPG o PDF · Máx. 10MB
-                                  </p>
-                                  <input
-                                    type="file"
-                                    accept="image/*,application/pdf"
-                                    className="hidden"
-                                    onChange={(e) => setFile(e.target.files?.[0] || null)}
-                                  />
-                                </label>
-                              )}
-                            </div>
-
-                            <div className="flex items-center gap-2.5">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="h-11 py-3 px-7 min-w-[120px] text-sm font-semibold rounded-xl border-brand-hairline active:scale-[0.98] transition-all duration-100"
-                                onClick={() => setShowPayForm(false)}
-                              >
-                                Cancelar
-                              </Button>
-                              <Button
-                                type="submit"
-                                className="h-11 py-3 px-7 min-w-[120px] text-sm font-semibold gap-2 flex-1 rounded-xl bg-brand-primary text-white hover:bg-brand-primary-deep active:scale-[0.98] transition-all duration-100"
-                                disabled={uploading || !file}
-                              >
-                                {uploading ? (
-                                  <Loader2 className="size-4 animate-spin" />
-                                ) : (
-                                  <CreditCard className="size-4" />
-                                )}
-                                {uploading ? "Procesando..." : `Enviar comprobante`}
-                              </Button>
-                            </div>
-                          </form>
-                        )}
-                      </div>
-                    ) : statementData.total_cents === 0 ? (
-                      <div className="bg-white dark:bg-slate-900 border border-brand-hairline dark:border-slate-800 rounded-2xl p-5 text-center space-y-3">
-                        <CheckCircle2 className="size-8 text-emerald-500 mx-auto" />
-                        <h4 className="text-xs font-semibold text-brand-ink dark:text-white leading-none">
-                          Sin cargos pendientes
-                        </h4>
-                        <p className="text-[11px] text-brand-ink-mute dark:text-slate-400 leading-normal">
-                          No hay cargos adicionales pendientes de liquidación en este ciclo de facturación.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="bg-emerald-500/5 dark:bg-emerald-950/10 border border-emerald-500/20 rounded-2xl p-5 flex gap-3.5 items-start">
-                        <CheckCircle2 className="size-5 text-emerald-500 shrink-0 mt-0.5" />
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-                            Estado de cuenta pagado
-                          </p>
-                          <p className="text-[11px] text-brand-ink-mute dark:text-slate-400 leading-normal">
-                            Todos los consumos y cargos de este ciclo se encuentran al día. ¡Gracias por tu puntualidad!
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="bg-brand-canvas-soft/20 dark:bg-slate-950/20 border border-brand-hairline dark:border-slate-800/80 rounded-2xl p-5 flex gap-3 items-start">
-                      <AlertCircle className="size-4 text-brand-primary shrink-0 mt-0.5" />
-                      <div className="text-[11px] text-brand-ink-mute dark:text-slate-400 leading-normal space-y-1.5">
-                        <p>
-                          Los cargos por concepto de consultas IA, almacenamiento extra y Slots de Empresas/Usuarios adicionales se computan en tu saldo diferido y se consolidan en tu estado de cuenta mensual.
-                        </p>
-                        <p>
-                          Recibirás una notificación por correo electrónico el primer día del mes para conciliar tu saldo pendiente.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-12 text-brand-ink-mute dark:text-slate-400">
-                  No se pudo cargar el estado de cuenta.
-                </div>
-              )
+              <StatementTabContent />
             )}
           </motion.div>
         </AnimatePresence>
       </motion.div>
       </div>
+
+      <TransactionInvoiceModal
+        transaction={selectedTransaction}
+        isOpen={!!selectedTransaction}
+        onClose={() => setSelectedTransaction(null)}
+        formatDate={formatDate}
+        formatAmount={formatAmount}
+        organizationName={session.data?.organization?.name || ""}
+        userEmail={session.data?.user?.email || ""}
+      />
     </div>
   );
 }

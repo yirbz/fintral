@@ -37,11 +37,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
 
 const STATUS_MAP: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
   pending: { label: "Pendiente", variant: "secondary" },
   verified: { label: "Verificado", variant: "default" },
   rejected: { label: "Rechazado", variant: "destructive" },
+  revoked: { label: "Revocado", variant: "destructive" },
 };
 
 function formatDate(dateStr: string | null) {
@@ -88,16 +90,36 @@ export function AdminPaymentProofsPage() {
       )
     : proofs;
 
-  const handleVerify = async (action: "verified" | "rejected") => {
+  const handleVerify = async (action: "verified" | "rejected" | "revoked") => {
     if (!selectedProof) return;
     setActionLoading(true);
     try {
       await adminPaymentProofsApi.verify(selectedProof.id, action, adminNotes);
+
+      if (action === "verified") {
+        toast.success("Pago verificado", {
+          description: "Se ha enviado un correo de confirmación al usuario.",
+        });
+      } else if (action === "rejected") {
+        toast.error("Pago rechazado", {
+          description: adminNotes
+            ? `Motivo: ${adminNotes}`
+            : "Se ha notificado al usuario.",
+        });
+      } else if (action === "revoked") {
+        toast.error("Pago revocado", {
+          description: "Se ha revertido el plan y notificado al usuario.",
+        });
+      }
+
       setSelectedProof(null);
       setAdminNotes("");
       load(statusFilter);
     } catch (e) {
       console.error("Error updating proof", e);
+      toast.error("Error al procesar", {
+        description: "No se pudo actualizar el comprobante.",
+      });
     } finally {
       setActionLoading(false);
     }
@@ -418,6 +440,20 @@ export function AdminPaymentProofsPage() {
                   Verificar
                 </Button>
               </>
+            )}
+            {selectedProof?.status === "verified" && (
+              <Button
+                variant="destructive"
+                onClick={() => handleVerify("revoked")}
+                disabled={actionLoading}
+              >
+                {actionLoading ? (
+                  <Loader2 className="size-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <XCircle className="size-3.5 mr-1.5" />
+                )}
+                Revocar / Reembolsar
+              </Button>
             )}
           </DialogFooter>
         </DialogContent>

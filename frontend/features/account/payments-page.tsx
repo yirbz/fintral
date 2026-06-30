@@ -24,7 +24,7 @@ export function PaymentsPage() {
 
   const { data: transactions, isLoading, refetch } = useQuery<TransactionItem[]>({
     queryKey: ["transactions-my", orgId],
-    queryFn: getTransactions,
+    queryFn: () => getTransactions("user"),
     enabled: !!orgId,
   });
 

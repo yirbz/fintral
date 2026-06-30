@@ -35,7 +35,7 @@ export default function PaymentFailedPage() {
 
         <div className="border-t border-slate-100 dark:border-slate-800/80 pt-6 space-y-3">
           <Button
-            onClick={() => router.push("/dashboard/tienda/checkout")}
+            onClick={() => { window.location.href = "/dashboard/tienda/checkout"; }}
             className="w-full h-11 rounded-xl text-sm font-semibold bg-brand-primary text-white hover:bg-brand-primary-deep active:scale-[0.98] transition-all duration-100 shadow-sm gap-2"
           >
             <RefreshCw className="size-4 shrink-0" />
@@ -44,7 +44,7 @@ export default function PaymentFailedPage() {
 
           <Button
             variant="ghost"
-            onClick={() => router.push("/dashboard/tienda")}
+            onClick={() => { window.location.href = "/dashboard/tienda"; }}
             className="w-full h-11 rounded-xl text-xs font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
           >
             Volver a la Tienda

@@ -33,6 +33,7 @@ export function CartDrawer() {
         months: i.months,
         price_cents: i.price_cents,
         label: i.label,
+        target_org_id: i.targetOrgId,
       })),
     [items]
   );
@@ -59,14 +60,12 @@ export function CartDrawer() {
     <Sheet>
       <SheetTrigger asChild>
         <Button
-          variant="outline"
-          size="sm"
-          className="relative gap-2 px-3 h-8.5 rounded-xl border-brand-hairline hover:bg-brand-canvas-soft hover:text-brand-ink transition-all active:scale-97 select-none duration-100"
+          className="relative gap-2 h-9 px-5 rounded-lg border border-brand-hairline bg-transparent text-brand-ink-secondary text-sm font-medium hover:text-brand-ink hover:bg-brand-canvas-soft transition-all active:scale-[0.97] select-none duration-100"
         >
-          <ShoppingCart className="size-4 text-brand-ink-secondary dark:text-slate-300" />
-          <span className="text-xs font-medium text-brand-ink-secondary dark:text-slate-300">Carrito</span>
+          <ShoppingCart className="size-[15px]" />
+          <span>Carrito</span>
           {itemCount > 0 && (
-            <Badge className="absolute -right-1.5 -top-1.5 size-4.5 p-0 flex items-center justify-center text-[10px] font-semibold bg-brand-primary text-white shadow-sm transition-transform duration-250 ease-out-expo animate-in fade-in zoom-in-75">
+            <Badge className="absolute -right-2 -top-2 size-5 p-0 flex items-center justify-center text-[11px] font-semibold bg-brand-primary text-white ring-2 ring-white shadow-sm transition-transform duration-250 ease-out-expo animate-in fade-in zoom-in-75">
               {itemCount}
             </Badge>
           )}
@@ -105,15 +104,78 @@ export function CartDrawer() {
         ) : (
           <>
             {/* Scrollable Cart Items list */}
-            <div className="flex-1 px-5 py-4 overflow-y-auto space-y-3 bg-brand-canvas-soft/20 dark:bg-slate-900/10">
-              {items.map((item) => (
-                <CartItem
-                  key={item.id}
-                  item={item}
-                  onUpdateQuantity={updateQuantity}
-                  onRemove={removeItem}
-                />
-              ))}
+            <div className="flex-1 px-5 py-4 overflow-y-auto space-y-4 bg-brand-canvas-soft/20 dark:bg-slate-900/10">
+              {(() => {
+                const planItems = items.filter(i => i.type === "plan_change");
+                const recurringItems = items.filter(i => i.type === "entity_slot" || i.type === "user_slot" || i.type === "addon");
+                const prepaidItems = items.filter(i => i.type === "ecf_blocks");
+                const otherItems = items.filter(i => !["plan_change", "entity_slot", "user_slot", "addon", "ecf_blocks"].includes(i.type));
+
+                return (
+                  <>
+                    {planItems.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="text-[10px] font-semibold uppercase tracking-wider text-brand-ink-mute">
+                          Suscripción
+                        </h4>
+                        {planItems.map((item) => (
+                          <CartItem
+                            key={item.id}
+                            item={item}
+                            onUpdateQuantity={updateQuantity}
+                            onRemove={removeItem}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    {recurringItems.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="text-[10px] font-semibold uppercase tracking-wider text-brand-ink-mute">
+                          Complementos recurrentes
+                        </h4>
+                        {recurringItems.map((item) => (
+                          <CartItem
+                            key={item.id}
+                            item={item}
+                            onUpdateQuantity={updateQuantity}
+                            onRemove={removeItem}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    {prepaidItems.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="text-[10px] font-semibold uppercase tracking-wider text-brand-ink-mute">
+                          Complementos prepago
+                        </h4>
+                        {prepaidItems.map((item) => (
+                          <CartItem
+                            key={item.id}
+                            item={item}
+                            onUpdateQuantity={updateQuantity}
+                            onRemove={removeItem}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    {otherItems.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="text-[10px] font-semibold uppercase tracking-wider text-brand-ink-mute">
+                          Otros
+                        </h4>
+                        {otherItems.map((item) => (
+                          <CartItem
+                            key={item.id}
+                            item={item}
+                            onUpdateQuantity={updateQuantity}
+                            onRemove={removeItem}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
 
             {/* Bottom summary and checkouts */}
@@ -129,6 +191,7 @@ export function CartDrawer() {
                   months={months}
                   discount={discount}
                   monthlyTotal={monthlyTotal}
+                  breakdown={cartCalc?.items}
                 />
               )}
 

@@ -182,25 +182,6 @@ BANCO_POPULAR_SECRET_KEY: str = os.getenv("BANCO_POPULAR_SECRET_KEY", "")
 BANCO_POPULAR_FALLBACK_RATE: float = float(os.getenv("BANCO_POPULAR_FALLBACK_RATE", "59.0"))
 
 # ===========================================================================
-# Paddle Billing (subscription management + card payments)
-# ===========================================================================
-# API key from Paddle > Developer Tools > Authentication.
-# Sandbox: starts with sk_sandbox_
-# Live: starts with sk_live_
-PADDLE_API_KEY: str = os.getenv("PADDLE_API_KEY", "")
-PADDLE_WEBHOOK_SECRET: str = os.getenv("PADDLE_WEBHOOK_SECRET", "")
-PADDLE_ENVIRONMENT: str = os.getenv("PADDLE_ENVIRONMENT", "sandbox")  # sandbox | production
-PADDLE_CLIENT_TOKEN: str = os.getenv("PADDLE_CLIENT_TOKEN", "")
-
-# Paddle Product/Price IDs — set per environment (sandbox vs production)
-PADDLE_PRODUCT_INICIAL: str = os.getenv("PADDLE_PRODUCT_INICIAL", "")
-PADDLE_PRICE_INICIAL_MONTHLY: str = os.getenv("PADDLE_PRICE_INICIAL_MONTHLY", "")
-PADDLE_PRODUCT_PROFESIONAL: str = os.getenv("PADDLE_PRODUCT_PROFESIONAL", "")
-PADDLE_PRICE_PROFESIONAL_MONTHLY: str = os.getenv("PADDLE_PRICE_PROFESIONAL_MONTHLY", "")
-PADDLE_PRODUCT_DESPACHO: str = os.getenv("PADDLE_PRODUCT_DESPACHO", "")
-PADDLE_PRICE_DESPACHO_MONTHLY: str = os.getenv("PADDLE_PRICE_DESPACHO_MONTHLY", "")
-
-# ===========================================================================
 # Lago Billing Engine (self-hosted subscription management)
 # ===========================================================================
 LAGO_API_URL: str = os.getenv("LAGO_API_URL", "http://lago-api:3000")
