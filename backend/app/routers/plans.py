@@ -15,6 +15,7 @@ from sqlalchemy import case, func
 
 from app.dependencies.tenant import TenantContext, require_tenant
 from app.models import Invoice, PendingUpload, SubscriptionPlan, PaymentProof
+from app.utils.dates import utc_now
 from app.services.plan_service import PlanService
 from app.services.usage_tracker import _current_cycle
 from app.services.exchange_rate_service import get_bpd_usd_rate

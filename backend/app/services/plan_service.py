@@ -314,8 +314,8 @@ class PlanService:
             .join(Organization)
             .filter(
                 UserOrganization.user_id == user_id,
-                Organization.is_active == True,
-                Organization.is_deleted == False
+                Organization.is_active.is_(True),
+                Organization.is_deleted.is_(False)
             )
             .count()
         )

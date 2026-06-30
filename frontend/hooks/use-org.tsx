@@ -96,9 +96,9 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
     return loadStoredOrg();
   });
 
-  const { data: orgsQuery_data, isLoading: orgsQuery_isLoading } = useQuery({
+  const { data: orgsQuery_data, isLoading: orgsQuery_isLoading } = useQuery<UserOrg[]>({
     queryKey: ["user-organizations"],
-    queryFn: listUserOrganizations,
+    queryFn: () => listUserOrganizations(),
     enabled: !!session && mounted,
     staleTime: 30_000,
   });
