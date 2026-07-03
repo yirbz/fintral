@@ -1004,6 +1004,7 @@ async def verify_payment_order(
     to avoid sending the user to an expired payment page.
     """
     from app.services.payment_intent_service import PaymentIntentService
+    from app.models.mio_payment_order import MioPaymentOrder
 
     intent_svc = PaymentIntentService(ctx.db)
     order = (
