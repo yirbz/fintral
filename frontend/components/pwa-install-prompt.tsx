@@ -307,10 +307,8 @@ export function PwaInstallPrompt() {
           className="fixed top-0 left-0 right-0 z-[99999] animate-slide-down"
           style={{
             height: BANNER_HEIGHT,
-            background: "rgba(255, 255, 255, 0.72)",
-            backdropFilter: "blur(20px) saturate(180%)",
-            WebkitBackdropFilter: "blur(20px) saturate(180%)",
-            borderBottom: "0.5px solid rgba(0, 0, 0, 0.1)",
+            background: "#fff",
+            borderBottom: "0.5px solid rgba(0, 0, 0, 0.12)",
           }}
         >
           <div className="flex items-center gap-3 px-4 py-2 mx-auto max-w-lg h-full">
