@@ -1,6 +1,6 @@
 import json
 
-from app.config import SUPABASE_URL, SUPABASE_STORAGE_BUCKET
+from app.config import IS_DEVELOPMENT, SUPABASE_URL, SUPABASE_STORAGE_BUCKET
 from app.utils.dates import utc_now
 
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
@@ -168,9 +168,14 @@ class Invoice(Base):
         file_url = None
         processed_url = None
         if self.file_path:
-            file_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{self.file_path.lstrip('/')}"
-            if self.processed_path:
-                processed_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{self.processed_path.lstrip('/')}"
+            if IS_DEVELOPMENT:
+                file_url = f"/invoices/{self.id}/file?org_id={self.organization_id}"
+                if self.processed_path:
+                    processed_url = f"/invoices/{self.id}/file?org_id={self.organization_id}&processed=1"
+            else:
+                file_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{self.file_path.lstrip('/')}"
+                if self.processed_path:
+                    processed_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{self.processed_path.lstrip('/')}"
 
         children = []
         if self.child_invoices:
@@ -188,6 +193,14 @@ class Invoice(Base):
                         "status": child.status,
                         "created_at": child.created_at.isoformat() if child.created_at else None,
                     })
+
+        payment_method = None
+        if self.raw_extracted_data:
+            try:
+                raw_data = json.loads(self.raw_extracted_data)
+                payment_method = raw_data.get("payment_method")
+            except Exception:
+                pass
 
         return {
             "id": str(self.id),
@@ -241,6 +254,7 @@ class Invoice(Base):
             "internal_notes": self.internal_notes,
             "payment_status": self.payment_status,
             "payment_condition": self.payment_condition,
+            "payment_method": payment_method,
             "due_date": self.due_date.isoformat() if self.due_date else None,
             "payment_date": self.payment_date.isoformat() if self.payment_date else None,
             "bank_account_id": str(self.bank_account_id) if self.bank_account_id else None,

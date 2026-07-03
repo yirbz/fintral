@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.config import SUPABASE_URL, PUBLIC_APP_URL
 from app.database import get_db
 from app.core.container import openai_processor, webhook_sender
+from app.services.plan_service import PlanService, PlanLimitExceeded
 from app.dependencies.tenant import TenantContext, require_tenant
 from app.models import Invoice, PendingUpload, UploadLink, User
 from app.repositories import InvoiceRepository
@@ -151,6 +152,17 @@ async def process_pending_upload(
         raise HTTPException(status_code=404, detail="Carga pendiente no encontrada")
     if pending.processed:
         raise HTTPException(status_code=400, detail="Ya procesada")
+
+    try:
+        plan_svc = PlanService(ctx.db)
+        plan_svc.check_ocr_limit(ctx.org_id)
+    except PlanLimitExceeded as e:
+        usage = getattr(e, 'usage', {})
+        limit_val = usage.get("limit", 0)
+        current = usage.get("used", 0)
+        msg = f"Límite de documentos OCR alcanzado ({current}/{limit_val} mensuales). "
+        msg += "Adquiere un bloque adicional de documentos OCR desde la Tienda para seguir procesando."
+        raise HTTPException(status_code=403, detail=msg)
 
     pending.processed = True
     ctx.db.flush()

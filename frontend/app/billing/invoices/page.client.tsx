@@ -26,8 +26,8 @@ import { toast } from "sonner";
 import {
   Search,
   FileText,
-  Send,
   Printer,
+  RefreshCw,
   Loader2,
   AlertCircle,
   CheckCircle2,
@@ -39,7 +39,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
+  Trash2,
+  Zap,
 } from "lucide-react";
+import { archiveInvoice } from "@/lib/api/invoices";
 
 const PAGE_SIZE = 15;
 
@@ -92,7 +95,7 @@ function StatusBadge({ status, isEcf }: { status: string; isEcf: boolean }) {
 export default function InvoicesPageClient() {
   const [invoices, setInvoices] = useState<BillingInvoice[]>([]);
   const [loading, setLoading] = useState(true);
-  const [transmittingId, setTransmittingId] = useState<string | null>(null);
+  const [discardingId, setDiscardingId] = useState<string | null>(null);
   const [isEcfAuthorized, setIsEcfAuthorized] = useState(false);
 
   // Filters
@@ -122,17 +125,19 @@ export default function InvoicesPageClient() {
     fetchData();
   }, [fetchData]);
 
-  const handleTransmit = async (id: string) => {
+  const handleDiscard = async (id: string) => {
+    if (!confirm("¿Está seguro de que desea descartar este borrador? Esta acción no se puede deshacer.")) {
+      return;
+    }
     try {
-      setTransmittingId(id);
-      toast.info(isEcfAuthorized ? "Timbrando factura ante la DGII..." : "Emitiendo factura...");
-      const result = await billingApi.transmitInvoice(id);
-      toast.success(`Factura ${isEcfAuthorized ? "timbrada" : "emitida"} con éxito. NCF: ${result.invoice.invoice_number}`);
+      setDiscardingId(id);
+      await archiveInvoice(id);
+      toast.success("Borrador descartado correctamente.");
       fetchData();
     } catch (err: any) {
-      toast.error("Error: " + (err.message || "Error desconocido"));
+      toast.error("Error al descartar borrador: " + (err.message || "Error desconocido"));
     } finally {
-      setTransmittingId(null);
+      setDiscardingId(null);
     }
   };
 
@@ -206,10 +211,16 @@ export default function InvoicesPageClient() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href={isEcfAuthorized ? "/billing/emit" : "/billing/quick"} passHref>
-            <Button className="h-8 rounded-md text-xs gap-1.5 px-3">
+          <Link href="/billing/quick" passHref>
+            <Button variant="outline" className="h-8 rounded-md text-xs gap-1.5 px-3">
+              <Zap className="size-3.5 text-emerald-600" />
+              Factura Rápida (POS)
+            </Button>
+          </Link>
+          <Link href="/billing/emit" passHref>
+            <Button className="h-8 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs gap-1.5 px-3">
               <FileText className="size-3.5" />
-              Nueva factura
+              Factura Detallada (A4)
             </Button>
           </Link>
         </div>
@@ -383,26 +394,49 @@ export default function InvoicesPageClient() {
                             </Button>
                           </Link>
 
-                          {/* Transmit (drafts only) */}
+                          {/* Emitir (drafts only) */}
                           {invoice.status === "draft" && (
-                            <Button
-                              onClick={() => handleTransmit(invoice.id)}
-                              disabled={transmittingId === invoice.id}
-                              className={`h-7 text-[11px] px-2 rounded-md ${
-                                isEcfAuthorized
-                                  ? "bg-emerald-600 text-white hover:bg-emerald-600/90"
-                                  : "border-border/80 text-foreground hover:bg-muted"
-                              }`}
-                              size="xs"
-                              variant={isEcfAuthorized ? "default" : "outline"}
-                            >
-                              {transmittingId === invoice.id ? (
-                                <Loader2 className="size-3 animate-spin mr-1" />
-                              ) : (
-                                <Send className="size-3 mr-1" />
-                              )}
-                              {isEcfAuthorized ? "Timbrar" : "Emitir"}
-                            </Button>
+                            <>
+                              {(() => {
+                                let raw: any = null;
+                                try { raw = JSON.parse(invoice.raw_extracted_data || "null"); } catch {}
+                                const isQuick = raw?.mode === "quick";
+                                const editUrl = isQuick
+                                  ? `/billing/quick?draftId=${invoice.id}`
+                                  : `/billing/emit?invoiceId=${invoice.id}`;
+                                return (
+                                  <Link href={editUrl} passHref>
+                                    <Button
+                                      className={`h-7 text-[11px] px-2 rounded-md ${
+                                        isEcfAuthorized
+                                          ? "bg-emerald-600 text-white hover:bg-emerald-600/90"
+                                          : "border-border/80 text-foreground hover:bg-muted"
+                                      }`}
+                                      size="xs"
+                                      variant={isEcfAuthorized ? "default" : "outline"}
+                                    >
+                                      <Edit3 className="size-3 mr-1" />
+                                      {isEcfAuthorized ? "Editar y Timbrar" : "Editar y Emitir"}
+                                    </Button>
+                                  </Link>
+                                );
+                              })()}
+
+                              <Button
+                                onClick={() => handleDiscard(invoice.id)}
+                                disabled={discardingId === invoice.id}
+                                variant="ghost"
+                                size="xs"
+                                className="h-7 text-[11px] text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-md px-2"
+                              >
+                                {discardingId === invoice.id ? (
+                                  <Loader2 className="size-3 animate-spin mr-1" />
+                                ) : (
+                                  <Trash2 className="size-3 mr-1" />
+                                )}
+                                Descartar
+                              </Button>
+                            </>
                           )}
 
                           {/* Print ticket */}
@@ -423,8 +457,22 @@ export default function InvoicesPageClient() {
                             </Link>
                           )}
 
-                          {/* Correct */}
-                          {invoice.status === "verified" && (
+                          {/* Re-editar (físico) */}
+                          {invoice.status === "verified" && !invoice.is_electronic && (
+                            <Link href={`/billing/emit?invoiceId=${invoice.id}&action=reemit`} passHref>
+                              <Button
+                                variant="outline"
+                                size="xs"
+                                className="h-7 text-[11px] border-amber-500/30 text-amber-600 hover:bg-amber-50 rounded-md px-2"
+                              >
+                                <RefreshCw className="size-3 mr-1" />
+                                Re-editar
+                              </Button>
+                            </Link>
+                          )}
+
+                          {/* Corregir (e-CF) */}
+                          {invoice.status === "verified" && invoice.is_electronic && (
                             <Button
                               variant="ghost"
                               size="xs"
@@ -438,7 +486,7 @@ export default function InvoicesPageClient() {
                               }}
                             >
                               <Edit3 className="size-3 mr-1" />
-                              Corregir
+                              Corregir (NC)
                             </Button>
                           )}
                         </div>

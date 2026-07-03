@@ -195,6 +195,10 @@ function getDirtyFields(original: Invoice, current: Partial<Invoice>): Partial<I
 export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const isBilling = typeof window !== "undefined" && window.location.pathname.startsWith("/billing");
+  const invoicesPath = isBilling ? "/billing/invoices" : "/dashboard/invoices";
+  const trashPath = isBilling ? "/billing/invoices" : "/dashboard/invoices/trash";
+
   const {data: query_data, isLoading: query_isLoading, refetch: query_refetch} = useQuery({
     queryKey: ["invoice", invoiceId],
     queryFn: () => getInvoice(invoiceId)
@@ -272,7 +276,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
     mutationFn: () => archiveInvoice(invoiceId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["invoices"] });
-      router.push("/dashboard/invoices");
+      router.push(invoicesPath);
     }
   });
 
@@ -410,7 +414,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
       <Card>
         <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
-            <Link href={isTrashed ? "/dashboard/invoices/trash" : "/dashboard/invoices"}>
+            <Link href={isTrashed ? trashPath : invoicesPath}>
               <Button variant="ghost" size="icon">
                 <ArrowLeft className="size-4" />
               </Button>
