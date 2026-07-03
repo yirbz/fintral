@@ -242,6 +242,38 @@ class MioService:
             "raw_attributes": attributes
         }
 
+    async def cancel_order(self, order_uuid: str) -> Dict[str, Any]:
+        """Cancel/void a pending MIO order so the checkout link becomes unusable.
+
+        Returns the MIO API response (empty dict for 204 No Content).
+        In mock/dev mode this is a no-op that logs the intent.
+        """
+        token = await self._get_token()
+        if token == "mock-dev-access-token":
+            logger.info(f"ℹ️ Simulating MIO cancel for order {order_uuid}")
+            return {}
+
+        url = f"{self.api_base_url}/api/v2/orders/{order_uuid}/cancel"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/vnd.api+json",
+            "Accept": "application/vnd.api+json",
+        }
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            try:
+                response = await client.post(url, headers=headers)
+                if response.status_code == 204:
+                    logger.info(f"MIO order {order_uuid} cancelled successfully")
+                    return {}
+                if response.is_error:
+                    logger.warning(f"MIO cancel returned {response.status_code} for {order_uuid}: {response.text}")
+                    return {}  # non-critical — remote cancel is best-effort
+                return response.json()
+            except httpx.RequestError as exc:
+                logger.warning(f"HTTP error cancelling MIO order {order_uuid}: {exc}")
+                return {}
+
     async def refund(self, reference_number: str) -> Dict[str, Any]:
         """Issue a refund for a successful transaction using its reference number."""
         payload = {

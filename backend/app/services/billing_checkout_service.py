@@ -15,7 +15,6 @@ from app.models.user_subscription import UserSubscription
 from app import config as settings
 from app.services.lago_service import LagoService, LagoAPIError
 from app.services.mio_service import MioService
-from app.models.mio_payment_order import MioPaymentOrder
 from app.utils.dates import utc_now
 
 logger = logging.getLogger(__name__)
@@ -108,44 +107,30 @@ class BillingCheckoutService:
             logger.error(f"Lago subscription creation failed: {exc.response_body}")
             raise ValueError(f"Error al crear suscripción en Lago: {exc}")
 
-        # If paying by card, create MIO payment order immediately for the first month
+        # If paying by card, create MIO payment order using PaymentIntentService
         if payment_method == "card" and price_cents > 0:
-            webhook_url = settings.MIO_WEBHOOK_URL or "https://api.fintral.com/api/mio/webhook"
-            success_url = settings.MIO_SUCCESS_REDIRECT or "https://app.fintral.com/billing/success"
-            failed_url = settings.MIO_FAILED_REDIRECT or "https://app.fintral.com/billing/failed"
+            from app.services.payment_intent_service import PaymentIntentService
+            intent_svc = PaymentIntentService(self.db)
+            context_id = f"org_sub:{org.id}"
 
-            # Create order in MIO
-            logger.info(f"Creating MIO checkout order for first month of Hub {plan_name}")
-            mio_order = await self.mio.create_order(
+            db_order = await intent_svc.create_or_replace(
                 amount_cents=price_cents,
                 description=f"Fintral Hub: Plan {plan.display_name} - 1er Mes",
-                webhook_url=webhook_url,
-                success_url=success_url,
-                failed_url=failed_url,
-            )
-
-            # Persist MIO checkout order
-            # Cancel previous pending MIO checkouts for this organization to prevent clutter
-            self.db.query(MioPaymentOrder).filter(
-                MioPaymentOrder.organization_id == org.id,
-                MioPaymentOrder.status == "PENDING"
-            ).update({"status": "EXPIRED", "updated_at": utc_now()})
-
-            db_order = MioPaymentOrder(
-                order_uuid=mio_order["order_uuid"],
+                context_type="subscription",
+                context_id=context_id,
+                user_id=None,
                 organization_id=org.id,
-                amount_cents=price_cents,
-                status="PENDING",
-                checkout_url=mio_order["checkout_url"],
+                webhook_url=settings.MIO_WEBHOOK_URL,
+                success_url=settings.MIO_SUCCESS_REDIRECT,
+                failed_url=settings.MIO_FAILED_REDIRECT,
             )
-            self.db.add(db_order)
             self.db.commit()
 
             return {
                 "subscription_id": str(sub_obj.id),
                 "payment_method": "card",
-                "checkout_url": mio_order["checkout_url"],
-                "order_uuid": mio_order["order_uuid"],
+                "checkout_url": db_order.checkout_url,
+                "order_uuid": db_order.order_uuid,
             }
         
         self.db.commit()
@@ -214,47 +199,34 @@ class BillingCheckoutService:
 
         lago_invoice_id = lago_invoice.get("invoice", {}).get("lago_id")
 
-        # 3. Create checkout order on MIO if payment method is card
+        # 3. Create MIO order for card payment using PaymentIntentService
         if payment_method == "card":
-            webhook_url = settings.MIO_WEBHOOK_URL or "https://api.fintral.com/api/mio/webhook"
-            success_url = settings.MIO_SUCCESS_REDIRECT or "https://app.fintral.com/billing/success"
-            failed_url = settings.MIO_FAILED_REDIRECT or "https://app.fintral.com/billing/failed"
+            from app.services.payment_intent_service import PaymentIntentService
+            intent_svc = PaymentIntentService(self.db)
+            context_id = f"ecf:{org.id}:{block_type}"
 
             # Add 5% card processing fee to MIO order amount
             fee_cents = int(price_cents * 0.05)
             total_cents = price_cents + fee_cents
 
-            logger.info(f"Creating MIO checkout order for one-off invoice {lago_invoice_id} with 5% fee")
-            mio_order = await self.mio.create_order(
+            db_order = await intent_svc.create_or_replace(
                 amount_cents=total_cents,
                 description=f"Fintral Factura: {units_count} Comprobantes Electrónicos (e-CF)",
-                webhook_url=webhook_url,
-                success_url=success_url,
-                failed_url=failed_url,
-            )
-
-            # Persist MIO checkout order
-            # Cancel previous pending MIO checkouts for this organization to prevent clutter
-            self.db.query(MioPaymentOrder).filter(
-                MioPaymentOrder.organization_id == org.id,
-                MioPaymentOrder.status == "PENDING"
-            ).update({"status": "EXPIRED", "updated_at": utc_now()})
-
-            db_order = MioPaymentOrder(
-                order_uuid=mio_order["order_uuid"],
-                lago_invoice_id=lago_invoice_id,
+                context_type="ecf_blocks",
+                context_id=context_id,
+                user_id=None,
                 organization_id=org.id,
-                amount_cents=total_cents,
-                status="PENDING",
-                checkout_url=mio_order["checkout_url"],
+                webhook_url=settings.MIO_WEBHOOK_URL,
+                success_url=settings.MIO_SUCCESS_REDIRECT,
+                failed_url=settings.MIO_FAILED_REDIRECT,
             )
-            self.db.add(db_order)
+            db_order.lago_invoice_id = lago_invoice_id
             self.db.commit()
 
             return {
                 "lago_invoice_id": lago_invoice_id,
-                "checkout_url": mio_order["checkout_url"],
-                "order_uuid": mio_order["order_uuid"],
+                "checkout_url": db_order.checkout_url,
+                "order_uuid": db_order.order_uuid,
                 "amount": price_dop,
             }
             
@@ -294,41 +266,28 @@ class BillingCheckoutService:
         fee_cents = int(price_cents * 0.05)
         total_cents = price_cents + fee_cents
 
-        # Create order in MIO
-        webhook_url = settings.MIO_WEBHOOK_URL or "https://api.fintral.com/api/mio/webhook"
-        success_url = settings.MIO_SUCCESS_REDIRECT or "https://app.fintral.com/billing/success"
-        failed_url = settings.MIO_FAILED_REDIRECT or "https://app.fintral.com/billing/failed"
+        # Create MIO order using PaymentIntentService
+        from app.services.payment_intent_service import PaymentIntentService
+        intent_svc = PaymentIntentService(self.db)
+        context_id = f"user_sub:{user.id}"
 
-        logger.info(f"Creating MIO checkout order for user subscription: {plan_name} with 5% fee")
-        mio_order = await self.mio.create_order(
+        db_order = await intent_svc.create_or_replace(
             amount_cents=total_cents,
             description=f"Fintral Hub: Plan {plan.display_name} - Suscripción",
-            webhook_url=webhook_url,
-            success_url=success_url,
-            failed_url=failed_url,
-        )
-
-        # Cancel previous pending MIO checkouts for this user to prevent clutter
-        self.db.query(MioPaymentOrder).filter(
-            MioPaymentOrder.user_id == user.id,
-            MioPaymentOrder.status == "PENDING"
-        ).update({"status": "EXPIRED", "updated_at": utc_now()})
-
-        db_order = MioPaymentOrder(
-            order_uuid=mio_order["order_uuid"],
+            context_type="user_subscription",
+            context_id=context_id,
             user_id=user.id,
             plan_id=plan.id,
-            amount_cents=total_cents,
-            status="PENDING",
-            checkout_url=mio_order["checkout_url"],
+            webhook_url=settings.MIO_WEBHOOK_URL,
+            success_url=settings.MIO_SUCCESS_REDIRECT,
+            failed_url=settings.MIO_FAILED_REDIRECT,
         )
-        self.db.add(db_order)
         self.db.commit()
 
         return {
             "payment_method": "card",
-            "checkout_url": mio_order["checkout_url"],
-            "order_uuid": mio_order["order_uuid"],
+            "checkout_url": db_order.checkout_url,
+            "order_uuid": db_order.order_uuid,
         }
 
     async def provision_user_subscription(
@@ -729,44 +688,36 @@ class BillingCheckoutService:
             discounted_cents = int(round(line_total_cents * (1 - discount)))
             total_cents += discounted_cents
 
-        # 8. Create MIO order for card payments
+        # 8. Create MIO order for card payments using PaymentIntentService
         if payment_method == "card" and total_cents > 0:
             fee_cents = int(total_cents * 0.05)
             total_with_fee = total_cents + fee_cents
 
-            mio_order = await self.mio.create_order(
+            from app.services.payment_intent_service import PaymentIntentService
+            intent_svc = PaymentIntentService(self.db)
+            context_id = f"cart:{org_id}:{user_id}"
+
+            db_order = await intent_svc.create_or_replace(
                 amount_cents=total_with_fee,
                 description=f"Fintral: Compra de {len(items)} artículo(s)",
-                webhook_url=settings.MIO_WEBHOOK_URL or "https://api.fintral.com/api/mio/webhook",
-                success_url=settings.MIO_SUCCESS_REDIRECT or "https://app.fintral.com/billing/success",
-                failed_url=settings.MIO_FAILED_REDIRECT or "https://app.fintral.com/billing/failed",
-            )
-
-            # Cancel previous pending MIO checkouts for this user to prevent clutter
-            self.db.query(MioPaymentOrder).filter(
-                MioPaymentOrder.user_id == user_id,
-                MioPaymentOrder.status == "PENDING"
-            ).update({"status": "EXPIRED", "updated_at": utc_now()})
-
-            db_order = MioPaymentOrder(
-                order_uuid=mio_order["order_uuid"],
-                lago_invoice_id=lago_invoice_id,
-                organization_id=org.id,
+                context_type="cart",
+                context_id=context_id,
                 user_id=user_id,
+                organization_id=org.id,
                 plan_id=plan.id if plan_items and plan else None,
-                amount_cents=total_with_fee,
-                status="PENDING",
-                checkout_url=mio_order["checkout_url"],
-                cart_items_json=items,
+                metadata=items,
+                webhook_url=settings.MIO_WEBHOOK_URL,
+                success_url=settings.MIO_SUCCESS_REDIRECT,
+                failed_url=settings.MIO_FAILED_REDIRECT,
             )
-            self.db.add(db_order)
+            db_order.lago_invoice_id = lago_invoice_id
             self.db.commit()
 
             return {
                 "subscription_id": subscription_id,
                 "payment_method": "card",
-                "checkout_url": mio_order["checkout_url"],
-                "order_uuid": mio_order["order_uuid"],
+                "checkout_url": db_order.checkout_url,
+                "order_uuid": db_order.order_uuid,
                 "total_cents": total_cents,
                 "fee_cents": fee_cents,
                 "total_with_fee": total_with_fee,
@@ -806,7 +757,7 @@ class BillingCheckoutService:
                 days_rem = item.get("days_remaining", 30)
                 if itype == "plan_change":
                     label = f"{label} (proporcional por {days_rem} días restantes)"
-                elif itype in ("entity_slot", "user_slot", "ai", "storage"):
+                elif itype in ("entity_slot", "user_slot", "ai", "storage", "ocr"):
                     label = f"{label} (proporcional por {days_rem} días restantes)"
 
             charge = MonthlyCharge(
@@ -873,6 +824,11 @@ class BillingCheckoutService:
                 qty = item.get("quantity", 1)
                 plan_svc.purchase_addon(org_id, "storage", qty)
                 logger.info(f"Provisioned {qty} storage block(s) for org {org_id}")
+
+            elif itype == "ocr":
+                qty = item.get("quantity", 1)
+                plan_svc.purchase_addon(org_id, "ocr", qty)
+                logger.info(f"Provisioned {qty} OCR block(s) for org {org_id}")
 
             elif itype == "addon":
                 addon_type = item.get("addon_type")

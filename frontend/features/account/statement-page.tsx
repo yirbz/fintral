@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   getStatement,
   payStatement,
@@ -9,6 +10,8 @@ import {
   cancelAddon,
   reactivateAddon,
   payStatementCard,
+  setStatementPlanChange,
+  getPublicPlans,
 } from "@/lib/api/plans";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -26,6 +29,7 @@ import {
   CalendarDays,
   ReceiptText,
   ChevronDown,
+  ChevronUp,
   ChevronRight,
   Building2,
   Users,
@@ -366,9 +370,14 @@ interface RecurringRowProps {
   cancelling: boolean;
   onReactivate: (t: "entity_slot" | "user_slot" | "ai" | "storage", q: number) => void;
   reactivating: boolean;
+  plans?: any[];
+  currentPlanName?: string;
+  pendingPlanName?: string | null;
+  onPlanSelect?: (planName: string | null) => void;
+  changingPlan?: boolean;
 }
 
-function RecurringRow({ item, addonDetail, onCancel, cancelling, onReactivate, reactivating }: RecurringRowProps) {
+function RecurringRow({ item, addonDetail, onCancel, cancelling, onReactivate, reactivating, plans, currentPlanName, pendingPlanName, onPlanSelect, changingPlan }: RecurringRowProps) {
   const [expanded, setExpanded] = useState(false);
   const Icon = ADDON_ICONS[item.type] ?? ReceiptText;
   const isPlan = item.type === "plan";
@@ -377,10 +386,13 @@ function RecurringRow({ item, addonDetail, onCancel, cancelling, onReactivate, r
 
   return (
     <div
-      onClick={() => hasDetail && setExpanded((v) => !v)}
+      onClick={() => {
+        if (isPlan && plans?.length) { setExpanded((v) => !v); }
+        else if (hasDetail) { setExpanded((v) => !v); }
+      }}
       className={cn(
         "rounded-xl border border-brand-hairline dark:border-slate-800/80 p-4 bg-white dark:bg-slate-900 transition-all select-none",
-        hasDetail ? "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40" : ""
+        (isPlan || hasDetail) ? "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40" : ""
       )}
     >
       <div className="flex items-center justify-between gap-3">
@@ -391,11 +403,18 @@ function RecurringRow({ item, addonDetail, onCancel, cancelling, onReactivate, r
           <div className="min-w-0 space-y-0.5">
             <div className="flex items-center gap-1.5 flex-wrap">
               <p className="text-xs font-semibold text-brand-ink dark:text-slate-200 truncate">
-                {item.label || LABELS[item.type] || item.type}
+                {isPlan && pendingPlanName
+                  ? `${item.label || currentPlanName} → ${pendingPlanName}`
+                  : (item.label || LABELS[item.type] || item.type)}
               </p>
               {item.pending_cancel > 0 && (
                 <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-red-500/20 bg-red-500/5 text-red-650 dark:text-red-400 font-bold shrink-0">
                   {item.quantity === 0 ? "Cancelado" : `-${item.pending_cancel}`} próximo ciclo
+                </Badge>
+              )}
+              {isPlan && pendingPlanName && (
+                <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-400 font-medium shrink-0">
+                  Cambio pendiente
                 </Badge>
               )}
               {hasDetail && (
@@ -407,7 +426,7 @@ function RecurringRow({ item, addonDetail, onCancel, cancelling, onReactivate, r
             </div>
             <p className="text-[11px] text-brand-ink-mute dark:text-slate-400 font-medium">
               {isPlan ? (
-                "Base de suscripción"
+                pendingPlanName ? "Se aplicará al pagar" : "Base de suscripción"
               ) : item.pending_cancel > 0 ? (
                 `Límite actual: ${item.original_quantity} · Próximo ciclo: ${item.quantity}`
               ) : (
@@ -423,31 +442,158 @@ function RecurringRow({ item, addonDetail, onCancel, cancelling, onReactivate, r
               ? "line-through text-brand-ink-mute dark:text-slate-500"
               : "text-brand-ink dark:text-slate-350"
           )}>
-            {formatDOP(item.price_cents * (item.pending_cancel > 0 ? item.quantity : item.quantity))}
+            {formatDOP(item.price_cents * item.quantity)}
           </span>
-          {hasDetail ? (
-            <div className="size-6 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors">
-              {expanded
-                ? <ChevronDown className="size-3.5 text-brand-ink-mute dark:text-slate-400" />
-                : <ChevronRight className="size-3.5 text-brand-ink-mute dark:text-slate-400" />}
-            </div>
+          {(isPlan || hasDetail) ? (
+            <motion.div
+              animate={{ rotate: expanded ? 0 : -90 }}
+              transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+              className="size-6 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors"
+            >
+              <ChevronDown className="size-3.5 text-brand-ink-mute dark:text-slate-400" />
+            </motion.div>
           ) : (
             <div className="size-6 shrink-0" />
           )}
         </div>
       </div>
-      {hasDetail && expanded && (
-        <div className="mt-3 border-t border-brand-hairline dark:border-slate-800/60 pt-3">
-          <AddonDetailPanel
-            chargeType={item.type}
-            addonDetail={addonDetail}
-            onCancel={onCancel}
-            cancelling={cancelling}
-            onReactivate={onReactivate}
-            reactivating={reactivating}
-          />
+
+      {/* Plan selector — expandable */}
+      <AnimatePresence initial={false}>
+        {isPlan && expanded && plans && plans.length > 0 && (
+          <motion.div
+            key="plan-selector"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+            className="overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mt-3 border-t border-brand-hairline dark:border-slate-800/60 pt-3 space-y-0.5">
+          {plans
+            .filter((p: any) => p.is_enterprise !== true && p.is_active !== false)
+            .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+            .map((p: any) => {
+              const planLabel = p.display_name || p.name;
+              const isSelected = pendingPlanName
+                ? planLabel === pendingPlanName
+                : planLabel === currentPlanName;
+              const isCurrent = planLabel === currentPlanName;
+              const isStatic = isCurrent && !pendingPlanName;
+              const sharedContent = (
+                <>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className={cn(
+                      "size-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-all duration-150",
+                      isSelected
+                        ? "border-brand-primary dark:border-sky-400"
+                        : "border-brand-hairline dark:border-slate-600",
+                      isStatic && "opacity-40"
+                    )}>
+                      {isSelected && (
+                        <div className="size-2 rounded-full bg-brand-primary dark:bg-sky-400" />
+                      )}
+                    </div>
+                    <span className={cn(
+                      "text-[11px] font-medium leading-tight truncate",
+                      isSelected
+                        ? "text-brand-primary dark:text-sky-400"
+                        : "text-brand-ink dark:text-white",
+                      isStatic && "text-brand-ink-mute dark:text-slate-500"
+                    )}>
+                      {planLabel}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className={cn(
+                      "text-[11px] font-mono font-semibold tabular-nums",
+                      isSelected && !isStatic
+                        ? "text-brand-primary dark:text-sky-400"
+                        : "text-brand-ink-mute dark:text-slate-400"
+                    )}>
+                      {formatDOP(Math.round(p.price_monthly * 100))}/mes
+                    </span>
+                    {isStatic && (
+                      <span className="text-[9px] text-brand-ink-mute dark:text-slate-500 font-medium shrink-0">Actual</span>
+                    )}
+                    {isCurrent && pendingPlanName && (
+                      <span className="text-[9px] text-brand-ink-mute dark:text-slate-400">Actual</span>
+                    )}
+                  </div>
+                </>
+              );
+              if (isStatic) {
+                return (
+                  <div
+                    key={p.name}
+                    className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg opacity-40"
+                  >
+                    {sharedContent}
+                  </div>
+                );
+              }
+              return (
+                <button
+                  key={p.name}
+                  type="button"
+                  disabled={changingPlan}
+                  onClick={() => {
+                    if (isCurrent && pendingPlanName) {
+                      onPlanSelect?.(null);
+                    } else {
+                      onPlanSelect?.(p.name);
+                    }
+                  }}
+                  className={cn(
+                    "w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-left transition-all duration-150",
+                    isSelected
+                      ? "bg-brand-primary/8 dark:bg-sky-400/8"
+                      : "hover:bg-brand-canvas-soft/50 dark:hover:bg-slate-800/50"
+                  )}
+                >
+                  {sharedContent}
+                </button>
+              );
+            })}
+          {pendingPlanName && (
+            <button
+              type="button"
+              onClick={() => onPlanSelect?.(null)}
+              disabled={changingPlan}
+              className="w-full text-center text-[10px] font-medium text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 py-1.5 rounded-lg hover:bg-red-500/5 transition-all duration-150"
+            >
+              Cancelar cambio
+            </button>
+          )}
         </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence initial={false}>
+        {hasDetail && expanded && (
+          <motion.div
+            key="addon-detail"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="mt-3 border-t border-brand-hairline dark:border-slate-800/60 pt-3">
+              <AddonDetailPanel
+                chargeType={item.type}
+                addonDetail={addonDetail}
+                onCancel={onCancel}
+                cancelling={cancelling}
+                onReactivate={onReactivate}
+                reactivating={reactivating}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -520,6 +666,11 @@ export function StatementTabContent() {
   const [cancellingType, setCancellingType] = useState<string | null>(null);
   const [reactivatingType, setReactivatingType] = useState<string | null>(null);
 
+  const [payingCard, setPayingCard] = useState(false);
+  const [payMonths, setPayMonths] = useState(1);
+  const [selectedPlanName, setSelectedPlanName] = useState<string | null>(null);
+  const [changingPlan, setChangingPlan] = useState(false);
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ["statement"],
     queryFn: () => getStatement(),
@@ -581,13 +732,59 @@ export function StatementTabContent() {
     reactivateMutation.mutate({ addonType, quantity });
   }
 
-  const [payingCard, setPayingCard] = useState(false);
+  const { data: plans } = useQuery({
+    queryKey: ["public-plans"],
+    queryFn: () => getPublicPlans(),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Sync selectedPlanName with pending_plan_name from server
+  if (data?.pending_plan_name && !selectedPlanName) {
+    setSelectedPlanName(data.pending_plan_name);
+  }
+
+  const planChangeMutation = useMutation({
+    mutationFn: async (planName: string | null) => {
+      setChangingPlan(true);
+      const result = await setStatementPlanChange(planName, data?.cycle);
+      return result;
+    },
+    onSuccess: (result) => {
+      setSelectedPlanName(result.pending_plan_name ?? null);
+      queryClient.invalidateQueries({ queryKey: ["statement"] });
+      if (result.pending_plan_name) {
+        toast.success(`Plan cambiado a ${result.pending_plan_name} para el próximo ciclo.`);
+      } else {
+        toast.success("Cambio de plan cancelado.");
+      }
+    },
+    onError: (err: any) => {
+      toast.error("Error al cambiar de plan", { description: err.message });
+    },
+    onSettled: () => setChangingPlan(false),
+  });
+
+  async function handlePlanSelect(planName: string | null) {
+    planChangeMutation.mutate(planName);
+  }
+
+  const DISCOUNT_TIERS: Record<number, number> = { 1: 0, 3: 0.03, 6: 0.05, 12: 0.10 };
+  // During grace period, the monthly cost is driven by the subscription's net addon state
+  // (always reflects pending cancels/reactivations without depending on charge reconciliation).
+  // For non-grace, use actual unpaid charge total (includes mid-cycle purchases).
+  const monthlyBase = data?.in_grace_period && data?.recurring?.total_cents
+    ? data.recurring.total_cents
+    : (data?.total_cents ?? 0);
+  const discount = DISCOUNT_TIERS[payMonths] ?? 0;
+  const adjustedTotal = payMonths > 1
+    ? Math.round(monthlyBase * (1 - discount) * payMonths)
+    : monthlyBase;
 
   async function handleCardPayment() {
     if (!data?.cycle) return;
     setPayingCard(true);
     try {
-      const res = await payStatementCard(data.cycle);
+      const res = await payStatementCard(data.cycle, payMonths);
       if (res.checkout_url) {
         toast.info("Redirigiendo a la pasarela de pago MIO...");
         window.location.href = res.checkout_url;
@@ -611,13 +808,13 @@ export function StatementTabContent() {
     try {
       const formData = new FormData();
       formData.append("plan_name", data?.plan_name || "Estado de cuenta");
-      formData.append("amount", String((data?.total_cents ?? 0) / 100));
+      formData.append("amount", String(adjustedTotal / 100));
       formData.append("currency", "DOP");
       formData.append("notes", "Pago de estado de cuenta");
       formData.append("file", file);
 
       const proof = await uploadPaymentProof(formData);
-      await payStatement(data!.cycle, proof.id);
+      await payStatement(data!.cycle, proof.id, payMonths);
 
       toast.success("Comprobante enviado. Recibirás una notificación cuando sea verificado.");
       queryClient.invalidateQueries({ queryKey: ["statement"] });
@@ -682,19 +879,38 @@ export function StatementTabContent() {
               <p className="text-base font-mono font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">{formatDOP(paidTotalCents)}</p>
             </div>
           )}
-          {hasUnpaid && data.total_cents > 0 && (
+          {hasUnpaid && adjustedTotal > 0 && (
             <div className="text-right">
               <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold uppercase tracking-wider">Pendiente</p>
-              <p className="text-base font-mono font-bold text-amber-600 dark:text-amber-400 tabular-nums">{formatDOP(data.total_cents)}</p>
+              <p className="text-base font-mono font-bold text-amber-600 dark:text-amber-400 tabular-nums">
+                {formatDOP(adjustedTotal)}
+                {payMonths > 1 && <span className="text-[10px] font-normal text-amber-500/70 ml-1">({payMonths}m)</span>}
+              </p>
             </div>
           )}
-          {!hasUnpaid && data.total_cents === 0 && paidTotalCents === 0 && (
+          {!hasUnpaid && adjustedTotal === 0 && paidTotalCents === 0 && (
             <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/10 text-[10px]">
               Sin cargos pendientes
             </Badge>
           )}
         </div>
       </div>
+
+      {/* Grace period banner */}
+      {data.in_grace_period && (
+        <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-300/40 dark:border-amber-700/30 rounded-2xl p-4 sm:p-5 flex items-start gap-3">
+          <Clock className="size-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+              Período de gracia — tu ciclo de facturación ha finalizado
+            </p>
+            <p className="text-xs text-amber-700/80 dark:text-amber-400/70 leading-relaxed">
+              Para seguir usando tu plan {data.plan_name}, realiza el pago de los cargos pendientes. 
+              Puedes pagar con tarjeta o transferencia bancaria desde esta página.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Main content grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -728,6 +944,11 @@ export function StatementTabContent() {
                     cancelling={cancellingType === ADDON_TYPE_MAP[item.type]}
                     onReactivate={handleReactivate}
                     reactivating={reactivatingType === ADDON_TYPE_MAP[item.type]}
+                    plans={plans}
+                    currentPlanName={data.plan_name}
+                    pendingPlanName={data.pending_plan_name}
+                    onPlanSelect={handlePlanSelect}
+                    changingPlan={changingPlan}
                   />
                 ))
               ) : (
@@ -775,9 +996,12 @@ export function StatementTabContent() {
               </div>
               <Separator className="bg-amber-400/10" />
               <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-brand-ink dark:text-white">Total pendiente</span>
+                <span className="text-sm font-semibold text-brand-ink dark:text-white">
+                  Total pendiente
+                  {payMonths > 1 && <span className="text-[10px] font-normal text-brand-ink-mute dark:text-slate-400 ml-1.5">({payMonths} meses)</span>}
+                </span>
                 <span className="text-base font-mono font-bold text-amber-600 dark:text-amber-400 tabular-nums">
-                  {formatDOP(data.total_cents)}
+                  {formatDOP(adjustedTotal)}
                 </span>
               </div>
             </div>
@@ -834,7 +1058,7 @@ export function StatementTabContent() {
 
         {/* Right Column: Payment or status */}
         <div className="lg:col-span-5 space-y-5">
-          {hasUnpaid && data.total_cents > 0 ? (
+          {hasUnpaid && adjustedTotal > 0 ? (
             <div className="bg-white dark:bg-slate-900 border border-brand-hairline dark:border-slate-800 rounded-2xl p-5 space-y-5">
               {!showPayForm ? (
                 <div className="space-y-4">
@@ -842,10 +1066,65 @@ export function StatementTabContent() {
                     <h4 className="text-sm font-semibold text-brand-ink dark:text-white">Liquidar saldo pendiente</h4>
                     <p className="text-xs text-brand-ink-mute dark:text-slate-400">
                       Tienes cargos pendientes por un total de{" "}
-                      <span className="font-semibold text-amber-600 dark:text-amber-400">{formatDOP(data.total_cents)}</span>.
+                      <span className="font-semibold text-amber-600 dark:text-amber-400">{formatDOP(monthlyBase)}</span>.
                       Elige tu método de pago preferido:
                     </p>
                   </div>
+
+                  {/* Month selector — only when there's recurring cost */}
+                  {(data?.recurring?.total_cents ?? 0) > 0 && (
+                    <div className="space-y-2">
+                      <label className="text-[11px] font-semibold text-brand-ink-mute dark:text-slate-400 uppercase tracking-wider">
+                        Meses a pagar
+                      </label>
+                      <div className="flex gap-1.5">
+                        {[1, 3, 6, 12].map((m) => {
+                          const tierDiscount = DISCOUNT_TIERS[m] ?? 0;
+                          return (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => setPayMonths(m)}
+                              className={cn(
+                                "relative flex-1 h-9 text-xs font-semibold rounded-lg border transition-all duration-100",
+                                payMonths === m
+                                  ? "border-brand-primary bg-brand-primary/10 text-brand-primary dark:border-sky-400 dark:bg-sky-400/10 dark:text-sky-400"
+                                  : "border-brand-hairline dark:border-slate-700 text-brand-ink-mute dark:text-slate-400 hover:border-brand-primary/50 dark:hover:border-sky-400/50"
+                              )}
+                            >
+                              {m} {m === 1 ? "mes" : "meses"}
+                              {tierDiscount > 0 && (
+                                <span className="absolute -top-1.5 -right-1.5 text-[8px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950 px-1 rounded-md leading-tight">
+                                  -{Math.round(tierDiscount * 100)}%
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {payMonths > 1 && (
+                        <p className="text-[11px] text-brand-ink-mute dark:text-slate-400">
+                          {data?.recurring?.items?.map((item: any, i: number) => (
+                            <span key={i}>
+                              {i > 0 && " + "}
+                              {item.label}
+                            </span>
+                          )) ?? "Plan"} × {payMonths} meses
+                          {discount > 0 && (
+                            <span className="text-emerald-600 dark:text-emerald-400 ml-1">
+                              ({(1 - discount) * 100}% del precio)
+                            </span>
+                          )}
+                          <br />
+                          Total a pagar:{" "}
+                          <span className="font-semibold text-amber-600 dark:text-amber-400">
+                            {formatDOP(adjustedTotal)}
+                          </span>
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   <div className="space-y-2">
                     <Button
                       type="button"
@@ -917,7 +1196,7 @@ export function StatementTabContent() {
                 </form>
               )}
             </div>
-          ) : data.total_cents === 0 && paidTotalCents === 0 ? (
+          ) : adjustedTotal === 0 && paidTotalCents === 0 ? (
             <div className="bg-white dark:bg-slate-900 border border-brand-hairline dark:border-slate-800 rounded-2xl p-5 text-center space-y-3">
               <CheckCircle2 className="size-8 text-emerald-500 mx-auto" />
               <h4 className="text-xs font-semibold text-brand-ink dark:text-white">Sin cargos este ciclo</h4>

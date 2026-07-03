@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import { Check, ShoppingCart, ArrowUpRight, HelpCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PlanSummary } from "@/lib/api/plans";
@@ -26,12 +26,51 @@ export function PlanCard({
   const isCurrent = currentPlan?.id === plan.id;
   const isFeatured = plan.name.toLowerCase() === "profesional";
   
-  // Clean up keys for display
-  const features = plan.features
-    ? Object.entries(plan.features)
-        .filter(([, v]) => v)
-        .map(([k]) => k.replace(/_/g, " "))
-    : [];
+  const FEATURE_LABELS: Record<string, string> = {
+    has_advanced_reports: "Reportes DGII (606/607/608)",
+    has_api_access: "API Access",
+    has_webhooks: "Webhooks",
+    has_sla: "SLA — Soporte prioritario",
+    has_ai_sidebar: "Asistente IA",
+    has_multi_entity_dashboard: "Dashboard multi-entidad",
+    has_cross_company_history: "Historial multi-empresa",
+    has_batch_ecf_generation: "Generación batch de e-CF",
+  };
+
+  const limitLabels: { key: string; label: string; suffix?: string }[] = [
+    { key: "max_ocr_docs_monthly", label: "Documentos OCR", suffix: "/mes" },
+    { key: "max_ai_queries_monthly", label: "Consultas IA", suffix: "/mes" },
+    { key: "max_storage_mb", label: "Almacenamiento" },
+    { key: "max_api_calls_monthly", label: "API calls", suffix: "/mes" },
+  ];
+
+  const features = useMemo(() => {
+    const list: { label: string; subtext?: string }[] = [];
+
+    if (plan.features) {
+      for (const [k, v] of Object.entries(plan.features)) {
+        if (!v) continue;
+        const label = FEATURE_LABELS[k];
+        if (label) list.push({ label });
+      }
+    }
+
+    if (plan.limits) {
+      for (const { key, label, suffix } of limitLabels) {
+        const val = plan.limits[key];
+        if (val != null && val > 0) {
+          const s = val >= 1024 && key === "max_storage_mb"
+            ? `${(val / 1024).toFixed(0)} GB`
+            : val >= 1000
+            ? `${(val / 1000).toLocaleString("es-DO", { maximumFractionDigits: 0 })}K`
+            : val.toLocaleString("es-DO");
+          list.push({ label: `${label}: ${s}${suffix ?? ""}` });
+        }
+      }
+    }
+
+    return list;
+  }, [plan.features, plan.limits]);
 
   const rawMonthlyPrice = plan.price_monthly;
   const activeMonthlyPriceDop = discountedPrice(rawMonthlyPrice, commitMonths);
@@ -144,11 +183,11 @@ export function PlanCard({
 
         {/* Features List */}
         <div className="space-y-2.5 pt-2">
-          {features.slice(0, 7).map((feature) => (
-            <div key={feature} className="flex items-start gap-2.5 text-xs">
+          {features.slice(0, 8).map(({ label }) => (
+            <div key={label} className="flex items-start gap-2.5 text-xs">
               <Check className={cn("size-4 shrink-0 mt-0.5", isFeatured ? "text-sky-400" : "text-brand-primary dark:text-sky-500")} />
-              <span className={cn("capitalize", isFeatured ? "text-slate-200" : "text-brand-ink-secondary dark:text-slate-300")}>
-                {feature}
+              <span className={cn(isFeatured ? "text-slate-200" : "text-brand-ink-secondary dark:text-slate-300")}>
+                {label}
               </span>
             </div>
           ))}
@@ -160,7 +199,7 @@ export function PlanCard({
         <div className={cn("text-[10px]", isFeatured ? "text-slate-400" : "text-brand-ink-mute dark:text-slate-400")}>
           {plan.is_enterprise
             ? "Límites adaptados a tu negocio"
-            : `${plan.limits?.max_ecf_monthly?.toLocaleString("es-DO") || 0} facturas/mes · ${plan.limits?.max_users || 0} usuarios`}
+            : `${plan.limits?.max_users?.toLocaleString("es-DO") || 0} usuarios · ${plan.limits?.max_entities?.toLocaleString("es-DO") || 0} entidades`}
         </div>
 
         {plan.is_enterprise ? (

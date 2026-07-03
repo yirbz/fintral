@@ -165,12 +165,21 @@ export async function downloadDgiiExport(
         localStorage.getItem("access_token")
       : null;
 
+  const orgId =
+    typeof window !== "undefined"
+      ? localStorage.getItem("fintral_active_org")
+      : null;
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (orgId) headers["X-Organization-Id"] = orgId;
+
   const res = await fetch("/api/dgii/export", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    credentials: "include",
+    headers,
     body: JSON.stringify(filters),
   });
 

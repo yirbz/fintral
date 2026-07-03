@@ -350,7 +350,9 @@ class ExportService:
             fecha_comprobante = self._format_date(inv.invoice_date or raw.get("invoice_date"))
             fecha_pago = self._format_date(raw.get("payment_date"))
             total = self._to_number(inv.total_amount) or self._to_number(raw.get("total_amount"))
-            tax = self._to_number(inv.tax_amount) or self._to_number(raw.get("tax_amount"))
+            tax = self._to_number(inv.tax_amount)
+            if tax is None:
+                tax = self._to_number(raw.get("tax_amount"))
             base = self._compute_base(total, tax, raw)
             amount_services, amount_goods = self._split_base(base, inv, goods_type, raw)
             total_facturado = (amount_services or 0.0) + (amount_goods or 0.0)
@@ -440,7 +442,9 @@ class ExportService:
             fecha = self._format_date(inv.invoice_date or raw.get("invoice_date"))
             fecha_retencion = self._format_date(raw.get("payment_date"))
             total = self._to_number(inv.total_amount) or self._to_number(raw.get("total_amount")) or 0.0
-            tax = self._to_number(inv.tax_amount) or self._to_number(raw.get("tax_amount")) or 0.0
+            tax = self._to_number(inv.tax_amount)
+            if tax is None:
+                tax = self._to_number(raw.get("tax_amount")) or 0.0
             amount_facturado = self._compute_base(total, tax, raw)
             itbis_retenido = self._to_number(raw.get("itbis_retenido")) or 0.0
             itbis_percibido = self._to_number(raw.get("itbis_percibido")) or 0.0
@@ -520,7 +524,9 @@ class ExportService:
             fecha_comprobante = self._format_date(inv.invoice_date or raw.get("invoice_date"))
             fecha_pago = self._format_date(raw.get("payment_date"))
             total = self._to_number(inv.total_amount) or self._to_number(raw.get("total_amount")) or 0.0
-            tax = self._to_number(inv.tax_amount) or self._to_number(raw.get("tax_amount")) or 0.0
+            tax = self._to_number(inv.tax_amount)
+            if tax is None:
+                tax = self._to_number(raw.get("tax_amount")) or 0.0
             amount_facturado = self._compute_base(total, tax, raw)
             itbis_retenido = self._to_number(raw.get("itbis_retenido")) or 0.0
             itbis_percibido = self._to_number(raw.get("itbis_percibido")) or 0.0
@@ -854,7 +860,9 @@ class ExportService:
         fecha_pago = self._format_date(raw.get("payment_date")) or ""
 
         total = self._to_number(inv.total_amount) or self._to_number(raw.get("total_amount"))
-        tax = self._to_number(inv.tax_amount) or self._to_number(raw.get("tax_amount"))
+        tax = self._to_number(inv.tax_amount)
+        if tax is None:
+            tax = self._to_number(raw.get("tax_amount"))
         base = self._compute_base(total, tax, raw)
         amount_services, amount_goods = self._split_base(base, inv, goods_type, raw)
         total_facturado = (amount_services or 0.0) + (amount_goods or 0.0)
@@ -916,7 +924,9 @@ class ExportService:
         fecha = self._format_date(inv.invoice_date or raw.get("invoice_date")) or ""
         fecha_retencion = self._format_date(raw.get("payment_date")) or ""
         total = self._to_number(inv.total_amount) or self._to_number(raw.get("total_amount")) or 0.0
-        tax = self._to_number(inv.tax_amount) or self._to_number(raw.get("tax_amount")) or 0.0
+        tax = self._to_number(inv.tax_amount)
+        if tax is None:
+            tax = self._to_number(raw.get("tax_amount")) or 0.0
         amount_facturado = self._compute_base(total, tax, raw)
         itbis_retenido = self._to_number(raw.get("itbis_retenido")) or 0.0
         itbis_percibido = self._to_number(raw.get("itbis_percibido")) or 0.0

@@ -18,6 +18,8 @@ export interface PlanSummary {
   addon_ai_block_price: number;
   addon_storage_block_mb: number;
   addon_storage_block_price: number;
+  addon_ocr_block_size: number;
+  addon_ocr_block_price: number;
   entity_slot_price: number;
   user_slot_price: number;
 }
@@ -25,6 +27,7 @@ export interface PlanSummary {
 export interface AddonsSummary {
   ecf_blocks: number;
   ai_blocks: number;
+  ocr_blocks: number;
   storage_blocks: number;
   extra_entities: number;
   billing_entities: number;
@@ -142,6 +145,7 @@ export async function getMyPlan() {
 }
 
 export interface UserSubscriptionResponse {
+  in_grace_period?: boolean;
   subscription: {
     id: string;
     status: string;
@@ -220,7 +224,7 @@ export async function getPaymentProofs() {
 // ── Cart types & API ──────────────────────────────────────
 
 export interface CartItem {
-  type: "plan_change" | "addon" | "renewal" | "overage" | "ecf_blocks" | "entity_slot" | "user_slot";
+  type: "plan_change" | "addon" | "renewal" | "overage" | "ecf_blocks" | "ocr_blocks" | "entity_slot" | "user_slot";
   plan_name?: string;
   addon_type?: string;
   quantity?: number;
@@ -386,7 +390,10 @@ export interface StatementResponse {
   cycle: number;
   plan_name: string;
   plan_price_cents: number;
+  pending_plan_name?: string | null;
+  pending_plan_price_cents?: number | null;
   next_billing_date?: string | null;
+  in_grace_period?: boolean;
   recurring?: {
     items: {
       type: string;
@@ -415,6 +422,7 @@ export interface StatementResponse {
       pending_cancel?: number;
     };
     ai: { total_blocks: number; org_id: string | null; pending_cancel?: number };
+    ocr: { total_blocks: number; org_id: string | null; pending_cancel?: number };
     storage: { total_blocks: number; org_id: string | null; pending_cancel?: number };
   };
 }
@@ -424,25 +432,34 @@ export async function getStatement(cycle?: number) {
   return apiFetch<StatementResponse>(`/api/plans/statement${params}`);
 }
 
-export async function payStatement(cycle: number, paymentProofId: string) {
+export async function payStatement(cycle: number, paymentProofId: string, months: number = 1) {
   const formData = new FormData();
   formData.append("cycle", String(cycle));
   formData.append("payment_proof_id", paymentProofId);
+  formData.append("months", String(months));
   return apiFetch<{ message: string; count: number }>("/api/plans/pay-statement", {
     method: "POST",
     body: formData,
   });
 }
 
-export async function payStatementCard(cycle: number) {
+export async function payStatementCard(cycle: number, months: number = 1) {
   return apiFetch<{ payment_method: string; checkout_url: string; order_uuid: string }>("/api/plans/pay-statement/card", {
     method: "POST",
-    body: JSON.stringify({ cycle }),
+    body: JSON.stringify({ cycle, months }),
+  });
+}
+
+export async function setStatementPlanChange(planName: string | null, cycle?: number) {
+  return apiFetch<StatementResponse>("/api/plans/statement/plan-change", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ plan_name: planName, cycle }),
   });
 }
 
 export async function cancelAddon(
-  addonType: "entity_slot" | "user_slot" | "ai" | "storage",
+  addonType: "entity_slot" | "user_slot" | "ai" | "ocr" | "storage",
   quantity: number = 1,
 ) {
   return apiFetch<{ addon_type: string; cancelled: number; remaining: number }>(
@@ -452,7 +469,7 @@ export async function cancelAddon(
 }
 
 export async function reactivateAddon(
-  addonType: "entity_slot" | "user_slot" | "ai" | "storage",
+  addonType: "entity_slot" | "user_slot" | "ai" | "ocr" | "storage",
   quantity: number = 1,
 ) {
   return apiFetch<{ addon_type: string; reactivated: number; pending_cancel: number }>(

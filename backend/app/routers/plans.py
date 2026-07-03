@@ -16,7 +16,7 @@ from sqlalchemy import case, func
 from app.dependencies.tenant import TenantContext, require_tenant
 from app.models import Invoice, PendingUpload, SubscriptionPlan, PaymentProof
 from app.utils.dates import utc_now
-from app.services.plan_service import PlanService
+from app.services.plan_service import DISCOUNT_TIERS, PlanService
 from app.services.usage_tracker import _current_cycle
 from app.services.exchange_rate_service import get_bpd_usd_rate
 
@@ -25,9 +25,6 @@ router = APIRouter(prefix="/api/plans", tags=["plans"])
 
 
 # ── Schemas ─────────────────────────────────────────────────────────
-
-# Discount tiers for multi-month commitments
-DISCOUNT_TIERS = {1: 0.0, 3: 0.03, 6: 0.05, 12: 0.10}
 
 
 class PlanSummary(BaseModel):
@@ -42,6 +39,16 @@ class PlanSummary(BaseModel):
     is_enterprise: bool
     sort_order: int
     soft_limit_enabled: bool
+    addon_ecf_block_size: int = 100
+    addon_ecf_block_price: float = 0
+    addon_ai_block_size: int = 500
+    addon_ai_block_price: float = 0
+    addon_storage_block_mb: int = 10240
+    addon_storage_block_price: float = 0
+    addon_ocr_block_size: int = 100
+    addon_ocr_block_price: float = 0
+    entity_slot_price: float = 0
+    user_slot_price: float = 0
 
 
 class UsageSummary(BaseModel):
@@ -105,7 +112,7 @@ class ChangePlanRequest(BaseModel):
 
 
 class AddonPurchaseRequest(BaseModel):
-    addon_type: str  # ecf_blocks | ai | storage | entity_slot | user_slot
+    addon_type: str  # ecf_blocks | ai | storage | entity_slot | user_slot | ocr
     quantity: int = 1
 
 
@@ -136,6 +143,16 @@ async def list_public_plans(ctx: TenantContext = Depends(require_tenant)):
             is_enterprise=d["is_enterprise"],
             sort_order=d["sort_order"],
             soft_limit_enabled=d["soft_limit_enabled"],
+            addon_ecf_block_size=d.get("addon_ecf_block_size", 100),
+            addon_ecf_block_price=d.get("addon_ecf_block_price", 0),
+            addon_ai_block_size=d.get("addon_ai_block_size", 500),
+            addon_ai_block_price=d.get("addon_ai_block_price", 0),
+            addon_storage_block_mb=d.get("addon_storage_block_mb", 10240),
+            addon_storage_block_price=d.get("addon_storage_block_price", 0),
+            addon_ocr_block_size=d.get("addon_ocr_block_size", 100),
+            addon_ocr_block_price=d.get("addon_ocr_block_price", 0),
+            entity_slot_price=d.get("entity_slot_price", 0),
+            user_slot_price=d.get("user_slot_price", 0),
         ))
     return result
 
@@ -174,6 +191,16 @@ async def my_plan_and_usage(ctx: TenantContext = Depends(require_tenant)):
             is_enterprise=plan_data.get("is_enterprise", False),
             sort_order=plan_data.get("sort_order", 0),
             soft_limit_enabled=plan_data.get("soft_limit_enabled", True),
+            addon_ecf_block_size=plan_data.get("addon_ecf_block_size", 100),
+            addon_ecf_block_price=plan_data.get("addon_ecf_block_price", 0),
+            addon_ai_block_size=plan_data.get("addon_ai_block_size", 500),
+            addon_ai_block_price=plan_data.get("addon_ai_block_price", 0),
+            addon_storage_block_mb=plan_data.get("addon_storage_block_mb", 10240),
+            addon_storage_block_price=plan_data.get("addon_storage_block_price", 0),
+            addon_ocr_block_size=plan_data.get("addon_ocr_block_size", 100),
+            addon_ocr_block_price=plan_data.get("addon_ocr_block_price", 0),
+            entity_slot_price=plan_data.get("entity_slot_price", 0),
+            user_slot_price=plan_data.get("user_slot_price", 0),
         ) if plan_data else None,
         subscription=SubscriptionSummary(
             id=sub_data["id"],
@@ -425,7 +452,7 @@ async def toggle_auto_renew(enabled: bool = Query(...), ctx: TenantContext = Dep
 
 
 class CartItem(BaseModel):
-    type: str  # plan_change | addon | renewal | overage | ecf_blocks | entity_slot | user_slot
+    type: str  # plan_change | addon | renewal | overage | ecf_blocks | entity_slot | user_slot | ocr
     plan_name: str | None = None
     addon_type: str | None = None
     quantity: int = 1
@@ -550,7 +577,7 @@ async def calculate_cart(
                 unit_price=round(unit_price * (1 - discount), 2),
                 total=discounted,
             ))
-        elif item.type in ("entity_slot", "user_slot", "ai", "storage"):
+        elif item.type in ("entity_slot", "user_slot", "ai", "storage", "ocr"):
             original_price_cents = item.price_cents
             prorated_cents, days_rem, cycle_days = get_proration(original_price_cents)
             unit_price = prorated_cents / 100.0
@@ -563,6 +590,8 @@ async def calculate_cart(
                 base_label = "Bloque de IA"
             elif item.type == "storage":
                 base_label = "Bloque de Almacenamiento"
+            elif item.type == "ocr":
+                base_label = "Bloque de Documentos OCR"
             else:
                 base_label = item.label or item.type
 
@@ -837,7 +866,7 @@ async def list_payment_proofs(ctx: TenantContext = Depends(require_tenant)):
         # Determine scope: "user" for account-level, "org" for entity-level
         items_raw = d.get("items") or []
         has_org_items = any(
-            i.get("type") in ("ecf_blocks", "user_slot")
+            i.get("type") in ("ecf_blocks", "user_slot", "ocr")
             for i in items_raw
         )
         has_user_items = any(
@@ -923,15 +952,90 @@ async def get_statement(
 async def pay_statement(
     cycle: int = Form(...),
     payment_proof_id: str = Form(...),
+    months: int = Form(1),
     ctx: TenantContext = Depends(require_tenant),
 ):
     """Mark all charges for a cycle as paid."""
+    from app.models.user_subscription import UserSubscription
+    user_sub = (
+        ctx.db.query(UserSubscription)
+        .filter(UserSubscription.user_id == ctx.user.id)
+        .order_by(UserSubscription.created_at.desc())
+        .first()
+    )
     svc = PlanService(ctx.db)
-    return svc.pay_statement(ctx.org_id, cycle, payment_proof_id)
+    svc.ensure_grace_period_charges(ctx.org_id, cycle, user_sub=user_sub)
+    return svc.pay_statement(ctx.org_id, cycle, payment_proof_id, months=months, user_sub=user_sub)
 
 
 class PayStatementCardRequest(BaseModel):
     cycle: int
+    months: int = 1
+
+
+class SetPlanChangeRequest(BaseModel):
+    plan_name: str | None = None
+    cycle: int | None = None
+
+
+@router.post("/statement/plan-change")
+async def set_plan_change(
+    payload: SetPlanChangeRequest,
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """Set or clear a pending plan change that takes effect on next payment."""
+    svc = PlanService(ctx.db)
+    try:
+        svc.set_pending_plan_change(ctx.org_id, payload.plan_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return svc.get_statement(ctx.org_id, payload.cycle, ctx.user.id)
+
+
+@router.get("/verify-order")
+async def verify_payment_order(
+    order_uuid: str = Query(...),
+    ctx: TenantContext = Depends(require_tenant),
+):
+    """Lazy-check if a MIO payment order is still valid (not expired/replaced).
+
+    Returns the current status of the order and checkout URL if still usable.
+    The frontend should call this before displaying a stored checkout link
+    to avoid sending the user to an expired payment page.
+    """
+    from app.services.payment_intent_service import PaymentIntentService
+    from app.models.mio_payment_order import MioPaymentOrder
+
+    intent_svc = PaymentIntentService(ctx.db)
+    order = (
+        ctx.db.query(MioPaymentOrder)
+        .filter(
+            MioPaymentOrder.order_uuid == order_uuid,
+            MioPaymentOrder.user_id == ctx.user.id,
+        )
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Orden de pago no encontrada")
+
+    # Lazy expiry check
+    order = intent_svc.verify_and_expire_stale(order.id)
+    ctx.db.commit()
+
+    if order.status == "PENDING":
+        return {
+            "valid": True,
+            "status": order.status,
+            "checkout_url": order.checkout_url,
+            "amount_cents": order.amount_cents,
+        }
+
+    return {
+        "valid": False,
+        "status": order.status,
+        "checkout_url": None,
+        "amount_cents": order.amount_cents,
+    }
 
 
 @router.post("/pay-statement/card")
@@ -939,80 +1043,122 @@ async def pay_statement_card(
     payload: PayStatementCardRequest,
     ctx: TenantContext = Depends(require_tenant),
 ):
-    """Initiate a MIO card payment checkout for unpaid charges in a cycle."""
-    from app.models import MonthlyCharge
-    from app.models.mio_payment_order import MioPaymentOrder
-    from app.services.mio_service import MioService
-    from app.config import settings
+    """Initiate a MIO card payment checkout for unpaid charges in a cycle.
 
-    # 1. Fetch unpaid charges
-    charges = (
-        ctx.db.query(MonthlyCharge)
-        .filter(
-            MonthlyCharge.organization_id == ctx.org_id,
-            MonthlyCharge.cycle == payload.cycle,
-            MonthlyCharge.paid == False,  # noqa: E712
-        )
-        .all()
+    Uses PaymentIntentService to enforce one active intent per context
+    (org:cycle) and atomically replace stale intents.
+    """
+    from app.models.user_subscription import UserSubscription
+    from app.services.payment_intent_service import PaymentIntentService
+    from app import config as app_config
+
+    user_sub = (
+        ctx.db.query(UserSubscription)
+        .filter(UserSubscription.user_id == ctx.user.id)
+        .order_by(UserSubscription.created_at.desc())
+        .first()
     )
-    if not charges:
-        raise HTTPException(status_code=400, detail="No hay cargos pendientes para este ciclo.")
 
-    total_cents = sum(c.total_price_cents for c in charges)
-    if total_cents <= 0:
+    svc = PlanService(ctx.db)
+
+    # 1. If in grace period, materialize pending charges first
+    svc.ensure_grace_period_charges(ctx.org_id, payload.cycle, user_sub=user_sub)
+
+    # 2. Find subscription (active, trialing, or canceled for grace period)
+    from app.models.organization_subscription import OrganizationSubscription
+    sub = (
+        ctx.db.query(OrganizationSubscription)
+        .filter(
+            OrganizationSubscription.organization_id == ctx.org_id,
+            OrganizationSubscription.status.in_(["active", "trialing"]),
+        )
+        .order_by(OrganizationSubscription.created_at.desc())
+        .first()
+    )
+    if not sub:
+        sub = (
+            ctx.db.query(OrganizationSubscription)
+            .filter(
+                OrganizationSubscription.organization_id == ctx.org_id,
+                OrganizationSubscription.status == "canceled",
+            )
+            .order_by(OrganizationSubscription.created_at.desc())
+            .first()
+        )
+    if not sub or not sub.plan:
+        raise HTTPException(status_code=400, detail="No hay suscripción activa.")
+    plan = sub.plan
+
+    # Resolve pending plan change for monthly cost calculation
+    if sub.pending_plan_change_id:
+        from app.models.subscription_plan import SubscriptionPlan
+        pending_plan = ctx.db.query(SubscriptionPlan).filter(SubscriptionPlan.id == sub.pending_plan_change_id).first()
+        if pending_plan:
+            plan = pending_plan
+
+    # 3. Calculate monthly recurring cost from subscription's net addon state
+    monthly = PlanService.calculate_monthly_recurring(sub, plan, user_sub=user_sub)
+
+    months = max(1, payload.months)
+    discount = DISCOUNT_TIERS.get(months, 0.0)
+    adjusted_total = int(monthly * (1 - discount) * months)
+    if adjusted_total <= 0:
         raise HTTPException(status_code=400, detail="El monto a pagar debe ser mayor a cero.")
 
-    # 2. Add 5% card fee
-    fee_cents = int(total_cents * 0.05)
-    total_with_fee = total_cents + fee_cents
+    fee_cents = int(adjusted_total * 0.05)
+    total_with_fee = adjusted_total + fee_cents
 
-    # 3. Create MIO checkout order
-    mio = MioService()
-    webhook_url = settings.MIO_WEBHOOK_URL or "https://api.fintral.com/api/mio/webhook"
-    success_url = settings.MIO_SUCCESS_REDIRECT or "https://app.fintral.com/billing/success"
-    failed_url = settings.MIO_FAILED_REDIRECT or "https://app.fintral.com/billing/failed"
+    # 4. Use PaymentIntentService for lifecycle management
+    intent_svc = PaymentIntentService(ctx.db)
+    context_id = f"{ctx.org_id}:{payload.cycle}"
 
-    mio_order = await mio.create_order(
+    # Reuse existing PENDING intent with matching amount (page refresh / double-click)
+    existing = intent_svc.get_active_for_context("statement", context_id, user_id=str(ctx.user.id))
+    if existing and existing.amount_cents == total_with_fee:
+        existing.updated_at = utc_now()
+        ctx.db.commit()
+        return {
+            "payment_method": "card",
+            "checkout_url": existing.checkout_url,
+            "order_uuid": existing.order_uuid,
+        }
+
+    # Create or replace — atomically marks old REPLACED + cancels remote MIO order
+    description = f"Fintral: Pago de Estado de Cuenta Ciclo {payload.cycle}"
+    if months > 1:
+        description += f" ({months} meses)"
+
+    metadata = [{
+        "type": "statement_payment",
+        "cycle": payload.cycle,
+        "organization_id": str(ctx.org_id),
+        "months": months,
+    }]
+
+    db_order = await intent_svc.create_or_replace(
         amount_cents=total_with_fee,
-        description=f"Fintral: Pago de Estado de Cuenta Ciclo {payload.cycle}",
-        webhook_url=webhook_url,
-        success_url=success_url,
-        failed_url=failed_url,
-    )
-
-    # 4. Save order to database
-    # Cancel previous pending MIO checkouts for this user to prevent clutter
-    ctx.db.query(MioPaymentOrder).filter(
-        MioPaymentOrder.user_id == ctx.user.id,
-        MioPaymentOrder.status == "PENDING"
-    ).update({"status": "EXPIRED", "updated_at": utc_now()})
-
-    db_order = MioPaymentOrder(
-        order_uuid=mio_order["order_uuid"],
+        description=description,
+        context_type="statement",
+        context_id=context_id,
+        user_id=str(ctx.user.id),
         organization_id=ctx.org_id,
-        user_id=ctx.user.id,
-        amount_cents=total_with_fee,
-        status="PENDING",
-        checkout_url=mio_order["checkout_url"],
-        cart_items_json=[{
-            "type": "statement_payment",
-            "cycle": payload.cycle,
-            "organization_id": str(ctx.org_id),
-        }],
+        metadata=metadata,
+        webhook_url=app_config.MIO_WEBHOOK_URL,
+        success_url=app_config.MIO_SUCCESS_REDIRECT,
+        failed_url=app_config.MIO_FAILED_REDIRECT,
     )
-    ctx.db.add(db_order)
     ctx.db.commit()
 
     return {
         "payment_method": "card",
-        "checkout_url": mio_order["checkout_url"],
-        "order_uuid": mio_order["order_uuid"],
+        "checkout_url": db_order.checkout_url,
+        "order_uuid": db_order.order_uuid,
     }
 
 
 @router.delete("/addon")
 async def cancel_addon(
-    addon_type: str = Query(..., description="Type: entity_slot | user_slot | ai | storage"),
+    addon_type: str = Query(..., description="Type: entity_slot | user_slot | ai | storage | ocr"),
     quantity: int = Query(1, ge=1, description="Quantity to cancel"),
     ctx: TenantContext = Depends(require_tenant),
 ):
@@ -1035,7 +1181,7 @@ async def cancel_addon(
 
 @router.post("/addon/reactivate")
 async def reactivate_addon(
-    addon_type: str = Query(..., description="Type: entity_slot | user_slot | ai | storage"),
+    addon_type: str = Query(..., description="Type: entity_slot | user_slot | ai | storage | ocr"),
     quantity: int = Query(1, ge=1, description="Quantity to reactivate"),
     ctx: TenantContext = Depends(require_tenant),
 ):
@@ -1175,7 +1321,7 @@ async def checkout_prepaid_ecf(
 
 
 class CartItemRequest(BaseModel):
-    type: str  # plan_change | ecf_blocks | entity_slot | user_slot | renewal
+    type: str  # plan_change | ecf_blocks | entity_slot | user_slot | ocr | renewal
     plan_name: str | None = None
     block_type: str | None = None
     quantity: int = 1
@@ -1402,10 +1548,13 @@ async def list_transactions(scope: str = "user", ctx: TenantContext = Depends(re
     from app.models.refund_request import RefundRequest
     from app.models.payment_proof import PaymentProof
 
-    # 1. Fetch MIO card payment orders for the current user
+    # 1. Fetch MIO card payment orders for the current user (exclude EXPIRED/REPLACED)
     card_orders = (
         ctx.db.query(MioPaymentOrder)
-        .filter(MioPaymentOrder.user_id == ctx.user.id)
+        .filter(
+            MioPaymentOrder.user_id == ctx.user.id,
+            MioPaymentOrder.status.notin_(["EXPIRED", "REPLACED"]),
+        )
         .all()
     )
     

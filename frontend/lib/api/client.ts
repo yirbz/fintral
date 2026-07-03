@@ -49,6 +49,10 @@ export async function apiFetch<T>(
   if (orgId) {
     headers.set("X-Organization-Id", orgId);
   }
+  // Default to JSON content type when body is a string and no Content-Type set
+  if (requestInit.body && typeof requestInit.body === "string" && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
 
   const response = await fetch(input, {
     credentials: "include",

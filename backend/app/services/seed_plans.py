@@ -48,6 +48,8 @@ PLANS = [
         "addon_ai_block_price_cents": 60000,  # RD$ 600 / 500 AI queries
         "addon_storage_block_mb": 10240,  # 10 GB
         "addon_storage_block_price_cents": 30000,  # RD$ 300
+        "addon_ocr_block_size": 100,
+        "addon_ocr_block_price_cents": 50000,  # RD$ 500 / 100 docs
         "max_users": 3,
         "max_entities": 1,
         "max_ecf_monthly": 0,  # e-CF comes from purchased blocks
@@ -90,6 +92,8 @@ PLANS = [
         "addon_ai_block_price_cents": 60000,
         "addon_storage_block_mb": 10240,
         "addon_storage_block_price_cents": 30000,
+        "addon_ocr_block_size": 100,
+        "addon_ocr_block_price_cents": 50000,  # RD$ 500 / 100 docs
         "max_users": 10,
         "max_entities": 5,
         "max_ecf_monthly": 0,  # e-CF comes from purchased blocks
@@ -131,6 +135,8 @@ PLANS = [
         "addon_ai_block_price_cents": 60000,
         "addon_storage_block_mb": 10240,
         "addon_storage_block_price_cents": 30000,
+        "addon_ocr_block_size": 100,
+        "addon_ocr_block_price_cents": 50000,  # RD$ 500 / 100 docs
         "max_users": 999999,
         "max_entities": 20,
         "max_ecf_monthly": 0,  # e-CF comes from purchased blocks
@@ -171,6 +177,8 @@ PLANS = [
         "addon_ai_block_price_cents": 60000,
         "addon_storage_block_mb": 10240,
         "addon_storage_block_price_cents": 30000,
+        "addon_ocr_block_size": 100,
+        "addon_ocr_block_price_cents": 50000,  # RD$ 500 / 100 docs
         "max_users": 999999,
         "max_entities": 999999,
         "max_ecf_monthly": 0,

@@ -52,6 +52,7 @@ function saveStoredOrg(orgId: string) {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(ORG_STORAGE_KEY, orgId);
+    document.cookie = `fintral_active_org=${orgId}; path=/; max-age=86400; SameSite=Lax`;
   } catch {
     /* storage unavailable */
   }

@@ -8,6 +8,7 @@ export type CartItemType =
   | "renewal"
   | "overage"
   | "ecf_blocks"
+  | "ocr_blocks"
   | "entity_slot"
   | "user_slot";
 

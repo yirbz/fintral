@@ -27,6 +27,7 @@ const iconMap: Record<string, React.ComponentType<any>> = {
   ecf_blocks: FileText,
   ai: Sparkles,
   storage: HardDrive,
+  ocr: FileText,
   entity_slot: Building2,
   user_slot: Users,
 };

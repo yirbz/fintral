@@ -107,9 +107,9 @@ export function CartDrawer() {
             <div className="flex-1 px-5 py-4 overflow-y-auto space-y-4 bg-brand-canvas-soft/20 dark:bg-slate-900/10">
               {(() => {
                 const planItems = items.filter(i => i.type === "plan_change");
-                const recurringItems = items.filter(i => i.type === "entity_slot" || i.type === "user_slot" || i.type === "addon");
+                const recurringItems = items.filter(i => ["entity_slot", "user_slot", "addon", "ai", "storage", "ocr"].includes(i.type));
                 const prepaidItems = items.filter(i => i.type === "ecf_blocks");
-                const otherItems = items.filter(i => !["plan_change", "entity_slot", "user_slot", "addon", "ecf_blocks"].includes(i.type));
+                const otherItems = items.filter(i => !["plan_change", "entity_slot", "user_slot", "addon", "ecf_blocks", "ai", "storage", "ocr"].includes(i.type));
 
                 return (
                   <>
