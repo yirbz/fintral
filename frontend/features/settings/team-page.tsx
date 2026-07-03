@@ -661,13 +661,12 @@ export function TeamPage() {
   const queryClient = useQueryClient();
 
   const {data: orgQuery_data, isLoading: orgQuery_isLoading} = useQuery({
-    queryKey: ["organization-settings", activeOrgId],
-    queryFn: () => getOrganization(activeOrgId),
-    enabled: !!activeOrgId,
+    queryKey: ["organization-settings"],
+    queryFn: getOrganization,
   });
 
   const isAdmin =
-    (orgQuery_data?.role === "owner" || orgQuery_data?.role === "admin");
+    session.data?.role === "owner" || session.data?.role === "admin";
   const members = orgQuery_data?.members ?? [];
   const memberCount = orgQuery_data?.member_count ?? 0;
   const currentUserId = session.data?.user?.id;
@@ -684,14 +683,10 @@ export function TeamPage() {
   }
 
   // Member management mutations
-  const invalidateOrg = () => {
-    queryClient.invalidateQueries({ queryKey: ["organization-settings", currentOrgId] });
-  };
-
   const removeMutation = useMutation({
     mutationFn: (userId: string) => removeMember(currentOrgId!, userId),
     onSuccess: () => {
-      invalidateOrg();
+      queryClient.invalidateQueries({ queryKey: ["organization-settings"] });
       toast.success("Miembro eliminado");
     },
     onError: (err: Error) => {
@@ -703,7 +698,7 @@ export function TeamPage() {
     mutationFn: ({ userId, role }: { userId: string; role: string }) =>
       updateMemberRole(currentOrgId!, userId, role),
     onSuccess: () => {
-      invalidateOrg();
+      queryClient.invalidateQueries({ queryKey: ["organization-settings"] });
       toast.success("Rol actualizado");
     },
     onError: (err: Error) => {
@@ -767,7 +762,9 @@ export function TeamPage() {
             orgId={currentOrgId}
             memberCount={memberCount}
             onSuccess={() => {
-              invalidateOrg();
+              queryClient.invalidateQueries({
+                queryKey: ["organization-settings"],
+              });
               queryClient.invalidateQueries({
                 queryKey: ["org-invitations", currentOrgId],
               });

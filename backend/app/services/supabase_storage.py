@@ -267,40 +267,25 @@ def delete_invoice_folder(
     tenant_id: UUID,
     org_id: UUID,
     invoice_id: UUID,
-    *,
-    file_path: Optional[str] = None,
-    processed_path: Optional[str] = None,
 ) -> bool:
     bucket = _get_bucket()
     if not bucket:
         logger.error("Folder delete failed for invoice %s — storage bucket not available", invoice_id)
         return False
     try:
-        prefixes = set()
-        
-        # Extract folder prefixes from actual paths (handles PendingUpload ID directories)
-        for path in (file_path, processed_path):
-            if path and "/" in path:
-                prefix = path.rsplit("/", 1)[0] + "/"
-                prefixes.add(prefix)
-                
-        # Always check default directory as fallback
-        default_prefix = f"{INVOICES_PREFIX}/{tenant_id}/{org_id}/{invoice_id}/"
-        prefixes.add(default_prefix)
-        
-        for prefix in prefixes:
-            logger.info("Listing files for deletion: %s", prefix)
-            files = bucket.list(prefix)
-            if not files:
-                logger.info("No files found at %s — nothing to delete", prefix)
-                continue
-            paths = [f"{prefix}{f['name']}" for f in files]
-            logger.info("Deleting %d file(s) from %s: %s", len(paths), prefix, [p.rsplit("/", 1)[-1] for p in paths])
-            bucket.remove(paths)
-            logger.info("Folder deleted: %s (%d file(s) removed)", prefix, len(paths))
+        prefix = f"{INVOICES_PREFIX}/{tenant_id}/{org_id}/{invoice_id}/"
+        logger.info("Listing files for deletion: %s", prefix)
+        files = bucket.list(prefix)
+        if not files:
+            logger.info("No files found at %s — nothing to delete", prefix)
+            return True
+        paths = [f"{prefix}{f['name']}" for f in files]
+        logger.info("Deleting %d file(s) from %s: %s", len(paths), prefix, [p.rsplit("/", 1)[-1] for p in paths])
+        bucket.remove(paths)
+        logger.info("Folder deleted: %s (%d file(s) removed)", prefix, len(paths))
         return True
     except Exception as e:
-        logger.error("Folder delete failed for %s: %s", invoice_id, e)
+        logger.error("Folder delete failed for %s: %s", prefix, e)
         return False
 
 

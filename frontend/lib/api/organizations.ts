@@ -9,7 +9,6 @@ export interface UserOrg {
   tax_id: string | null;
   role: string;
   is_current: boolean;
-  is_active?: boolean;
   is_deleted?: boolean;
   deleted_at?: string | null;
 }
@@ -40,8 +39,8 @@ export async function switchOrganization(orgId: string) {
   });
 }
 
-export async function listUserOrganizations(includeInactive: boolean = false) {
-  return apiFetch<UserOrg[]>(`/api/organizations/user-orgs?include_inactive=${includeInactive}`);
+export async function listUserOrganizations() {
+  return apiFetch<UserOrg[]>("/api/organizations/user-orgs");
 }
 
 // ── Org management (requires admin/owner) ─────────────────────────
@@ -55,7 +54,6 @@ export async function createOrganization(data: {
   fiscal_address?: string;
   municipality?: string;
   province?: string;
-  is_active?: boolean;
 }) {
   return apiFetch<{
     id: string;

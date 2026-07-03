@@ -16,7 +16,6 @@ from app.dependencies.tenant import TenantContext, require_tenant
 from app.models import Invitation, Organization, User, UserOrganization
 from app.config import PUBLIC_APP_URL
 from app.services.email_service import send_invitation_email
-from app.services.plan_service import PlanService, PlanLimitExceeded
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/organizations", tags=["organizations"])
@@ -33,7 +32,6 @@ class OrgCreate(BaseModel):
     fiscal_address: Optional[str] = None
     municipality: Optional[str] = None
     province: Optional[str] = None
-    is_active: Optional[bool] = True
 
 
 class OrgUpdate(BaseModel):
@@ -79,24 +77,21 @@ def get_my_organization(ctx: TenantContext = Depends(require_tenant)):
 
 
 @router.get("")
-def list_organizations(
-    include_inactive: bool = False,
-    ctx: TenantContext = Depends(require_permission("org.create"))
-):
-    query = ctx.db.query(Organization).filter(
-        Organization.tenant_id == ctx.tenant_id,
-        Organization.is_deleted.is_(False)
+def list_organizations(ctx: TenantContext = Depends(require_permission("org.create"))):
+    orgs = (
+        ctx.db.query(Organization)
+        .filter(
+            Organization.tenant_id == ctx.tenant_id,
+            Organization.is_active.is_(True),
+        )
+        .all()
     )
-    if not include_inactive:
-        query = query.filter(Organization.is_active.is_(True))
-    orgs = query.all()
     return [
         {
             "id": str(o.id),
             "name": o.name,
             "tax_id": o.tax_id,
             "country": o.country,
-            "is_active": o.is_active,
             "is_current": o.id == ctx.org_id,
             "is_deleted": o.is_deleted,
             "deleted_at": o.deleted_at.isoformat() if o.deleted_at else None,
@@ -153,17 +148,6 @@ def create_organization(
                 detail=f"El email '{body.email_contact}' ya está en uso como contacto de otra organización. Usa un email de contacto diferente.",
             )
 
-    # ── Check entity limit from user's subscription (only if creating active) ──
-    if body.is_active:
-        plan_svc = PlanService(ctx.db)
-        try:
-            plan_svc.check_entity_limit(str(ctx.user.id))
-        except PlanLimitExceeded as e:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Has alcanzado el límite de organizaciones de tu plan. {e.reason}",
-            )
-
     org = Organization(
         tenant_id=ctx.tenant_id,
         name=body.name,
@@ -174,7 +158,6 @@ def create_organization(
         fiscal_address=body.fiscal_address,
         municipality=body.municipality,
         province=body.province,
-        is_active=body.is_active,
     )
     ctx.db.add(org)
     ctx.db.flush()
@@ -579,7 +562,6 @@ async def switch_organization(
 
 @router.get("/user-orgs")
 def list_user_organizations(
-    include_inactive: bool = False,
     ctx: TenantContext = Depends(require_tenant),
 ):
     """List all organizations the current user belongs to.
@@ -597,13 +579,14 @@ def list_user_organizations(
         return []
 
     org_ids = [m.organization_id for m in memberships]
-    query = ctx.db.query(Organization).filter(
-        Organization.id.in_(org_ids),
-        Organization.is_deleted.is_(False)
+    orgs = (
+        ctx.db.query(Organization)
+        .filter(
+            Organization.id.in_(org_ids),
+            Organization.is_active.is_(True),
+        )
+        .all()
     )
-    if not include_inactive:
-        query = query.filter(Organization.is_active.is_(True))
-    orgs = query.all()
     org_map = {str(o.id): o for o in orgs}
 
     result = []
@@ -618,7 +601,6 @@ def list_user_organizations(
                 "name": org.name,
                 "tax_id": org.tax_id,
                 "role": m.role,
-                "is_active": org.is_active,
                 "is_current": oid == str(ctx.org_id),
                 "is_deleted": org.is_deleted,
                 "deleted_at": org.deleted_at.isoformat() if org.deleted_at else None,

@@ -95,7 +95,7 @@ export default function PlansClient() {
                   ["Dashboard Multi-Entidad", "—", "—", "Sí (Firma + Clientes)"],
                   ["Validación NCF DGII", "Sí", "Sí", "Sí"],
                   ["Reporte 606", "Automático (IA)", "Automático (IA)", "Automático (IA)"],
-                  ["Reportes 607 / 608", "—", "Sí", "Sí (Automáticos)"],
+                  ["Reportes 607 / 608", "—", "—", "Sí (Automáticos)"],
                   ["WhatsApp Business", "—", "Sí", "Sí"],
                   ["API y Webhooks", "—", "Sí", "Sí"],
                   ["Integración ERP (QuickBooks/Odoo)", "—", "—", "Sí"],

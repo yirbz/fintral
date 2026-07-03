@@ -101,7 +101,7 @@ export default function AcceptInvitePage() {
         setSuccess(true)
         toast.success("¡Bienvenido a Fintral!")
         setTimeout(() => {
-          window.location.href = "/dashboard"
+          router.push("/dashboard")
         }, 1000)
       } else if (result.requires_login) {
         toast.success(result.message)

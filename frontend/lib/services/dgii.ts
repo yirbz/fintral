@@ -102,9 +102,8 @@ class DgiiService implements IDgiiService {
   async searchByName(name: string): Promise<NameSearchResult[]> {
     if (!name || name.trim().length < 3) return [];
     try {
-      const origin = getOrigin();
       const resp = await fetch(
-        `${origin}/dgii-rnc/search?name=${encodeURIComponent(name.trim())}`,
+        `/api/dgii/search-name?name=${encodeURIComponent(name.trim())}`,
         { cache: "no-store" }
       );
       if (!resp.ok) return [];

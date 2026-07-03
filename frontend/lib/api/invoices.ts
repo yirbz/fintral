@@ -13,7 +13,6 @@ export interface InvoiceFilters {
   payment_status?: string;
   payment_condition?: string;
   status?: string;
-  exclude_source_type?: string;
   include_drafts?: boolean;
 }
 
@@ -30,7 +29,6 @@ export async function listInvoices(filters: InvoiceFilters = {}) {
   if (filters.payment_status) params.set("payment_status", filters.payment_status);
   if (filters.payment_condition) params.set("payment_condition", filters.payment_condition);
   if (filters.status) params.set("status", filters.status);
-  if (filters.exclude_source_type) params.set("exclude_source_type", filters.exclude_source_type);
   if (filters.include_drafts !== undefined) params.set("include_drafts", String(filters.include_drafts));
   const query = params.toString();
   return apiFetch<{ invoices: Invoice[]; total: number }>(`/invoices${query ? `?${query}` : ""}`);

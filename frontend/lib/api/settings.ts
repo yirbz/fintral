@@ -105,9 +105,8 @@ export async function deleteAvatar() {
   });
 }
 
-export async function getOrganization(orgId?: string) {
-  const params = orgId ? `?org_id=${encodeURIComponent(orgId)}` : "";
-  return apiFetch<OrganizationData>(`/api/settings/organization${params}`);
+export async function getOrganization() {
+  return apiFetch<OrganizationData>("/api/settings/organization");
 }
 
 export async function updateOrganization(data: {

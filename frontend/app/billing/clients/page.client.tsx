@@ -76,7 +76,7 @@ export default function ClientsPage() {
       } finally {
         setSearchingName(false);
       }
-    }, 600);
+    }, 500);
   }, []);
 
   const handleSelectNameResult = (result: NameSearchResult) => {

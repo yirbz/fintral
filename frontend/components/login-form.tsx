@@ -37,16 +37,8 @@ export function LoginForm({
     try {
       await login(email, password, remember);
       setRememberPreference(remember);
-      if (typeof window !== "undefined") {
-        const searchParams = new URLSearchParams(window.location.search);
-        const redirectUrl = searchParams.get("redirect");
-        if (redirectUrl && (redirectUrl.startsWith("http:") || redirectUrl.startsWith("https:"))) {
-          window.location.href = redirectUrl;
-          return;
-        }
-      }
       const isBillingSubdomain = typeof window !== "undefined" && window.location.hostname.startsWith("factura.");
-      window.location.href = isBillingSubdomain ? "/" : "/dashboard";
+      router.push(isBillingSubdomain ? "/" : "/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al iniciar sesión");
     } finally {

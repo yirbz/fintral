@@ -7,13 +7,10 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { getMe } from "@/lib/api/session";
-import { getMyUserSubscription } from "@/lib/api/plans";
 import { LogoLoader } from "@/components/logo-loader";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, Clock, RefreshCw } from "lucide-react";
+import { AlertCircle, RefreshCw } from "lucide-react";
 import SessionExpiredOverlay from "@/components/session-expired-overlay";
-import SubscriptionRequiredOverlay from "@/components/subscription-required-overlay";
-import BlockedOverlay from "@/components/blocked-overlay";
 import { useSession } from "@/hooks/use-session";
 
 const LOAD_TIMEOUT = 15_000;
@@ -28,15 +25,12 @@ function isBackendUnreachable(err: unknown): boolean {
   if (err instanceof Error && /Failed to fetch|NetworkError|ECONNREFUSED|fetch|timeout|abort|proxy|aggregate|abort/i.test(err.message)) return true;
   if (err && typeof err === "object" && "status" in err) {
     const s = (err as { status: number }).status;
-    if (s === 401) return false;
+    if (s === 401) return false; // auth error — not unreachable
     if (s >= 500) return true;
   }
   if (err instanceof DOMException && err.name === "AbortError") return true;
   return false;
 }
-
-const MAX_RETRIES = 3;
-const RETRY_DELAYS = [1_000, 2_000, 4_000];
 
 function BotIllustration() {
   return (
@@ -160,20 +154,8 @@ function SoftDeletedOrgBanner() {
 export function ShellLoader({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [connectionFailed, setConnectionFailed] = useState(false);
-  const [subscriptionBlocked, setSubscriptionBlocked] = useState(false);
-  const [graceHours, setGraceHours] = useState<number | null>(null);
-  const [inGracePeriod, setInGracePeriod] = useState(false);
   const mountedRef = useRef(true);
-  const retryCount = useRef(0);
-  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (subscriptionBlocked) {
-      window.dispatchEvent(
-        new CustomEvent("billing:required", { detail: { grace_hours: graceHours } })
-      );
-    }
-  }, [subscriptionBlocked, graceHours]);
+  const isRedirecting = useRef(false);
 
   const attempt = () => {
     setConnectionFailed(false);
@@ -181,60 +163,26 @@ export function ShellLoader({ children }: { children: React.ReactNode }) {
     const timeout = setTimeout(() => controller.abort(), LOAD_TIMEOUT);
 
     getMe(controller.signal)
-      .then(async () => {
+      .then(() => {
         clearTimeout(timeout);
-        if (!mountedRef.current) return;
-        try {
-          const sub = await getMyUserSubscription();
-          if (!mountedRef.current) return;
-          setInGracePeriod(sub.in_grace_period === true);
-          if (!sub.has_active_subscription) {
-            setGraceHours(sub.subscription?.grace_hours ?? null);
-            setReady(true);
-            setSubscriptionBlocked(true);
-            return;
-          }
-          if (sub.subscription?.grace_hours && sub.subscription.grace_hours > 0) {
-            setGraceHours(sub.subscription.grace_hours);
-          }
-        } catch {}
-        setReady(true);
+        if (mountedRef.current) setReady(true);
       })
       .catch((err) => {
         clearTimeout(timeout);
-        if (!mountedRef.current) return;
-        if (isBackendUnreachable(err) && retryCount.current < MAX_RETRIES) {
-          const delay = RETRY_DELAYS[retryCount.current] ?? 4_000;
-          retryCount.current++;
-          retryTimer.current = setTimeout(attempt, delay);
-          return;
-        }
+        if (!mountedRef.current || isRedirecting.current) return;
         if (isBackendUnreachable(err)) {
           setConnectionFailed(true);
         } else {
-          window.location.href = "/logout";
+          isRedirecting.current = true;
+          window.location.href = "/login";
         }
       });
   };
 
   useEffect(() => {
-    const handleResolved = () => {
-      setSubscriptionBlocked(false);
-      setGraceHours(null);
-    };
-    window.addEventListener("billing:resolved", handleResolved);
-    return () => {
-      window.removeEventListener("billing:resolved", handleResolved);
-    };
-  }, []);
-
-  useEffect(() => {
     mountedRef.current = true;
     attempt();
-    return () => {
-      mountedRef.current = false;
-      if (retryTimer.current) clearTimeout(retryTimer.current);
-    };
+    return () => { mountedRef.current = false; };
   }, []);
 
   if (!ready && !connectionFailed) return <LogoLoader />;
@@ -258,10 +206,7 @@ export function ShellLoader({ children }: { children: React.ReactNode }) {
         </div>
         <div className="flex flex-col items-center gap-2.5">
           <Button
-            onClick={() => {
-              retryCount.current = 0;
-              attempt();
-            }}
+            onClick={attempt}
             size="sm"
             className="h-9 rounded-full px-5 text-xs font-medium shadow-xs transition-all hover:shadow-sm active:scale-[0.97]"
           >
@@ -276,31 +221,10 @@ export function ShellLoader({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const isExpired = subscriptionBlocked && !graceHours;
-
-  // Don't block bypass routes (store, account, settings) — user needs those to renew
-  const bypassRoutes = ["/dashboard/tienda", "/dashboard/cuenta", "/dashboard/configuracion"];
-  const blockContent = isExpired && typeof window !== "undefined" && !bypassRoutes.some((r) => window.location.pathname.startsWith(r));
-
   return (
     <RealtimeProvider>
       <OrgProvider>
         <SessionExpiredOverlay />
-        <SubscriptionRequiredOverlay
-          initialExpired={isExpired}
-          initialGraceHours={graceHours}
-        />
-        <BlockedOverlay />
-        {blockContent && (
-          <style>{`
-            .subscription-expired button,
-            .subscription-expired a[role="button"],
-            .subscription-expired [data-action] {
-              opacity: 0.5;
-              pointer-events: none;
-            }
-          `}</style>
-        )}
         <SidebarProvider
           style={
             {
@@ -313,30 +237,9 @@ export function ShellLoader({ children }: { children: React.ReactNode }) {
           <SidebarInset>
             <SiteHeader />
             <ConnectionStatus />
-            <div
-              className={
-                "@container/main flex flex-1 flex-col py-4 md:py-6 has-mobile-nav"
-              }
-            >
+            <div className="@container/main flex flex-1 flex-col py-4 md:py-6 has-mobile-nav">
               <SoftDeletedOrgBanner />
-              {inGracePeriod && (
-                <div className="mx-4 mb-2 flex items-center gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 dark:border-amber-800/30 dark:bg-amber-950/40 dark:text-amber-300">
-                  <Clock className="h-4 w-4 shrink-0" />
-                  <span>
-                    Tu ciclo de facturación ha vencido.{" "}
-                    <a
-                      href="/dashboard/account"
-                      className="font-medium underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-200"
-                    >
-                      Regularizar pago
-                    </a>{" "}
-                    para reactivar tu suscripción.
-                  </span>
-                </div>
-              )}
-              <div className={blockContent ? "subscription-expired" : undefined}>
-                {children}
-              </div>
+              {children}
             </div>
             <PwaInstallPrompt />
           </SidebarInset>

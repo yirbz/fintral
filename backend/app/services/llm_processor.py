@@ -192,7 +192,6 @@ class LLMInvoiceProcessor:
             {{
                 "vendor_name": "nombre del proveedor/empresa (null si no se encuentra)",
                 "vendor_tax_id": "RNC del proveedor (9 dígitos; puede venir con guiones) (null si no se encuentra)",
-                "rnc_comprador": "RNC del comprador/adquiriente (9 dígitos; puede venir con guiones) (null si no se encuentra o es consumidor final)",
                 "vendor_fiscal_address": "dirección fiscal completa del proveedor (null si no se encuentra)",
                 "invoice_number": "NCF / número de comprobante fiscal (null si no se encuentra)",
                 "ncf_modified": "NCF o documento modificado si aplica (null si no se encuentra)",
@@ -215,7 +214,7 @@ class LLMInvoiceProcessor:
                 "legal_tip": monto_propina_legal_como_float (null si no se encuentra),
                 "payment_method": "forma de pago (1-7) o texto si aparece (null si no se encuentra)",
                 "payment_condition": "condición de pago: contado o credito (null si no se encuentra)",
-                "due_date": "fecha de vencimiento/límite de pago/fin de validez de la factura o NCF en formato YYYY-MM-DD (null si no se encuentra)",
+                "due_date": "fecha de vencimiento/límite de pago de la factura en formato YYYY-MM-DD (null si no se encuentra)",
                 "bank_account_id": "ID de la cuenta bancaria sugerida (String UUID) de la lista de CUENTAS BANCARIAS DISPONIBLES que mejor se asocie a la transacción (ej. si fue pagada con fondos de ese banco o si la factura indica ese banco para depósito/pago) (null si no aplica o no hay coincidencia)",
                 "currency": "código de moneda como DOP, USD, EUR, etc. (null si no se encuentra)",
                 "transaction_type": "expense para gastos o income para ingresos (null si no estás seguro)",
@@ -242,10 +241,9 @@ class LLMInvoiceProcessor:
             - Si el total está presente pero no el ITBIS y puedes inferirlo de líneas visibles, calcula tax_amount; si no, deja null.
             - Clasifica el "goods_services_type" (DGII 606) usando la descripción y líneas de productos/servicios. Usa códigos 01-11; si no estás seguro, deja null.
             - Códigos DGII 606 (01-11): 01 Gastos de personal, 02 Gastos por trabajos/suministros/servicios, 03 Arrendamientos, 04 Gastos de activos fijos, 05 Gastos de representación, 06 Otras deducciones admitidas, 07 Gastos financieros, 08 Gastos extraordinarios, 09 Compras/gastos costo de venta, 10 Adquisiciones de activos, 11 Gastos de seguros.
-            - Forma de pago (DGII 606): 1 Efectivo, 2 Cheques/Transferencias/Depósito, 3 Tarjeta crédito/débito, 4 Compra a crédito, 5 Permuta, 6 Notas de crédito, 7 Mixto. Busca palabras como "Efectivo", "Cash", "Visa", "Mastercard", "Tarjeta", "Transferencia", "Efectivo/Cambio" para identificar y mapear correctamente la forma de pago.
+            - Forma de pago (DGII 606): 1 Efectivo, 2 Cheques/Transferencias/Depósito, 3 Tarjeta crédito/débito, 4 Compra a crédito, 5 Permuta, 6 Notas de crédito, 7 Mixto. Solo completa si es explícito.
             - Retenciones: solo completa retenciones/ISR/ITBIS retenido si el documento lo indica explícitamente.
-            - Condición de pago: "contado" si se pagó inmediatamente (efectivo, tarjeta, transferencia en el momento), "credito" si indica que es a crédito, términos de pago (30 días, etc.), fecha de vencimiento a futuro, o si el método de pago indica crédito. IMPORTANTE: NO confundas "Crédito Fiscal" (que es el nombre del tipo de comprobante fiscal dominicano B01/E31) con la condición de pago. Una factura de "Crédito Fiscal" se paga comúnmente de "contado" (efectivo, tarjeta, etc.). Solo marca "credito" si hay evidencia explícita de compra financiada o a crédito.
-            - Fecha de vencimiento / límite de pago / fin de validez: Busca términos como "Vencimiento", "Vence el", "Due Date", "Vence", "F. Vencimiento", "Válido hasta", "Valido hasta", "Fecha de validez", "Validez" o "Vence NCF". Si hay una fecha explícita de vencimiento o de fin de validez del comprobante (NCF), extráela en due_date (dando preferencia a la de vencimiento de pago si existen ambas). Si no hay pero es a crédito (ej. "30 días"), calcúlala de la fecha de la factura.
+            - Condición de pago: "contado" si se pagó inmediatamente (efectivo, tarjeta, transferencia en el momento), "credito" si indica que es a crédito, términos de pago (30 días, etc.), fecha de vencimiento a futuro, o si el método de pago indica crédito.
 
             REGLAS DE LÍNEAS DE PRODUCTOS (line_items):
             - Extrae TODAS las líneas de productos/servicios visibles en la factura.
@@ -489,7 +487,6 @@ class LLMInvoiceProcessor:
             "audit_warnings": data.get("audit_warnings", []) if isinstance(data.get("audit_warnings"), list) else [],
             # Nuevos campos fiscales
             "vendor_tax_id": self._clean_string(data.get("vendor_tax_id")),
-            "rnc_comprador": self._clean_string(data.get("rnc_comprador")),
             "vendor_fiscal_address": self._clean_string(data.get("vendor_fiscal_address")),
             "line_items": self._validate_line_items(data.get("line_items", [])),
             "goods_services_type": self._validate_goods_services_type(data.get("goods_services_type"))
@@ -642,23 +639,23 @@ class LLMInvoiceProcessor:
         raw = str(value).strip()
         if raw.isdigit():
             code = int(raw)
-            return f"{code:02d}" if 1 <= code <= 7 else None
+            return str(code) if 1 <= code <= 7 else None
 
         text = raw.lower()
         if "efectivo" in text:
-            return "01"
+            return "1"
         if "cheque" in text or "transfer" in text or "depósito" in text or "deposito" in text:
-            return "02"
+            return "2"
         if "tarjeta" in text:
-            return "03"
+            return "3"
         if "crédito" in text or "credito" in text:
-            return "04"
+            return "4"
         if "permuta" in text:
-            return "05"
+            return "5"
         if "nota de crédito" in text or "nota de credito" in text:
-            return "06"
+            return "6"
         if "mixto" in text:
-            return "07"
+            return "7"
         return None
 
     def _infer_goods_services_type(self, cleaned):
@@ -810,7 +807,6 @@ class LLMInvoiceProcessor:
             {{
                 "vendor_name": "nombre del proveedor/empresa (null si no se encuentra)",
                 "vendor_tax_id": "RNC del proveedor (9 dígitos; puede venir con guiones) (null si no se encuentra)",
-                "rnc_comprador": "RNC del comprador/adquiriente (9 dígitos; puede venir con guiones) (null si no se encuentra o es consumidor final)",
                 "vendor_fiscal_address": "dirección fiscal completa del proveedor (null si no se encuentra)",
                 "invoice_number": "NCF / número de comprobante fiscal (null si no se encuentra)",
                 "ncf_modified": "NCF o documento modificado si aplica (null si no se encuentra)",
@@ -833,7 +829,7 @@ class LLMInvoiceProcessor:
                 "legal_tip": monto_propina_legal_como_float (null si no se encuentra),
                 "payment_method": "forma de pago (1-7) o texto si aparece (null si no se encuentra)",
                 "payment_condition": "condición de pago: contado o credito (null si no se encuentra)",
-                "due_date": "fecha de vencimiento/límite de pago/fin de validez de la factura o NCF en formato YYYY-MM-DD (null si no se encuentra)",
+                "due_date": "fecha de vencimiento/límite de pago de la factura en formato YYYY-MM-DD (null si no se encuentra)",
                 "bank_account_id": "ID de la cuenta bancaria sugerida (String UUID) de la lista de CUENTAS BANCARIAS DISPONIBLES que mejor se asocie a la transacción (ej. si fue pagada con fondos de ese banco o si la factura indica ese banco para depósito/pago) (null si no aplica o no hay coincidencia)",
                 "currency": "código de moneda como DOP, USD, EUR, etc. (null si no se encuentra)",
                 "transaction_type": "expense para gastos o income para ingresos (null si no estás seguro)",
@@ -860,10 +856,9 @@ class LLMInvoiceProcessor:
             - Si el total está presente pero no el ITBIS y puedes inferirlo de líneas visibles, calcula tax_amount; si no, deja null.
             - Clasifica el "goods_services_type" (DGII 606) usando la descripción y líneas de productos/servicios. Usa códigos 01-11; si no estás seguro, deja null.
             - Códigos DGII 606 (01-11): 01 Gastos de personal, 02 Gastos por trabajos/suministros/servicios, 03 Arrendamientos, 04 Gastos de activos fijos, 05 Gastos de representación, 06 Otras deducciones admitidas, 07 Gastos financieros, 08 Gastos extraordinarios, 09 Compras/gastos costo de venta, 10 Adquisiciones de activos, 11 Gastos de seguros.
-            - Forma de pago (DGII 606): 1 Efectivo, 2 Cheques/Transferencias/Depósito, 3 Tarjeta crédito/débito, 4 Compra a crédito, 5 Permuta, 6 Notas de crédito, 7 Mixto. Busca palabras como "Efectivo", "Cash", "Visa", "Mastercard", "Tarjeta", "Transferencia", "Efectivo/Cambio" para identificar y mapear correctamente la forma de pago.
+            - Forma de pago (DGII 606): 1 Efectivo, 2 Cheques/Transferencias/Depósito, 3 Tarjeta crédito/débito, 4 Compra a crédito, 5 Permuta, 6 Notas de crédito, 7 Mixto. Solo completa si es explícito.
             - Retenciones: solo completa retenciones/ISR/ITBIS retenido si el documento lo indica explícitamente.
-            - Condición de pago: "contado" si se pagó inmediatamente (efectivo, tarjeta, transferencia en el momento), "credito" si indica que es a crédito, términos de pago (30 días, etc.), fecha de vencimiento a futuro, o si el método de pago indica crédito. IMPORTANTE: NO confundas "Crédito Fiscal" (que es el nombre del tipo de comprobante fiscal dominicano B01/E31) con la condición de pago. Una factura de "Crédito Fiscal" se paga comúnmente de "contado" (efectivo, tarjeta, etc.). Solo marca "credito" si hay evidencia explícita de compra financiada o a crédito.
-            - Fecha de vencimiento / límite de pago / fin de validez: Busca términos como "Vencimiento", "Vence el", "Due Date", "Vence", "F. Vencimiento", "Válido hasta", "Valido hasta", "Fecha de validez", "Validez" o "Vence NCF". Si hay una fecha explícita de vencimiento o de fin de validez del comprobante (NCF), extráela en due_date (dando preferencia a la de vencimiento de pago si existen ambas). Si no hay pero es a crédito (ej. "30 días"), calcúlala de la fecha de la factura.
+            - Condición de pago: "contado" si se pagó inmediatamente (efectivo, tarjeta, transferencia en el momento), "credito" si indica que es a crédito, términos de pago (30 días, etc.), fecha de vencimiento a futuro, o si el método de pago indica crédito.
 
             REGLAS DE LÍNEAS DE PRODUCTOS (line_items):
             - Extrae TODAS las líneas de productos/servicios visibles.

@@ -296,10 +296,11 @@ async def test_daily_metrics_and_alert_hooks(test_tenant, test_user):
     db = SessionLocal()
     try:
         # 1. Test EmailAlertHook behavior
-        with patch("app.services.email_service._sender") as mock_sender, \
+        with patch("app.services.email_service.resend.Emails.send") as mock_send, \
+             patch("app.services.email_service.RESEND_API_KEY", "mock_key"), \
              patch("app.config.ADMIN_EMAIL", "admin@test.com"):
             
-            mock_sender.send.return_value = {"id": "test-email-id"}
+            mock_send.return_value = {"id": "test-email-id"}
             
             alert = Alert(
                 title="Critical System Alert",
@@ -309,10 +310,10 @@ async def test_daily_metrics_and_alert_hooks(test_tenant, test_user):
             )
             await alert_manager.dispatch(alert)
             
-            assert mock_sender.send.called
-            args, kwargs = mock_sender.send.call_args
-            assert "admin@test.com" in args[1]
-            assert "Critical System Alert" in args[2]
+            assert mock_send.called
+            call_args = mock_send.call_args[0][0]
+            assert "admin@test.com" in call_args["to"]
+            assert "Critical System Alert" in call_args["subject"]
 
         # 2. Test compute_and_store_daily_metrics
         plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.is_active).first()

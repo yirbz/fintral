@@ -287,19 +287,19 @@ class PostExtractionValidator:
         transaction_type = data.get("transaction_type")
 
         if transaction_type == "income":
-            return "03"
+            return "3"
 
         if gst:
             gst_code = int(gst) if gst.isdigit() else 0
             if gst_code >= 6:
-                return "02"
+                return "2"
             if total > 100000:
-                return "02"
-            return "01"
+                return "2"
+            return "1"
 
         if total > 100000:
-            return "02"
-        return "04"
+            return "2"
+        return "4"
 
     def _infer_country(self, data: Dict[str, Any]) -> Tuple[Optional[str], str, float]:
         """Infer country from tax_id pattern or currency."""

@@ -195,9 +195,7 @@ class Normalizer:
         p_cond = normalized.get("payment_condition")
         if p_cond:
             p_cond_clean = p_cond.lower()
-            if "credito fiscal" in p_cond_clean or "crédito fiscal" in p_cond_clean:
-                normalized["payment_condition"] = "contado"
-            elif "cred" in p_cond_clean or p_cond_clean == "4" or "credit" in p_cond_clean:
+            if "cred" in p_cond_clean or p_cond_clean == "4" or "credit" in p_cond_clean:
                 normalized["payment_condition"] = "credito"
             else:
                 normalized["payment_condition"] = "contado"
@@ -206,7 +204,7 @@ class Normalizer:
             pm = normalized.get("payment_method")
             tp = normalized.get("tipo_pago")
             term = normalized.get("termino_pago")
-            if pm in ("4", "04") or str(tp) == "2" or (term and "cred" in term.lower()):
+            if pm == "4" or str(tp) == "2" or (term and "cred" in term.lower()):
                 normalized["payment_condition"] = "credito"
             else:
                 normalized["payment_condition"] = "contado"
@@ -321,65 +319,17 @@ class Normalizer:
         ncf = re.sub(r"[^A-Z0-9]", "", ncf)
         return ncf if ncf else None
 
-    def _parse_spanish_date(self, value: str) -> Optional[str]:
-        months_map = {
-            "ene": 1, "enero": 1,
-            "feb": 2, "febrero": 2,
-            "mar": 3, "marzo": 3,
-            "abr": 4, "abril": 4,
-            "may": 5, "mayo": 5,
-            "jun": 6, "junio": 6,
-            "jul": 7, "julio": 7,
-            "ago": 8, "agosto": 8,
-            "sep": 9, "septiembre": 9, "set": 9,
-            "oct": 10, "octubre": 10,
-            "nov": 11, "noviembre": 11,
-            "dic": 12, "diciembre": 12
-        }
-        cleaned = value.lower().strip()
-        cleaned = re.sub(r"\bde\b", " ", cleaned)
-        cleaned = re.sub(r"[,./-]", " ", cleaned)
-        parts = [p.strip() for p in cleaned.split() if p.strip()]
-        
-        if len(parts) == 3:
-            if parts[1] in months_map:
-                day, month_str, year = parts[0], parts[1], parts[2]
-            elif parts[0] in months_map:
-                day, month_str, year = parts[1], parts[0], parts[2]
-            else:
-                return None
-                
-            month = months_map[month_str]
-            if not day.isdigit() or not year.isdigit():
-                return None
-            day_val = int(day)
-            year_val = int(year)
-            if len(year) == 2:
-                year_val = 2000 + year_val if year_val < 50 else 1900 + year_val
-                
-            if 1 <= day_val <= 31 and 1 <= month <= 12:
-                return f"{year_val:04d}-{month:02d}-{day_val:02d}"
-        return None
-
     def _validate_date(self, value: Any) -> Optional[str]:
         if value is None or value == "null":
             return None
         try:
-            raw_str = str(value).strip()
-            date_str = raw_str.split("T")[0].split()[0]
-            date_str = re.sub(r'^[^\w]+|[^\w]+$', '', date_str)
+            date_str = str(value).strip()
             for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y", "%m/%d/%Y", "%m/%d/%y", "%d-%m-%Y", "%d-%m-%y", "%Y/%m/%d"]:
                 try:
                     parsed = datetime.strptime(date_str, fmt)
                     return parsed.strftime("%Y-%m-%d")
                 except ValueError:
                     continue
-            
-            # Fallback for Spanish months
-            spanish_parsed = self._parse_spanish_date(raw_str)
-            if spanish_parsed:
-                return spanish_parsed
-                
             return None
         except Exception:
             return None
@@ -432,16 +382,16 @@ class Normalizer:
         raw = str(value).strip()
         if raw.isdigit():
             code = int(raw)
-            return f"{code:02d}" if 1 <= code <= 7 else None
+            return str(code) if 1 <= code <= 7 else None
         text = raw.lower()
         if "efectivo" in text:
-            return "01"
+            return "1"
         if "cheque" in text or "transfer" in text or "depósito" in text:
-            return "02"
+            return "2"
         if "tarjeta" in text:
-            return "03"
+            return "3"
         if "crédito" in text or "credito" in text:
-            return "04"
+            return "4"
         return None
 
     def _clean_confidence(self, value: Any) -> float:

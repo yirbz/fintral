@@ -23,8 +23,29 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export function OrganizationSwitcher() {
-  const { currentOrg, activeOrgId, userOrgs, switchOrg } = useOrg();
+  const { activeOrgId, userOrgs, isLoading, switchOrg } = useOrg();
   const [open, setOpen] = useState(false);
+
+  const currentOrg = userOrgs.find((o) => o.id === activeOrgId);
+  const show = userOrgs.length > 0;
+
+  // Show loading/skeleton while session is resolving active org
+  if (!show) return null;
+  if (isLoading || !activeOrgId) {
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 gap-1.5 rounded-lg px-2 text-xs font-medium text-muted-foreground opacity-60"
+        disabled
+      >
+        <Building2 className="size-3.5 shrink-0 animate-pulse text-primary/40" />
+        <span className="max-w-[80px] truncate text-transparent bg-muted-foreground/20 rounded animate-pulse">
+          Cargando
+        </span>
+      </Button>
+    );
+  }
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -42,7 +63,7 @@ export function OrganizationSwitcher() {
         >
           <Building2 className={cn("size-3.5 shrink-0", currentOrg?.is_deleted ? "text-destructive/70" : "text-primary/70")} />
           <span className="max-w-[120px] truncate">
-            {currentOrg?.name ?? activeOrgId.slice(0, 8)}
+            {currentOrg?.name ?? "Seleccionar organización"}
           </span>
           {currentOrg?.is_deleted && (
             <span className="inline-flex items-center rounded-full bg-destructive/10 px-1 py-0.5 text-[8px] font-semibold text-destructive leading-none border border-destructive/10 animate-pulse">
@@ -62,7 +83,7 @@ export function OrganizationSwitcher() {
         </DropdownMenuLabel>
         <DropdownMenuGroup>
           {userOrgs.map((org) => {
-            const isCurrent = org.id === currentOrg?.id;
+            const isCurrent = org.id === activeOrgId;
             return (
               <DropdownMenuItem
                 key={org.id}

@@ -131,7 +131,7 @@ class TestValidatePaymentMethod:
     def test_valid_codes(self):
         p = make_processor()
         for i in range(1, 8):
-            assert p._validate_payment_method(str(i)) == f"{i:02d}"
+            assert p._validate_payment_method(str(i)) == str(i)
 
     def test_invalid_code(self):
         p = make_processor()
@@ -139,11 +139,11 @@ class TestValidatePaymentMethod:
 
     def test_text_efectivo(self):
         p = make_processor()
-        assert p._validate_payment_method("Pago en efectivo") == "01"
+        assert p._validate_payment_method("Pago en efectivo") == "1"
 
     def test_text_transferencia(self):
         p = make_processor()
-        assert p._validate_payment_method("Transferencia bancaria") == "02"
+        assert p._validate_payment_method("Transferencia bancaria") == "2"
 
     def test_none(self):
         p = make_processor()

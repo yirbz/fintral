@@ -20,8 +20,6 @@ export async function login(email: string, password: string, remember = false) {
     try {
       localStorage.removeItem("fintral_active_org");
       localStorage.removeItem("fintral_session");
-      sessionStorage.removeItem("fintral_session");
-      sessionStorage.removeItem("fintral_remember");
     } catch { /* noop */ }
   }
 

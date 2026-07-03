@@ -94,15 +94,6 @@ export const PLAN_TIERS: PlanTier[] = [
         subtext: "Extracción digital de facturas de compra con IA",
       },
       {
-        text: "150 consultas de IA al mes",
-        included: true,
-        subtext: "Consultas inteligentes para procesamiento y análisis",
-      },
-      {
-        text: "500 MB de almacenamiento",
-        included: true,
-      },
-      {
         text: "Validación NCF contra DGII",
         included: true,
         subtext: "Consulta en línea con servidores de la DGII",
@@ -157,15 +148,6 @@ export const PLAN_TIERS: PlanTier[] = [
         subtext: "Procesamiento automático inteligente con IA",
       },
       {
-        text: "1,000 consultas de IA al mes",
-        included: true,
-        subtext: "Consultas avanzadas de IA para análisis fiscal",
-      },
-      {
-        text: "5 GB de almacenamiento",
-        included: true,
-      },
-      {
         text: "Reportes DGII (606/607/608)",
         included: true,
         subtext: "Generación instantánea sin digitar",
@@ -214,35 +196,6 @@ export const PLAN_TIERS: PlanTier[] = [
         text: "1,000 documentos OCR al mes",
         included: true,
         subtext: "Pool de procesamiento compartido entre entidades",
-      },
-      {
-        text: "10,000 consultas de IA al mes",
-        included: true,
-        subtext: "Consultas ilimitadas de IA para toda la firma",
-      },
-      {
-        text: "25 GB de almacenamiento",
-        included: true,
-      },
-      {
-        text: "API y Webhooks",
-        included: true,
-        subtext: "Integración completa con sistemas externos",
-      },
-      {
-        text: "Historial multi-empresa",
-        included: true,
-        subtext: "Consulta cruzada entre todas tus entidades",
-      },
-      {
-        text: "Generación batch de e-CF",
-        included: true,
-        subtext: "Emisión masiva de comprobantes electrónicos",
-      },
-      {
-        text: "SLA",
-        included: true,
-        subtext: "Acuerdo de nivel de servicio garantizado",
       },
       {
         text: "e-CF por bloques — cada entidad con su saldo",

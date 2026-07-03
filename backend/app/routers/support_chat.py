@@ -134,7 +134,7 @@ async def escalate_to_human(
         logger.error("Escalation error: %s", e)
         return EscalationResponse(
             success=False,
-            message="Error al enviar la solicitud. Intenta de nuevo o escribe a support@fintral.app",
+            message="Error al enviar la solicitud. Intenta de nuevo o escribe a soporte@fintral.app",
         )
 
 

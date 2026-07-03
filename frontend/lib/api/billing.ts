@@ -37,26 +37,6 @@ export interface ProductCreate {
   tax_rate: number;
 }
 
-export interface BulkImportRowError {
-  row: number;
-  internal_code?: string;
-  reason: string;
-}
-
-export interface ProductListResponse {
-  products: Product[];
-  total: number;
-  page: number;
-  page_size: number;
-}
-
-export interface BulkProductImportResponse {
-  total: number;
-  imported: number;
-  skipped: number;
-  errors: BulkImportRowError[];
-}
-
 export interface EcfSequence {
   id: string;
   ecf_type: number;
@@ -91,7 +71,7 @@ export interface EcfSequenceCreate {
 }
 
 export interface InvoiceLineItem {
-  product_id?: string;
+  product_id: string;
   quantity: number;
   unit_price: number;
   discount_rate: number;
@@ -103,13 +83,6 @@ export interface InvoiceCreate {
   payment_type: number; // 1: Contado, 2: Crédito
   payment_method?: number; // 1: Efectivo, 2: Cheque/Transf, 3: Tarjeta, etc.
   items: InvoiceLineItem[];
-  mode?: "quick" | "detailed";
-  notes?: string;
-  reference_ecf?: string;
-  reference_date?: string;
-  buyer_name?: string;
-  buyer_rnc?: string;
-  buyer_address?: string;
 }
 
 export interface BillingInvoice {
@@ -217,8 +190,6 @@ export interface EmitRequest {
   reference_ecf?: string;
   reference_date?: string;
   modification_code?: number; // 1:Total cancellation 2:Text correction 3:Amount 4:Replace NCF
-  invoice_id?: string;
-  is_correction?: boolean;
 }
 
 export interface EmitResult {
@@ -269,22 +240,7 @@ export const billingApi = {
     }),
 
   // Products
-  getProducts: (params?: {
-    search?: string;
-    tax_rate?: number;
-    is_active?: boolean;
-    page?: number;
-    page_size?: number;
-  }) => {
-    const searchParams = new URLSearchParams();
-    if (params?.search) searchParams.set("search", params.search);
-    if (params?.tax_rate !== undefined) searchParams.set("tax_rate", String(params.tax_rate));
-    if (params?.is_active !== undefined) searchParams.set("is_active", String(params.is_active));
-    if (params?.page) searchParams.set("page", String(params.page));
-    if (params?.page_size) searchParams.set("page_size", String(params.page_size));
-    const qs = searchParams.toString();
-    return apiFetch<ProductListResponse>(`/api/billing/products${qs ? `?${qs}` : ""}`);
-  },
+  getProducts: () => apiFetch<Product[]>("/api/billing/products"),
   createProduct: (data: ProductCreate) =>
     apiFetch<Product>("/api/billing/products", {
       method: "POST",
@@ -301,24 +257,6 @@ export const billingApi = {
     apiFetch<{ status: string }>(`/api/billing/products/${id}`, {
       method: "DELETE",
     }),
-  importProducts: (file: File, conflictMode: "skip" | "overwrite" = "skip") => {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("conflict_mode", conflictMode);
-    return apiFetch<BulkProductImportResponse>("/api/billing/products/import", {
-      method: "POST",
-      body: formData,
-    });
-  },
-  downloadImportTemplate: (format: "csv" | "xlsx" = "csv") => {
-    const url = `/api/billing/products/import/template?format=${format}`;
-    const a = document.createElement("a");
-    a.href = url;
-    a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  },
 
   // Sequences
   getSequences: () => apiFetch<EcfSequence[]>("/api/billing/sequences"),
@@ -349,12 +287,6 @@ export const billingApi = {
       body: JSON.stringify(data),
     }),
   getInvoice: (id: string) => apiFetch<BillingInvoice>(`/api/billing/invoices/${id}`),
-  updateInvoice: (id: string, data: InvoiceCreate) =>
-    apiFetch<BillingInvoice>(`/api/billing/invoices/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    }),
   transmitInvoice: (id: string) =>
     apiFetch<{ status: string; invoice: BillingInvoice }>(`/api/billing/invoices/${id}/transmit`, {
       method: "POST",

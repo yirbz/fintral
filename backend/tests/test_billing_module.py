@@ -106,9 +106,7 @@ def test_billing_crud_endpoints(db_session, test_tenant, test_user, test_org):
         # List products
         res_prod_list = client.get("/api/billing/products")
         assert res_prod_list.status_code == 200
-        data = res_prod_list.json()
-        assert data["total"] >= 1
-        assert len(data["products"]) >= 1
+        assert len(res_prod_list.json()) >= 1
 
         # Update product
         prod_up_payload = {

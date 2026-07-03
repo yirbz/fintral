@@ -95,8 +95,8 @@ export default function TermsClient() {
                 <li>
                   <strong>Inicial (RD$ 999 / mes):</strong> Diseñado para
                   profesionales independientes y freelancers. Incluye
-                  contabilidad y reportes, 50 documentos OCR al mes con IA,
-                  <strong>3 usuarios</strong>, validación NCF contra DGII y <strong>1 entidad gratis</strong>.
+                  contabilidad y reportes, 50 documentos OCR al mes con IA, usuarios
+                  ilimitados, validación NCF contra DGII y <strong>1 entidad gratis</strong>.
                   Entidades adicionales a RD$ 600/mes c/u.
                   Los documentos electrónicos (e-CF) se adquieren por separado
                   mediante bloques desde el Store de la plataforma.

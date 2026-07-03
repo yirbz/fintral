@@ -13,33 +13,20 @@ class OrganizationSubscription(Base):
     __tablename__ = "organization_subscriptions"
 
     id = Column(GUID, primary_key=True, default=uuid7)
-    organization_id = Column(GUID, ForeignKey("organizations.id"), nullable=True, index=True)
-    plan_id = Column(GUID, ForeignKey("subscription_plans.id"), nullable=True)
+    organization_id = Column(GUID, ForeignKey("organizations.id"), nullable=False, index=True)
+    plan_id = Column(GUID, ForeignKey("subscription_plans.id"), nullable=False)
 
     # ── Status ───────────────────────────────────────────────────────
     status = Column(
         String(32),
         nullable=False,
         default="trialing",
-        # active | trialing | past_due | canceled | expired | suspended
+        # active | trialing | past_due | canceled | expired
     )
 
-    current_billing_period_start = Column(DateTime(timezone=True), nullable=True)
-    current_billing_period_end = Column(DateTime(timezone=True), nullable=True)
-
-    # ── Lago Billing fields ──────────────────────────────────────────
-    lago_subscription_id = Column(String(64), nullable=True, index=True)
-    lago_customer_id = Column(String(64), nullable=True, index=True)
-    lago_plan_code = Column(String(100), nullable=True)
-    payment_method = Column(String(50), nullable=True)  # card | transfer
-    billing_time = Column(String(20), default="anniversary")  # anniversary | calendar
-
-    # ── MIO Payment fields ───────────────────────────────────────────
-    mio_customer_token = Column(String(255), nullable=True)  # card-on-file token
-
     # ── Billing cycle ────────────────────────────────────────────────
-    billing_cycle_start = Column(DateTime(timezone=True), nullable=True)
-    billing_cycle_end = Column(DateTime(timezone=True), nullable=True)
+    billing_cycle_start = Column(DateTime(timezone=True), nullable=False)
+    billing_cycle_end = Column(DateTime(timezone=True), nullable=False)
     trial_ends_at = Column(DateTime(timezone=True), nullable=True)
     canceled_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -51,16 +38,7 @@ class OrganizationSubscription(Base):
     addon_billing_entities = Column(Integer, default=0)  # DEPRECATED — always 0
     addon_entity_slots = Column(Integer, default=0)      # extra entity slots beyond plan limit
     addon_user_slots = Column(Integer, default=0)        # extra user slots beyond plan limit
-    addon_ocr_blocks = Column(Integer, default=0)        # extra OCR doc blocks
     auto_renew_addons = Column(Boolean, default=False)   # auto-purchase on soft limit
-    pending_cancel_entity_slots = Column(Integer, default=0, nullable=False)
-    pending_cancel_user_slots = Column(Integer, default=0, nullable=False)
-    pending_cancel_ai_blocks = Column(Integer, default=0, nullable=False)
-    pending_cancel_storage_blocks = Column(Integer, default=0, nullable=False)
-    pending_cancel_ocr_blocks = Column(Integer, default=0, nullable=False)
-
-    # ── Pending plan change (set from statement page) ────────────────
-    pending_plan_change_id = Column(GUID, ForeignKey("subscription_plans.id"), nullable=True)
 
     # ── Override (for Enterprise custom plans) ───────────────────────
     custom_limits_json = Column(String, nullable=True)   # JSON override of plan limits
@@ -71,8 +49,7 @@ class OrganizationSubscription(Base):
 
     # Relationships
     organization = relationship("Organization", backref="subscriptions", lazy="select")
-    plan = relationship("SubscriptionPlan", foreign_keys=[plan_id], lazy="select")
-    pending_plan_change = relationship("SubscriptionPlan", foreign_keys=[pending_plan_change_id], lazy="select")
+    plan = relationship("SubscriptionPlan", lazy="select")
 
     def to_dict(self) -> dict:
         limits = self.effective_limits()
@@ -82,12 +59,6 @@ class OrganizationSubscription(Base):
             "plan_id": str(self.plan_id),
             "plan_name": self.plan.display_name if self.plan else None,
             "status": self.status,
-            "lago_subscription_id": self.lago_subscription_id,
-            "lago_customer_id": self.lago_customer_id,
-            "lago_plan_code": self.lago_plan_code,
-            "payment_method": self.payment_method,
-            "billing_time": self.billing_time,
-            "mio_customer_token": self.mio_customer_token,
             "billing_cycle_start": self.billing_cycle_start.isoformat() if self.billing_cycle_start else None,
             "billing_cycle_end": self.billing_cycle_end.isoformat() if self.billing_cycle_end else None,
             "trial_ends_at": self.trial_ends_at.isoformat() if self.trial_ends_at else None,
@@ -100,7 +71,6 @@ class OrganizationSubscription(Base):
                 "billing_entities": 0,  # DEPRECATED
                 "entity_slots": self.addon_entity_slots,
                 "user_slots": self.addon_user_slots,
-                "ocr_blocks": self.addon_ocr_blocks,
             },
             "auto_renew_addons": self.auto_renew_addons,
             "limits": limits,
@@ -114,17 +84,15 @@ class OrganizationSubscription(Base):
 
         plan = self.plan
         base = {
-            "max_users": plan.max_users + (self.addon_user_slots or 0),
-            "max_entities": plan.max_entities + (self.addon_entity_slots or 0),
-            "max_products": plan.max_products,
+            "max_users": plan.max_users + self.addon_user_slots,
+            "max_entities": plan.max_entities + self.addon_entity_slots,
             "max_ecf_monthly": plan.max_ecf_monthly
-                + ((self.addon_ecf_blocks or 0) * plan.addon_ecf_block_size),
+                + (self.addon_ecf_blocks * plan.addon_ecf_block_size),
             "max_ai_queries_monthly": plan.max_ai_queries_monthly
-                + ((self.addon_ai_blocks or 0) * plan.addon_ai_block_size),
-            "max_ocr_docs_monthly": plan.max_ocr_docs_monthly
-                + ((self.addon_ocr_blocks or 0) * plan.addon_ocr_block_size),
+                + (self.addon_ai_blocks * plan.addon_ai_block_size),
+            "max_ocr_docs_monthly": plan.max_ocr_docs_monthly,
             "max_storage_mb": plan.max_storage_mb
-                + ((self.addon_storage_blocks or 0) * plan.addon_storage_block_mb),
+                + (self.addon_storage_blocks * plan.addon_storage_block_mb),
             "max_api_calls_monthly": plan.max_api_calls_monthly,
             "max_ai_rate_per_minute": plan.max_ai_rate_per_minute,
             "max_api_rate_per_minute": plan.max_api_rate_per_minute,

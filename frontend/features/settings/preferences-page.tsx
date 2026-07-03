@@ -113,9 +113,15 @@ export function PreferencesPage() {
   }, []);
 
   function getSetting(category: string, key: string): SettingValue {
-    const cat = editable[category] || [];
-    const row = cat.find((s) => s.key === key);
-    if (row) return row;
+    setEditable((prev) => {
+      const cat = prev[category] ? [...prev[category]] : [];
+      let row = cat.find((s) => s.key === key);
+      if (!row) {
+        row = { key, value: "", type: "string", category, source: "user" };
+        cat.push(row);
+      }
+      return { ...prev, [category]: cat };
+    });
     return { key, value: "", type: "string", category, source: "user" };
   }
 

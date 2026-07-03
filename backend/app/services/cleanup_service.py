@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models import Organization, PendingUpload, Tenant, User, UserOrganization
-from app.models.user_subscription import UserSubscription
 from app.services.auth_service import get_supabase_admin
 from app.config import SUPABASE_URL
 
@@ -54,7 +53,6 @@ def _delete_expired_users():
             ]
             tenant_id = user.tenant_id
 
-            db.query(UserSubscription).filter(UserSubscription.user_id == user.id).delete()
             db.query(UserOrganization).filter(UserOrganization.user_id == user.id).delete()
             db.delete(user)
             db.flush()

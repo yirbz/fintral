@@ -31,7 +31,7 @@ export function ProductSearch({ onSelect, disabled }: ProductSearchProps) {
 
   const { data: productsData, isLoading } = useQuery({
     queryKey: ["billing-products"],
-    queryFn: () => billingApi.getProducts().then(r => r.products),
+    queryFn: billingApi.getProducts,
   });
 
   const products = productsData ?? [];

@@ -89,12 +89,6 @@ function specificFieldWarning(field: keyof Invoice, formState: Partial<Invoice>)
         return `RNC incompleto: ${cleaned.length}/${cleaned.length > 11 ? "máx. 11" : "9 o 11"} dígitos`;
       return null;
     }
-    case "rnc_comprador": {
-      const cleaned = String(val).replace(/[^0-9]/g, "");
-      if (cleaned.length > 0 && cleaned.length !== 9 && cleaned.length !== 11)
-        return `RNC Comprador incompleto: ${cleaned.length}/9 o 11 dígitos`;
-      return null;
-    }
     case "invoice_number": {
       const s = String(val).trim();
       if (s.length === 0) return "NCF vacío — toda factura debe tener un número de comprobante";
@@ -184,7 +178,6 @@ const WARNING_FIELD_MAP: [RegExp, keyof Invoice][] = [
   [/(n[uú]mero de factura|ncf|invoice\s*number)/i, "invoice_number"],
   [/(total|monto|amount)/i, "total_amount"],
   [/(itbis|tax|impuesto)/i, "tax_amount"],
-  [/(rnc comprador|comprador rnc|rnc del comprador|rnc de la empresa)/i, "rnc_comprador"],
   [/(rnc|cedula|tax\s*id|identificaci[oó]n\s*fiscal)/i, "vendor_tax_id"],
   [/(categor[ií]a|tipo de gasto|goods)/i, "goods_services_type"],
   [/(fecha de emisi[oó]n|invoice\s*date)/i, "invoice_date"],
@@ -272,7 +265,6 @@ export function RevisionDetailPage({ invoiceId }: RevisionDetailPageProps) {
       setFormState({
         vendor_name: invoice.vendor_name ?? "",
         vendor_tax_id: invoice.vendor_tax_id ?? "",
-        rnc_comprador: invoice.rnc_comprador ?? "",
         invoice_number: invoice.invoice_number ?? "",
         invoice_date: invoice.invoice_date?.split("T")[0] ?? "",
         total_amount: invoice.total_amount ?? 0,
@@ -428,7 +420,6 @@ export function RevisionDetailPage({ invoiceId }: RevisionDetailPageProps) {
         currency: formState.currency || "DOP",
         goods_services_type: formState.goods_services_type,
         vendor_tax_id: formState.vendor_tax_id,
-        rnc_comprador: formState.rnc_comprador || null,
         transaction_type: formState.transaction_type || "expense",
       };
       const payload = isLocked ? operationalFields : { ...operationalFields, ...fiscalFields };
@@ -597,7 +588,6 @@ export function RevisionDetailPage({ invoiceId }: RevisionDetailPageProps) {
           <div className="h-full rounded-xl overflow-hidden border border-border">
             <InvoiceImageViewer
               invoiceId={invoice.id}
-              orgId={invoice.organization_id}
               filename={invoice.filename || undefined}
               fileType={invoice.file_type || undefined}
               className="h-full"
@@ -624,7 +614,7 @@ export function RevisionDetailPage({ invoiceId }: RevisionDetailPageProps) {
                   Proveedor
                 </h4>
                 <div className="grid grid-cols-12 gap-2">
-                  <div className="col-span-4 space-y-1">
+                  <div className="col-span-5 space-y-1">
                     <FieldLabel warning={null}>Nombre</FieldLabel>
                     <Input
                       className="h-8 text-xs"
@@ -697,22 +687,7 @@ export function RevisionDetailPage({ invoiceId }: RevisionDetailPageProps) {
                       </div>
                     )}
                   </div>
-                  <div className="col-span-2 space-y-1">
-                    <FieldLabel warning={fieldWarnings.rnc_comprador}>RNC Comprador</FieldLabel>
-                    <Input
-                      className={cn(
-                        "h-8 text-xs font-mono",
-                        fieldWarnings.rnc_comprador && "border-red-500/60 focus-visible:ring-red-500/40"
-                      )}
-                      placeholder="RNC Comprador"
-                      value={formState.rnc_comprador ?? ""}
-                      onChange={(e) => setFormState((p) => ({ ...p, rnc_comprador: e.target.value }))}
-                    />
-                    {fieldWarnings.rnc_comprador && (
-                      <p className="text-[10px] text-red-500/90 leading-tight">{fieldWarnings.rnc_comprador}</p>
-                    )}
-                  </div>
-                  <div className="col-span-3 space-y-1">
+                  <div className="col-span-4 space-y-1">
                     <FieldLabel warning={fieldWarnings.invoice_number}>NCF</FieldLabel>
                     <Input
                       className={cn(

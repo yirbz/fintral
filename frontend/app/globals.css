@@ -526,37 +526,3 @@ body {
   }
 }
 
-/* ── motion.dev-style popover animation ── */
-@keyframes motion-reveal-up {
-  0% {
-    opacity: 0;
-    transform: scale(0.95) translateY(10px);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-@keyframes motion-exit {
-  0% {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(0.95) translateY(6px);
-  }
-}
-
-.motion-popover[data-state="open"] {
-  animation: motion-reveal-up 220ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important;
-  transform-origin: 24px 100% !important;
-}
-
-.motion-popover[data-state="closed"] {
-  animation: motion-exit 120ms ease-out forwards !important;
-  transform-origin: 24px 100% !important;
-}
-
-

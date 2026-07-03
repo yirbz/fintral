@@ -63,12 +63,7 @@ def init_database() -> None:
         head_rev = script.get_current_head()
         logger.info("alembic_version=%s head=%s match=%s", row, head_rev, row == head_rev)
         if row == head_rev:
-            logger.info("Already at head revision — ensuring any new model tables exist")
-            try:
-                Base.metadata.create_all(bind=engine)
-                logger.info("create_all done — new models created if needed")
-            except Exception as ca_err:
-                logger.warning("create_all failed: %s", ca_err)
+            logger.info("Already at head revision — skipping alembic upgrade")
             return
 
         db_rev_exists = row in [r.revision for r in script.walk_revisions()]
@@ -93,23 +88,8 @@ def init_database() -> None:
             command.upgrade(alembic_cfg, "head")
             logger.info("Alembic migrations applied (%.2fs)", time.time() - t1)
         except Exception as e:
-            logger.warning(
-                "Alembic upgrade failed (%s) after %.2fs: %s — "
-                "schema objects may already exist from create_all fallback; "
-                "stamping to head + create_all fallback for any new models",
-                type(e).__name__, time.time() - t1, e,
-            )
-            try:
-                command.stamp(alembic_cfg, "head")
-                logger.info("Stamped alembic_version to head")
-            except Exception as stamp_err:
-                logger.error("Stamp also failed: %s", stamp_err)
-                raise
-            try:
-                Base.metadata.create_all(bind=engine)
-                logger.info("create_all fallback done — new models created")
-            except Exception as ca_err:
-                logger.warning("create_all fallback also failed: %s", ca_err)
+            logger.error("Alembic upgrade failed (%s) after %.2fs: %s", type(e).__name__, time.time() - t1, e)
+            raise
         return
 
     if has_data_tables:
@@ -117,11 +97,6 @@ def init_database() -> None:
         logger.info("Existing DB without alembic_version — stamping head")
         command.stamp(alembic_cfg, "head")
         logger.info("Alembic stamp successful (%.2fs)", time.time() - t1)
-        try:
-            Base.metadata.create_all(bind=engine)
-            logger.info("create_all done — new models created")
-        except Exception as ca_err:
-            logger.warning("create_all failed: %s", ca_err)
         return
 
     logger.info("Fresh database — creating all tables via Alembic")
@@ -230,7 +205,7 @@ async def run_startup(db: Session) -> None:
     logger.info("=" * 60)
 
     logger.info("")
-    logger.info("--- Phase 1/6: Database ---")
+    logger.info("--- Phase 1/3: Database ---")
     try:
         init_database()
     except Exception as exc:
@@ -238,37 +213,28 @@ async def run_startup(db: Session) -> None:
         raise
 
     logger.info("")
-    logger.info("--- Phase 2/6: Reference Data ---")
+    logger.info("--- Phase 2/3: Reference Data ---")
     try:
         seed_reference_data(db)
     except Exception as exc:
         logger.error("Reference data seeding failed: %s", exc)
 
     logger.info("")
-    logger.info("--- Phase 3/6: Admin User ---")
+    logger.info("--- Phase 3/3: Admin User ---")
     try:
         ensure_default_admin(db)
     except Exception as exc:
         logger.error("Admin user creation failed: %s", exc)
 
     logger.info("")
-    logger.info("--- Phase 4/6: Subscription Plans ---")
+    logger.info("--- Phase 4/4: Subscription Plans ---")
     try:
         seed_plans(db)
     except Exception as exc:
         logger.error("Plan seeding failed: %s", exc)
 
     logger.info("")
-    logger.info("--- Phase 5/6: Lago Infrastructure ---")
-    try:
-        from app.services.lago_setup import setup_lago_infrastructure
-        await setup_lago_infrastructure()
-    except Exception as exc:
-        logger.error("Lago infrastructure setup failed: %s", exc)
-        raise
-
-    logger.info("")
-    logger.info("--- Phase 6/6: Services ---")
+    logger.info("--- Phase 5/5: Services ---")
     asyncio.create_task(start_heartbeat_task())
     logger.info("Heartbeat task started for WebSocket connections")
 

@@ -59,7 +59,6 @@ class InvoiceRepository:
         payment_status: Optional[str] = None,
         payment_condition: Optional[str] = None,
         status: Optional[str] = None,
-        exclude_source_type: Optional[str] = None,
         include_drafts: bool = False,
     ) -> tuple[list[Invoice], int]:
         query = db.query(Invoice).filter(
@@ -67,9 +66,6 @@ class InvoiceRepository:
             Invoice.organization_id == org_id,
             Invoice.is_deleted.is_(False),
         )
-
-        if exclude_source_type:
-            query = query.filter(Invoice.source_type != exclude_source_type)
 
         if status:
             query = query.filter(Invoice.status == status)
@@ -290,18 +286,12 @@ class InvoiceRepository:
             query = query.filter(Invoice.transaction_type == transaction_type)
 
         if date_from:
-            if date_from.tzinfo is None:
-                from datetime import timezone
-                date_from = date_from.replace(tzinfo=timezone.utc)
-            query = query.filter(Invoice.created_at >= date_from)
+            query = query.filter(Invoice.invoice_date >= date_from)
 
         if date_to:
             # Inclusivo hasta el final del día
             end_of_day = date_to.replace(hour=23, minute=59, second=59)
-            if end_of_day.tzinfo is None:
-                from datetime import timezone
-                end_of_day = end_of_day.replace(tzinfo=timezone.utc)
-            query = query.filter(Invoice.created_at <= end_of_day)
+            query = query.filter(Invoice.invoice_date <= end_of_day)
 
         if categories:
             query = query.filter(Invoice.category.in_(categories))
@@ -356,15 +346,9 @@ class InvoiceRepository:
         if transaction_type:
             query = query.filter(Invoice.transaction_type == transaction_type)
         if date_from:
-            if date_from.tzinfo is None:
-                from datetime import timezone
-                date_from = date_from.replace(tzinfo=timezone.utc)
-            query = query.filter(Invoice.created_at >= date_from)
+            query = query.filter(Invoice.invoice_date >= date_from)
         if date_to:
-            if date_to.tzinfo is None:
-                from datetime import timezone
-                date_to = date_to.replace(tzinfo=timezone.utc)
-            query = query.filter(Invoice.created_at <= date_to)
+            query = query.filter(Invoice.invoice_date <= date_to)
 
         all_invoices = query.all()
         total = len(all_invoices)
