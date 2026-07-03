@@ -10,7 +10,7 @@ import { getMe } from "@/lib/api/session";
 import { getMyUserSubscription } from "@/lib/api/plans";
 import { LogoLoader } from "@/components/logo-loader";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, RefreshCw } from "lucide-react";
+import { AlertCircle, Clock, RefreshCw } from "lucide-react";
 import SessionExpiredOverlay from "@/components/session-expired-overlay";
 import SubscriptionRequiredOverlay from "@/components/subscription-required-overlay";
 import BlockedOverlay from "@/components/blocked-overlay";
@@ -162,6 +162,7 @@ export function ShellLoader({ children }: { children: React.ReactNode }) {
   const [connectionFailed, setConnectionFailed] = useState(false);
   const [subscriptionBlocked, setSubscriptionBlocked] = useState(false);
   const [graceHours, setGraceHours] = useState<number | null>(null);
+  const [inGracePeriod, setInGracePeriod] = useState(false);
   const mountedRef = useRef(true);
   const retryCount = useRef(0);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -186,6 +187,7 @@ export function ShellLoader({ children }: { children: React.ReactNode }) {
         try {
           const sub = await getMyUserSubscription();
           if (!mountedRef.current) return;
+          setInGracePeriod(sub.in_grace_period === true);
           if (!sub.has_active_subscription) {
             setGraceHours(sub.subscription?.grace_hours ?? null);
             setReady(true);
@@ -317,6 +319,21 @@ export function ShellLoader({ children }: { children: React.ReactNode }) {
               }
             >
               <SoftDeletedOrgBanner />
+              {inGracePeriod && (
+                <div className="mx-4 mb-2 flex items-center gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 dark:border-amber-800/30 dark:bg-amber-950/40 dark:text-amber-300">
+                  <Clock className="h-4 w-4 shrink-0" />
+                  <span>
+                    Tu ciclo de facturación ha vencido.{" "}
+                    <a
+                      href="/dashboard/account"
+                      className="font-medium underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-200"
+                    >
+                      Regularizar pago
+                    </a>{" "}
+                    para reactivar tu suscripción.
+                  </span>
+                </div>
+              )}
               <div className={blockContent ? "subscription-expired" : undefined}>
                 {children}
               </div>

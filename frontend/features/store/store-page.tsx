@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getMyPlan, getPublicPlans, purchaseAddonDirect, PlanSummary } from "@/lib/api/plans";
+import { getMyPlan, getPublicPlans, PlanSummary } from "@/lib/api/plans";
 import { useSession } from "@/hooks/use-session";
 import { useCart } from "./cart-context";
 import { DurationSelector } from "./components/duration-selector";
@@ -84,7 +84,7 @@ export function StorePage() {
     toast.success(`${plan.display_name} agregado al carrito`);
   };
 
-  // Handle adding addon block to cart (pre-pay)
+  // Handle adding addon block to cart (pre-pay — e-CF blocks only)
   const handleAddAddonToCart = (type: string, quantity: number, pricePerBlockDop: number, label: string) => {
     const existing = items.find((i) => i.type === type);
     if (existing) removeItem(existing.id);
@@ -97,6 +97,21 @@ export function StorePage() {
       label,
     });
     toast.success(`${label} agregado al carrito`);
+  };
+
+  // Handle adding post-pay addons to cart (superpuestos-al-plan)
+  const handleAddPostpayToCart = (type: string, label: string, priceCents: number) => {
+    const existing = items.find((i) => i.type === type);
+    if (existing) removeItem(existing.id);
+
+    addItem({
+      type: type as any,
+      quantity: 1,
+      months: 1,
+      price_cents: priceCents,
+      label,
+    });
+    toast.success(`${label} añadido al carrito`);
   };
 
   if (isSessionLoading) {
@@ -197,6 +212,7 @@ export function StorePage() {
         addons={mySubData?.subscription?.addons}
         cartItems={items}
         onAddPrepayToCart={handleAddAddonToCart}
+        onAddPostpayToCart={handleAddPostpayToCart}
       />
 
       <Separator className="bg-brand-hairline dark:bg-slate-800" />

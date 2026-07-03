@@ -2165,7 +2165,7 @@ async def admin_verify_payment(
                             target_org.is_active = True
                             logger.info("✅ Activated pre-created org %s after entity_slot verification", target_org_id)
 
-                elif item.get("type") in ("ai", "storage"):
+                elif item.get("type") in ("ai", "storage", "ocr"):
                     qty = item.get("quantity", 1)
                     svc.purchase_addon(proof.organization_id, item.get("type"), qty)
 

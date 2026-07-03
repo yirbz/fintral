@@ -463,13 +463,97 @@ class PipelineOrchestrator:
         if modified_ncf:
             data["ncf_modified"] = modified_ncf.group(1)
 
+        # Due Date / Fecha de vencimiento
+        due_patterns = [
+            r"(?:vence|vencimiento|venc\.?|l[ií]mite\s*de\s*pago|due\s*date|válid[oa]\s*(?:hasta)?|valid[oa]\s*(?:hasta)?|validez|vence\s*ncf|expira|fecha\s*l[ií]mite|p[aá]guese\s*antes)\s*:?\s*(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})",
+            r"(?:vence|vencimiento|venc\.?|l[ií]mite\s*de\s*pago|due\s*date|válid[oa]\s*(?:hasta)?|valid[oa]\s*(?:hasta)?|validez|vence\s*ncf|expira|fecha\s*l[ií]mite|p[aá]guese\s*antes)\s*:?\s*(\d{4})[/-](\d{1,2})[/-](\d{1,2})",
+            r"(?:vence|vencimiento|venc\.?|l[ií]mite\s*de\s*pago|due\s*date|válid[oa]\s*(?:hasta)?|valid[oa]\s*(?:hasta)?|validez|vence\s*ncf|expira|fecha\s*l[ií]mite|p[aá]guese\s*antes)\s*:?\s*(\d{1,2}\s*(?:de\s+)?(?:[a-zA-Z]{3,10}|[a-zA-Z]{3})\s*(?:de\s+)?\d{2,4})"
+        ]
+        due_date_found = None
+        for pattern in due_patterns:
+            due_match = re.search(pattern, text, re.IGNORECASE)
+            if due_match:
+                if len(due_match.groups()) == 1:
+                    spanish_parsed = self._parse_spanish_date(due_match.group(1))
+                    if spanish_parsed:
+                        due_date_found = spanish_parsed
+                        break
+                elif len(due_match.group(3)) in (2, 4) and len(due_match.group(1)) <= 2:
+                    day, month, year = int(due_match.group(1)), int(due_match.group(2)), due_match.group(3)
+                    if month <= 12 and day <= 31:
+                        if len(year) == 2:
+                            year = "20" + year if int(year) < 50 else "19" + year
+                        due_date_found = f"{year}-{month:02d}-{day:02d}"
+                        break
+                elif len(due_match.group(1)) == 4:
+                    year, month, day = due_match.group(1), int(due_match.group(2)), int(due_match.group(3))
+                    if month <= 12 and day <= 31:
+                        due_date_found = f"{year}-{month:02d}-{day:02d}"
+                        break
+        if due_date_found:
+            data["due_date"] = due_date_found
+
+        # RNC Comprador
+        buyer_rnc_match = re.search(
+            r"(?:rnc\s+(?:comprador|cliente|adquiriente)|cliente\s+rnc|adquiriente\s+rnc)\s*:?\s*([\d]{3,4}[-.\s]?[\d]{6,8}[-.\s]?[\d]{0,2})",
+            text, re.IGNORECASE
+        )
+        if buyer_rnc_match:
+            data["rnc_comprador"] = re.sub(r"[^0-9]", "", buyer_rnc_match.group(1))
+
+        # Payment method detection (01-07)
+        payment_method_found = None
+        payment_lines = []
+        for line in text.split("\n"):
+            if any(kw in line.lower() for kw in ["pago", "forma", "condicion", "metodo", "pagado", "condición", "método"]):
+                payment_lines.append(line.lower())
+
+        for line in payment_lines:
+            if "efectivo" in line or "cash" in line:
+                payment_method_found = "01"
+                break
+            elif "tarjeta" in line or "card" in line or "visa" in line or "mastercard" in line or "amex" in line:
+                payment_method_found = "03"
+                break
+            elif "transferencia" in line or "deposito" in line or "depósito" in line or "cheque" in line or "transfer" in line:
+                payment_method_found = "02"
+                break
+            elif "venta a crédito" in line or "a crédito" in line or "credito" in line or "crédito" in line:
+                if "crédito fiscal" not in line and "credito fiscal" not in line:
+                    payment_method_found = "04"
+                    break
+
+        if not payment_method_found:
+            payment_text = text.lower()
+            if "efectivo" in payment_text or "cash" in payment_text:
+                payment_method_found = "01"
+            elif "tarjeta" in payment_text or "card" in payment_text or "visa" in payment_text or "mastercard" in payment_text or "amex" in payment_text:
+                payment_method_found = "03"
+            elif "transferencia" in payment_text or "deposito" in payment_text or "depósito" in payment_text or "cheque" in payment_text or "transfer" in payment_text:
+                payment_method_found = "02"
+            elif "venta a crédito" in payment_text or "a crédito" in payment_text or ("credito" in payment_text and "credito fiscal" not in payment_text) or ("crédito" in payment_text and "crédito fiscal" not in payment_text):
+                payment_method_found = "04"
+
+        if payment_method_found:
+            data["payment_method"] = payment_method_found
+
         return data
 
     def _calculate_field_confidence(self, data: Dict[str, Any],
                                     ocr_data: dict) -> float:
         required = ["vendor_name", "invoice_number", "total_amount"]
-        found = sum(1 for f in required if data.get(f))
+        found = 0
+        for f in required:
+            val = data.get(f)
+            if val and str(val).strip() and val != "Proveedor no identificado":
+                found += 1
         base = found / len(required)
+
+        # Force AI fallback if we can identify neither vendor name nor vendor tax id (RNC)
+        has_name = data.get("vendor_name") and data.get("vendor_name") != "Proveedor no identificado"
+        has_rnc = bool(data.get("vendor_tax_id"))
+        if not has_name and not has_rnc:
+            return 0.0
 
         extra_bonus = 0.0
         if data.get("vendor_tax_id"):
@@ -526,6 +610,46 @@ class PipelineOrchestrator:
         except Exception as e:
             logger.error("AI processing error: %s", e)
             return False, {"error": "Error al analizar el documento con inteligencia artificial. Intenta de nuevo en unos minutos."}, source_type
+
+    def _parse_spanish_date(self, value: str) -> Optional[str]:
+        months_map = {
+            "ene": 1, "enero": 1,
+            "feb": 2, "febrero": 2,
+            "mar": 3, "marzo": 3,
+            "abr": 4, "abril": 4,
+            "may": 5, "mayo": 5,
+            "jun": 6, "junio": 6,
+            "jul": 7, "julio": 7,
+            "ago": 8, "agosto": 8,
+            "sep": 9, "septiembre": 9, "set": 9,
+            "oct": 10, "octubre": 10,
+            "nov": 11, "noviembre": 11,
+            "dic": 12, "diciembre": 12
+        }
+        cleaned = value.lower().strip()
+        cleaned = re.sub(r"\bde\b", " ", cleaned)
+        cleaned = re.sub(r"[,./-]", " ", cleaned)
+        parts = [p.strip() for p in cleaned.split() if p.strip()]
+        
+        if len(parts) == 3:
+            if parts[1] in months_map:
+                day, month_str, year = parts[0], parts[1], parts[2]
+            elif parts[0] in months_map:
+                day, month_str, year = parts[1], parts[0], parts[2]
+            else:
+                return None
+                
+            month = months_map[month_str]
+            if not day.isdigit() or not year.isdigit():
+                return None
+            day_val = int(day)
+            year_val = int(year)
+            if len(year) == 2:
+                year_val = 2000 + year_val if year_val < 50 else 1900 + year_val
+                
+            if 1 <= day_val <= 31 and 1 <= month <= 12:
+                return f"{year_val:04d}-{month:02d}-{day_val:02d}"
+        return None
 
 
 orchestrator = PipelineOrchestrator()

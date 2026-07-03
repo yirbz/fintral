@@ -1358,7 +1358,8 @@ class TestMioWebhookHandlerExtended:
         }
 
         handler = MioWebhookHandler(db_session)
-        with pytest.raises(ValueError, match="Order not found"):
+        from app.services.payment_intent_service import PaymentIntentError
+        with pytest.raises(PaymentIntentError, match="Payment intent with MIO order"):
             await handler.process(
                 event_type="TRANSACTION_COMPLETED",
                 event_id="mio_evt_missing",
@@ -1370,7 +1371,8 @@ class TestMioWebhookHandlerExtended:
         payload = {"event": "TRANSACTION_COMPLETED"}
 
         handler = MioWebhookHandler(db_session)
-        with pytest.raises(ValueError, match="No order UUID found"):
+        from app.services.payment_intent_service import PaymentIntentError
+        with pytest.raises(PaymentIntentError, match="No order UUID found"):
             await handler.process(
                 event_type="TRANSACTION_COMPLETED",
                 event_id="mio_evt_no_uuid",
@@ -1522,3 +1524,309 @@ class TestUnhandledWebhookTypes:
             payload={"unknown": True},
         )
         assert event.processed is True
+
+
+class TestPaymentIntentService:
+    """Tests for PaymentIntentService lifecycle management."""
+
+    def test_valid_transitions(self):
+        from app.models.mio_payment_order import valid_transition
+        assert valid_transition("PENDING", "SUCCESS")
+        assert valid_transition("PENDING", "FAILED")
+        assert valid_transition("PENDING", "EXPIRED")
+        assert valid_transition("PENDING", "REPLACED")
+        assert valid_transition("PENDING", "RETRYING")
+        assert valid_transition("FAILED", "PENDING")
+        assert valid_transition("FAILED", "RETRYING")
+        assert valid_transition("EXPIRED", "PENDING")
+        assert valid_transition("EXPIRED", "RETRYING")
+        assert valid_transition("RETRYING", "SUCCESS")
+        assert not valid_transition("SUCCESS", "PENDING")
+        assert not valid_transition("SUCCESS", "FAILED")
+        assert not valid_transition("REPLACED", "PENDING")
+        assert not valid_transition("SUCCESS", "EXPIRED")
+
+    @pytest.mark.anyio
+    @patch("app.services.mio_service.MioService.create_order")
+    async def test_create_intent(self, mock_create, db_session):
+        from uuid import uuid4
+        mock_create.side_effect = lambda **kw: {
+            "order_uuid": str(uuid4()),
+            "checkout_url": "https://checkout.test",
+        }
+        from app.services.payment_intent_service import PaymentIntentService
+        svc = PaymentIntentService(db_session)
+        intent = await svc.create_or_replace(
+            amount_cents=100000,
+            description="Test payment",
+            context_type="test",
+            context_id="test-001",
+            user_id="00000000-0000-0000-0000-000000000001",
+        )
+        assert intent.status == "PENDING"
+        assert intent.amount_cents == 100000
+        assert intent.context_type == "test"
+        assert intent.context_id == "test-001"
+        assert intent.expires_at is not None
+
+    @pytest.mark.anyio
+    @patch("app.services.mio_service.MioService.create_order")
+    @patch("app.services.mio_service.MioService.cancel_order")
+    async def test_replace_old_intent(self, mock_cancel, mock_create, db_session):
+        from uuid import uuid4
+        mock_create.side_effect = lambda **kw: {
+            "order_uuid": str(uuid4()),
+            "checkout_url": "https://checkout.test",
+        }
+        from app.services.payment_intent_service import PaymentIntentService
+        svc = PaymentIntentService(db_session)
+        intent1 = await svc.create_or_replace(
+            amount_cents=50000,
+            description="Old",
+            context_type="replace_test",
+            context_id="replace-001",
+            user_id="00000000-0000-0000-0000-000000000001",
+        )
+        intent2 = await svc.create_or_replace(
+            amount_cents=75000,
+            description="New",
+            context_type="replace_test",
+            context_id="replace-001",
+            user_id="00000000-0000-0000-0000-000000000001",
+        )
+        db_session.commit()
+        db_session.refresh(intent1)
+        assert intent1.status == "REPLACED"
+        assert intent2.status == "PENDING"
+        assert intent2.amount_cents == 75000
+        mock_cancel.assert_called_once_with(intent1.order_uuid)
+
+    @pytest.mark.anyio
+    @patch("app.services.mio_service.MioService.create_order")
+    async def test_replace_different_context_no_conflict(self, mock_create, db_session):
+        from uuid import uuid4
+        mock_create.side_effect = lambda **kw: {
+            "order_uuid": str(uuid4()),
+            "checkout_url": "https://checkout.test",
+        }
+        from app.services.payment_intent_service import PaymentIntentService
+        svc = PaymentIntentService(db_session)
+        intent1 = await svc.create_or_replace(
+            amount_cents=50000,
+            description="Context A",
+            context_type="test",
+            context_id="ctx-A",
+            user_id="00000000-0000-0000-0000-000000000001",
+        )
+        intent2 = await svc.create_or_replace(
+            amount_cents=75000,
+            description="Context B",
+            context_type="test",
+            context_id="ctx-B",
+            user_id="00000000-0000-0000-0000-000000000001",
+        )
+        db_session.commit()
+        db_session.refresh(intent1)
+        assert intent1.status == "PENDING"
+        assert intent2.status == "PENDING"
+
+    @pytest.mark.anyio
+    @patch("app.services.mio_service.MioService.create_order")
+    async def test_idempotency_key(self, mock_create, db_session):
+        from uuid import uuid4
+        mock_create.side_effect = lambda **kw: {
+            "order_uuid": str(uuid4()),
+            "checkout_url": "https://checkout.test",
+        }
+        from app.services.payment_intent_service import PaymentIntentService
+        svc = PaymentIntentService(db_session)
+        intent1 = await svc.create_or_replace(
+            amount_cents=100000,
+            description="Test",
+            context_type="idemp_test",
+            context_id="idemp-001",
+            user_id="00000000-0000-0000-0000-000000000001",
+            idempotency_key="key-001",
+        )
+        intent2 = await svc.create_or_replace(
+            amount_cents=999999,
+            description="Should be ignored",
+            context_type="idemp_test",
+            context_id="idemp-001",
+            user_id="00000000-0000-0000-0000-000000000001",
+            idempotency_key="key-001",
+        )
+        assert intent1.id == intent2.id
+        assert intent2.amount_cents == 100000
+
+    @pytest.mark.anyio
+    @patch("app.services.mio_service.MioService.create_order")
+    async def test_idempotency_allow_retry_after_failure(self, mock_create, db_session):
+        from uuid import uuid4
+        mock_create.side_effect = lambda **kw: {
+            "order_uuid": str(uuid4()),
+            "checkout_url": "https://checkout.test",
+        }
+        from app.services.payment_intent_service import PaymentIntentService
+        svc = PaymentIntentService(db_session)
+        intent1 = await svc.create_or_replace(
+            amount_cents=100000,
+            description="Test",
+            context_type="idemp_retry",
+            context_id="idemp-retry-001",
+            user_id="00000000-0000-0000-0000-000000000001",
+            idempotency_key="key-retry",
+        )
+        intent1.status = "FAILED"
+        db_session.commit()
+        intent2 = await svc.create_or_replace(
+            amount_cents=100000,
+            description="Retry",
+            context_type="idemp_retry",
+            context_id="idemp-retry-001",
+            user_id="00000000-0000-0000-0000-000000000001",
+            idempotency_key="key-retry",
+        )
+        assert intent2.id != intent1.id
+
+    def test_process_webhook_success(self, db_session):
+        from app.services.payment_intent_service import PaymentIntentService
+        svc = PaymentIntentService(db_session)
+
+        from app.models.mio_payment_order import MioPaymentOrder as MPO
+        intent = MPO(
+            order_uuid="mio-wh-success",
+            amount_cents=100000,
+            status="PENDING",
+        )
+        db_session.add(intent)
+        db_session.commit()
+
+        result = svc.process_webhook_event(
+            event_type="TRANSACTION_COMPLETED",
+            order_uuid="mio-wh-success",
+            new_status="SUCCESS",
+            amount_cents=100000,
+            payment_data={"id": "pay-1", "authorization_code": "auth-1", "reference_number": "ref-1"},
+        )
+        assert result.status == "SUCCESS"
+        assert result.payment_id == "pay-1"
+        assert result.authorization_code == "auth-1"
+        assert result.reference_number == "ref-1"
+
+    def test_process_webhook_amount_mismatch(self, db_session):
+        from app.services.payment_intent_service import PaymentIntentService, PaymentIntentError
+        svc = PaymentIntentService(db_session)
+
+        from app.models.mio_payment_order import MioPaymentOrder as MPO
+        intent = MPO(
+            order_uuid="mio-wh-amount",
+            amount_cents=100000,
+            status="PENDING",
+        )
+        db_session.add(intent)
+        db_session.commit()
+
+        with pytest.raises(PaymentIntentError, match="Amount mismatch"):
+            svc.process_webhook_event(
+                event_type="TRANSACTION_COMPLETED",
+                order_uuid="mio-wh-amount",
+                new_status="SUCCESS",
+                amount_cents=50000,
+            )
+
+    def test_process_webhook_invalid_transition(self, db_session):
+        from app.services.payment_intent_service import PaymentIntentService, PaymentIntentError
+        svc = PaymentIntentService(db_session)
+
+        from app.models.mio_payment_order import MioPaymentOrder as MPO
+        intent = MPO(
+            order_uuid="mio-wh-bad-trans",
+            amount_cents=100000,
+            status="SUCCESS",
+        )
+        db_session.add(intent)
+        db_session.commit()
+
+        with pytest.raises(PaymentIntentError, match="Invalid state transition"):
+            svc.process_webhook_event(
+                event_type="TRANSACTION_FAILED",
+                order_uuid="mio-wh-bad-trans",
+                new_status="FAILED",
+            )
+
+    def test_lazy_expiry(self, db_session):
+        from datetime import timedelta
+        from app.services.payment_intent_service import PaymentIntentService
+        from app.utils.dates import utc_now
+        svc = PaymentIntentService(db_session)
+
+        from app.models.mio_payment_order import MioPaymentOrder as MPO
+        intent = MPO(
+            order_uuid="mio-stale",
+            amount_cents=50000,
+            status="PENDING",
+            expires_at=utc_now() - timedelta(minutes=1),
+        )
+        db_session.add(intent)
+        db_session.commit()
+
+        svc = PaymentIntentService(db_session)
+        result = svc.verify_and_expire_stale(intent.id)
+        assert result.status == "EXPIRED"
+
+    def test_lazy_expiry_still_valid(self, db_session):
+        from datetime import timedelta
+        from app.services.payment_intent_service import PaymentIntentService
+        from app.utils.dates import utc_now
+        svc = PaymentIntentService(db_session)
+
+        from app.models.mio_payment_order import MioPaymentOrder as MPO
+        intent = MPO(
+            order_uuid="mio-fresh",
+            amount_cents=50000,
+            status="PENDING",
+            expires_at=utc_now() + timedelta(minutes=5),
+        )
+        db_session.add(intent)
+        db_session.commit()
+
+        result = svc.verify_and_expire_stale(intent.id)
+        assert result.status == "PENDING"
+
+    def test_expire_all_stale(self, db_session):
+        from datetime import timedelta
+        from app.services.payment_intent_service import PaymentIntentService
+        from app.utils.dates import utc_now
+        svc = PaymentIntentService(db_session)
+
+        from app.models.mio_payment_order import MioPaymentOrder as MPO
+        for i in range(3):
+            db_session.add(MPO(
+                order_uuid=f"mio-batch-{i}",
+                amount_cents=50000,
+                status="PENDING",
+                expires_at=utc_now() - timedelta(minutes=5),
+            ))
+        db_session.commit()
+
+        count = svc.expire_all_stale()
+        assert count == 3
+        stale = db_session.query(MPO).filter(MPO.status == "PENDING").count()
+        assert stale == 0
+
+    def test_invalid_transition_raises(self, db_session):
+        from app.services.payment_intent_service import PaymentIntentService, PaymentIntentError
+        svc = PaymentIntentService(db_session)
+
+        from app.models.mio_payment_order import MioPaymentOrder as MPO
+        intent = MPO(
+            order_uuid="mio-invalid-trans",
+            amount_cents=50000,
+            status="SUCCESS",
+        )
+        db_session.add(intent)
+        db_session.commit()
+
+        with pytest.raises(PaymentIntentError, match="Invalid state transition"):
+            svc._transition(intent, "PENDING")

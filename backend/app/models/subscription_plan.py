@@ -33,6 +33,8 @@ class SubscriptionPlan(Base):
     addon_ai_block_price_cents = Column(Integer, default=1000)  # $10.00
     addon_storage_block_mb = Column(Integer, default=10240)     # 10GB
     addon_storage_block_price_cents = Column(Integer, default=500)
+    addon_ocr_block_size = Column(Integer, default=100)          # docs per add-on block
+    addon_ocr_block_price_cents = Column(Integer, default=50000)  # RD$ 500
 
     # ── Resource limits ──────────────────────────────────────────────
     max_users = Column(Integer, nullable=False, default=1)
@@ -106,6 +108,8 @@ class SubscriptionPlan(Base):
             "addon_ecf_block_price": round(self.addon_ecf_block_price_cents / 100, 2),
             "addon_ai_block_size": self.addon_ai_block_size,
             "addon_ai_block_price": round(self.addon_ai_block_price_cents / 100, 2),
+            "addon_ocr_block_size": self.addon_ocr_block_size,
+            "addon_ocr_block_price": round(self.addon_ocr_block_price_cents / 100, 2),
             "limits": {
                 "max_users": self.max_users,
                 "max_entities": self.max_entities,

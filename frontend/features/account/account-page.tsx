@@ -102,6 +102,13 @@ function TransactionTable({
         </span>
       );
     }
+    if (cleanStatus === "retrying") {
+      return (
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400">
+          Reintentando
+        </span>
+      );
+    }
     return (
       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
         Pendiente

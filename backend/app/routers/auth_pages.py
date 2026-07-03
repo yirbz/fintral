@@ -498,7 +498,27 @@ async def get_user_subscription(ctx: TenantContext = Depends(require_tenant)):
             grace_hours = max(0, int((grace_period - time_since_failed).total_seconds() / 3600))
 
     plan = sub.plan
+
+    # Check org-level subscription grace period
+    in_grace_period = False
+    if ctx.org_id:
+        from app.utils.dates import utc_now
+        from app.models.organization_subscription import OrganizationSubscription
+        org_sub = (
+            ctx.db.query(OrganizationSubscription)
+            .filter(
+                OrganizationSubscription.organization_id == ctx.org_id,
+                OrganizationSubscription.status.in_(["active", "trialing"]),
+                OrganizationSubscription.billing_cycle_end < utc_now(),
+            )
+            .order_by(OrganizationSubscription.created_at.desc())
+            .first()
+        )
+        if org_sub:
+            in_grace_period = True
+
     return {
+        "in_grace_period": in_grace_period,
         "subscription": {
             "id": str(sub.id),
             "status": sub.status,

@@ -599,6 +599,7 @@ async def get_invoices(
     payment_status: Optional[str] = None,
     payment_condition: Optional[str] = None,
     status: Optional[str] = None,
+    exclude_source_type: Optional[str] = None,
     include_drafts: bool = False,
     ctx: TenantContext = Depends(require_tenant),
 ):
@@ -620,6 +621,7 @@ async def get_invoices(
         payment_status=payment_status,
         payment_condition=payment_condition,
         status=status,
+        exclude_source_type=exclude_source_type,
         include_drafts=include_drafts,
     )
 
@@ -672,6 +674,7 @@ async def get_invoice(
 ):
     invoice = invoice_repo.get_including_trashed(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
     if not invoice:
+        logger.warning("Detail request for unknown invoice: %s (org=%s, tenant=%s)", invoice_id, ctx.org_id, ctx.tenant_id)
         raise HTTPException(status_code=404, detail="Factura no encontrada")
     return _serialize_invoices_with_dgii_status(ctx, [invoice])[0]
 
@@ -679,19 +682,31 @@ async def get_invoice(
 @router.get("/invoices/{invoice_id}/file")
 async def get_invoice_file(
     invoice_id: str,
+    processed: bool = False,
     ctx: TenantContext = Depends(require_tenant),
 ):
+    logger.info("File lookup: invoice=%s org=%s tenant=%s", invoice_id, ctx.org_id, ctx.tenant_id)
     invoice = invoice_repo.get_including_trashed(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
     if not invoice:
+        logger.warning("File request for unknown invoice: %s (org=%s, tenant=%s)", invoice_id, ctx.org_id, ctx.tenant_id)
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
-    if not invoice.file_path:
+    target_path = invoice.processed_path if processed and invoice.processed_path else invoice.file_path
+    if not target_path:
+        logger.warning(
+            "Invoice %s has no file_path (type=%s, source=%s, processed=%s)",
+            invoice_id, invoice.file_type, invoice.source_type, processed,
+        )
         raise HTTPException(status_code=404, detail="Archivo no adjunto o sin ruta de almacenamiento")
 
     from app.services.supabase_storage import download_file
 
-    file_data = download_file(invoice.file_path)
+    file_data = download_file(target_path)
     if not file_data:
+        logger.warning(
+            "File not found in storage for invoice %s: path=%s",
+            invoice_id, target_path,
+        )
         raise HTTPException(status_code=404, detail="No se pudo descargar el archivo del almacenamiento")
 
     content_type = "application/octet-stream"
@@ -2417,9 +2432,22 @@ async def hard_delete_draft_invoice(
     if invoice.status != "draft":
         raise HTTPException(status_code=400, detail="Solo se pueden archivar facturas en estado borrador")
 
-    invoice.is_deleted = True
-    invoice.deleted_at = datetime.utcnow()
-    invoice.deleted_by = ctx.user.id
+    # 1. Delete files from Supabase Storage
+    from app.services.supabase_storage import delete_invoice_folder
+    delete_invoice_folder(
+        invoice.tenant_id,
+        invoice.organization_id,
+        invoice.id,
+        file_path=invoice.file_path,
+        processed_path=invoice.processed_path,
+    )
+
+    # 2. Delete related InvoiceDgiiStatus records
+    from app.models.invoice_dgii_status import InvoiceDgiiStatus
+    ctx.db.query(InvoiceDgiiStatus).filter(InvoiceDgiiStatus.invoice_id == invoice.id).delete()
+
+    # 3. Hard delete from database
+    ctx.db.delete(invoice)
     ctx.db.commit()
 
     record(
@@ -2430,14 +2458,14 @@ async def hard_delete_draft_invoice(
         actor_id=str(ctx.user.id),
         actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
-        action="invoice.archived",
+        action="invoice.deleted",
         resource_type="invoice",
         resource_id=str(invoice_id),
-        summary=f"Factura borrador '{invoice.invoice_number}' archivada",
+        summary=f"Factura borrador '{invoice.invoice_number}' eliminada permanentemente",
     )
 
     invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
-    return {"message": "Factura borrador archivada"}
+    return {"message": "Factura borrador eliminada permanentemente"}
 
 
 @router.post("/api/invoices/bulk-hard-delete")
@@ -2456,18 +2484,29 @@ async def bulk_hard_delete_drafts(
         Invoice.original_xml_data.is_(None),
     ).all()
 
-    now = datetime.utcnow()
+    from app.services.supabase_storage import delete_invoice_folder
+    from app.models.invoice_dgii_status import InvoiceDgiiStatus
+
     count = 0
     for invoice in invoices:
-        invoice.is_deleted = True
-        invoice.deleted_at = now
-        invoice.deleted_by = ctx.user.id
+        # Delete from storage
+        delete_invoice_folder(
+            invoice.tenant_id,
+            invoice.organization_id,
+            invoice.id,
+            file_path=invoice.file_path,
+            processed_path=invoice.processed_path,
+        )
+        # Delete related InvoiceDgiiStatus
+        ctx.db.query(InvoiceDgiiStatus).filter(InvoiceDgiiStatus.invoice_id == invoice.id).delete()
+        # Hard delete from DB
+        ctx.db.delete(invoice)
         count += 1
 
     ctx.db.commit()
 
     skipped = len(action.invoice_ids) - len(invoices)
-    summary = f"{count} factura(s) borrador archivada(s)"
+    summary = f"{count} factura(s) borrador eliminada(s) permanentemente"
     if skipped:
         summary += f", {skipped} omitida(s) (no borrador)"
 
@@ -2479,7 +2518,7 @@ async def bulk_hard_delete_drafts(
         actor_id=str(ctx.user.id),
         actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
-        action="invoice.bulk_archived",
+        action="invoice.bulk_deleted",
         resource_type="invoice",
         summary=summary,
     )

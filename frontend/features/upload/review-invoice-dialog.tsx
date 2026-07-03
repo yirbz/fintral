@@ -171,14 +171,14 @@ export function ReviewInvoiceDialog({
           <div className="lg:col-span-7 border border-border rounded-lg bg-muted/20 overflow-hidden flex flex-col justify-center items-center relative min-h-[260px] lg:min-h-0 h-full">
             {isPdf ? (
               <iframe
-                src={`/invoices/${invoice.id}/file#toolbar=0`}
+                src={`/invoices/${invoice.id}/file?org_id=${invoice.organization_id}#toolbar=0`}
                 className="w-full h-full border-0 rounded-lg"
                 title="Previsualización PDF"
               />
             ) : isImage ? (
               <div className="w-full h-full flex items-center justify-center p-3">
                 <img
-                  src={`/invoices/${invoice.id}/file`}
+                  src={`/invoices/${invoice.id}/file?org_id=${invoice.organization_id}`}
                   alt="Previsualización del documento"
                   className="max-w-full max-h-full object-contain rounded-md shadow-sm"
                 />

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
 from typing import Any, Dict
@@ -9,13 +10,15 @@ from sqlalchemy.orm import Session
 
 from app.models.billing_webhook_event import BillingWebhookEvent
 from app.services.lago_service import LagoService
+from app.services.plan_service import ADDON_SPECS, DISCOUNT_TIERS
+from app.services.payment_intent_service import PaymentIntentService, PaymentIntentError
 from app.utils.dates import utc_now
 
 logger = logging.getLogger(__name__)
 
 
 class MioWebhookHandler:
-    """Processes MIO webhook events idempotently."""
+    """Processes MIO webhook events idempotently with state-machine enforcement."""
 
     def __init__(self, db: Session):
         self.db = db
@@ -23,7 +26,6 @@ class MioWebhookHandler:
 
     async def process(self, event_type: str, event_id: str, payload: Dict[str, Any]) -> BillingWebhookEvent:
         """Persist and process a MIO webhook event idempotently."""
-        # Check if already processed
         existing = (
             self.db.query(BillingWebhookEvent)
             .filter(BillingWebhookEvent.event_id == event_id)
@@ -33,7 +35,6 @@ class MioWebhookHandler:
             logger.info(f"MIO Webhook {event_id} already processed, skipping")
             return existing
 
-        # Create event log
         event = BillingWebhookEvent(
             event_id=event_id,
             event_type=event_type,
@@ -45,13 +46,54 @@ class MioWebhookHandler:
 
         try:
             if event_type == "TRANSACTION_COMPLETED":
-                await self._handle_transaction_completed(payload)
+                order_uuid = self._extract_order_uuid(payload)
+                payment_data = self._extract_payment_data(payload)
+                amount_cents = (
+                    payload.get("amount_cents")
+                    or payload.get("data", {}).get("attributes", {}).get("amount_cents")
+                )
+                intent_svc = PaymentIntentService(self.db)
+                intent_svc.process_webhook_event(
+                    event_type=event_type,
+                    order_uuid=order_uuid,
+                    new_status="SUCCESS",
+                    amount_cents=amount_cents,
+                    payment_data=payment_data,
+                    raw_payload=payload,
+                )
+                await self._handle_transaction_completed(order_uuid, payment_data)
             elif event_type in ("TRANSACTION_FAILED", "PAYMENT_FAILED"):
-                await self._handle_order_status_update(payload, "FAILED")
+                order_uuid = self._extract_order_uuid(payload)
+                amount_cents = (
+                    payload.get("amount_cents")
+                    or payload.get("data", {}).get("attributes", {}).get("amount_cents")
+                )
+                intent_svc = PaymentIntentService(self.db)
+                intent_svc.process_webhook_event(
+                    event_type=event_type,
+                    order_uuid=order_uuid,
+                    new_status="FAILED",
+                    amount_cents=amount_cents,
+                    raw_payload=payload,
+                )
             elif event_type in ("CHECKOUT_EXPIRED", "ORDER_EXPIRED"):
-                await self._handle_order_status_update(payload, "EXPIRED")
+                order_uuid = self._extract_order_uuid(payload)
+                intent_svc = PaymentIntentService(self.db)
+                intent_svc.process_webhook_event(
+                    event_type=event_type,
+                    order_uuid=order_uuid,
+                    new_status="EXPIRED",
+                    raw_payload=payload,
+                )
             elif event_type in ("TRANSACTION_CANCELLED", "PAYMENT_CANCELLED"):
-                await self._handle_order_status_update(payload, "CANCELLED")
+                order_uuid = self._extract_order_uuid(payload)
+                intent_svc = PaymentIntentService(self.db)
+                intent_svc.process_webhook_event(
+                    event_type=event_type,
+                    order_uuid=order_uuid,
+                    new_status="EXPIRED",
+                    raw_payload=payload,
+                )
             else:
                 logger.info(f"Unhandled MIO webhook event type: {event_type}")
 
@@ -59,6 +101,13 @@ class MioWebhookHandler:
             event.processed_at = utc_now()
             self.db.commit()
             logger.info(f"Successfully processed MIO webhook {event_id}")
+        except PaymentIntentError as e:
+            self.db.rollback()
+            event.error = str(e)
+            event.attempts += 1
+            self.db.commit()
+            logger.warning(f"Payment intent error processing MIO webhook {event_id}: {e}")
+            raise e  # propagate so the router can return 400
         except Exception as e:
             self.db.rollback()
             event.error = str(e)
@@ -69,42 +118,30 @@ class MioWebhookHandler:
 
         return event
 
-    async def _handle_transaction_completed(self, payload: Dict[str, Any]) -> None:
-        """Process TRANSACTION_COMPLETED from MIO.
-
-        Locates the original payment order, marks it succeeded, and records the payment in Lago.
-        """
-        # MIO webhook payload format is evolving, but we look for order UUID
-        order_uuid = payload.get("order_uuid") or payload.get("data", {}).get("attributes", {}).get("uuid")
+    def _extract_order_uuid(self, payload: Dict[str, Any]) -> str:
+        order_uuid = (
+            payload.get("order_uuid")
+            or payload.get("data", {}).get("attributes", {}).get("uuid")
+            or payload.get("uuid")
+        )
         if not order_uuid:
-            logger.warning("MIO webhook TRANSACTION_COMPLETED missing order UUID, checking nested data...")
-            # Look inside alternative keys
-            order_uuid = payload.get("uuid")
-            
-        if not order_uuid:
-            raise ValueError("No order UUID found in MIO webhook payload")
+            raise PaymentIntentError("No order UUID found in MIO webhook payload")
+        return order_uuid
 
+    def _extract_payment_data(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return (
+            payload.get("payment", {})
+            or payload.get("data", {}).get("attributes", {}).get("payment", {})
+        )
+
+    async def _handle_transaction_completed(self, order_uuid: str, payment_data: Dict[str, Any]) -> None:
+        """Post-SUCCESS provisioning: cart, statement, Lago, email."""
         from app.models.mio_payment_order import MioPaymentOrder
 
         order = self.db.query(MioPaymentOrder).filter(MioPaymentOrder.order_uuid == order_uuid).first()
         if not order:
-            logger.error(f"MIO payment order with UUID {order_uuid} not found in database")
             raise ValueError(f"Order not found: {order_uuid}")
 
-        if order.status == "SUCCESS":
-            logger.info(f"MIO order {order_uuid} is already marked as SUCCESS, skipping")
-            return
-
-        payment_data = payload.get("payment", {}) or payload.get("data", {}).get("attributes", {}).get("payment", {})
-        
-        # Update order in DB
-        order.status = "SUCCESS"
-        order.payment_id = str(payment_data.get("id", ""))
-        order.authorization_code = str(payment_data.get("authorization_code", ""))
-        order.reference_number = str(payment_data.get("reference_number", ""))
-        order.webhook_payload = payload
-        order.updated_at = utc_now()
-        
         logger.info(f"MIO Order {order_uuid} successfully paid. Recording payment in Lago...")
 
         # Provision cart items if present on the order
@@ -112,9 +149,8 @@ class MioWebhookHandler:
             try:
                 cart_items = order.cart_items_json
                 if isinstance(cart_items, str):
-                    import json
                     cart_items = json.loads(cart_items)
-                
+
                 if cart_items and isinstance(cart_items, list):
                     from app.services.billing_checkout_service import BillingCheckoutService
                     checkout_svc = BillingCheckoutService(self.db)
@@ -125,7 +161,6 @@ class MioWebhookHandler:
                     )
                     logger.info(f"Provisioned {len(cart_items)} cart items from MIO order {order_uuid}")
 
-                    # Check if there is a plan change or renewal item in the cart and provision user subscription
                     plan_change_item = next((i for i in cart_items if isinstance(i, dict) and i.get("type") in ("plan_change", "renewal")), None)
                     if plan_change_item and order.user_id:
                         plan_name = plan_change_item.get("plan_name")
@@ -137,13 +172,16 @@ class MioWebhookHandler:
                             )
                             logger.info(f"Provisioned mixed-cart user subscription for user {order.user_id} to plan {plan_name}")
 
-                    # Check if there is a statement payment item
                     statement_item = next((i for i in cart_items if isinstance(i, dict) and i.get("type") == "statement_payment"), None)
                     if statement_item:
                         cycle = statement_item.get("cycle")
                         org_id = statement_item.get("organization_id")
+                        order_months = max(1, statement_item.get("months", 1))
                         if cycle and org_id:
                             from app.models.monthly_charge import MonthlyCharge
+                            from app.models.organization_subscription import OrganizationSubscription
+                            from app.models.subscription_plan import SubscriptionPlan
+                            from datetime import timedelta
                             charges = (
                                 self.db.query(MonthlyCharge)
                                 .filter(
@@ -158,6 +196,76 @@ class MioWebhookHandler:
                                 c.paid = True
                                 c.paid_at = now
                             logger.info(f"Marked {len(charges)} statement charges as paid via MIO order {order_uuid} for org {org_id} cycle {cycle}")
+
+                            sub = (
+                                self.db.query(OrganizationSubscription)
+                                .filter(
+                                    OrganizationSubscription.organization_id == org_id,
+                                    OrganizationSubscription.status.in_(["active", "trialing"]),
+                                )
+                                .first()
+                            )
+                            if sub and sub.billing_cycle_end and now > sub.billing_cycle_end:
+                                sub.billing_cycle_end = sub.billing_cycle_end + timedelta(days=30 * order_months)
+                                if sub.pending_plan_change_id:
+                                    pending_plan = (
+                                        self.db.query(SubscriptionPlan)
+                                        .filter(SubscriptionPlan.id == sub.pending_plan_change_id)
+                                        .first()
+                                    )
+                                    if pending_plan:
+                                        sub.plan_id = pending_plan.id
+                                        plan = pending_plan
+                                    sub.pending_plan_change_id = None
+                                else:
+                                    plan = self.db.query(SubscriptionPlan).filter(SubscriptionPlan.id == sub.plan_id).first()
+                                if plan:
+                                    from app.models.user_subscription import UserSubscription
+                                    user_sub = None
+                                    if order.user_id:
+                                        user_sub = (
+                                            self.db.query(UserSubscription)
+                                            .filter(UserSubscription.user_id == str(order.user_id))
+                                            .order_by(UserSubscription.created_at.desc())
+                                            .first()
+                                        )
+                                    new_cycle = int(now.strftime("%Y%m"))
+                                    discount = DISCOUNT_TIERS.get(order_months, 0.0)
+                                    discounted_monthly = plan.price_monthly_cents * (1 - discount)
+                                    self.db.add(MonthlyCharge(
+                                        organization_id=org_id,
+                                        cycle=new_cycle,
+                                        charge_type="plan",
+                                        quantity=order_months,
+                                        unit_price_cents=int(discounted_monthly),
+                                        total_price_cents=int(discounted_monthly * order_months),
+                                        label=f"Plan {plan.display_name}{' × ' + str(order_months) + ' meses' if order_months > 1 else ''}",
+                                        paid=True,
+                                        paid_at=now,
+                                    ))
+                                    for atype, count_field, pending_field, price_field, alabel in ADDON_SPECS:
+                                        if atype == "entity_slot" and user_sub:
+                                            count = getattr(user_sub, count_field, 0) or 0
+                                            pending = getattr(user_sub, pending_field, 0) or 0
+                                        else:
+                                            count = getattr(sub, count_field, 0) or 0
+                                            pending = getattr(sub, pending_field, 0) or 0
+                                        price_cents = getattr(plan, price_field, 0) or 0
+                                        net = max(count - pending, 0)
+                                        if net > 0 and price_cents:
+                                            discounted_unit = int(price_cents * (1 - discount))
+                                            self.db.add(MonthlyCharge(
+                                                organization_id=org_id,
+                                                cycle=new_cycle,
+                                                charge_type=atype,
+                                                quantity=net * order_months,
+                                                unit_price_cents=discounted_unit,
+                                                total_price_cents=discounted_unit * net * order_months,
+                                                label=f"{net} {alabel}{' × ' + str(order_months) + ' meses' if order_months > 1 else ''}",
+                                                paid=True,
+                                                paid_at=now,
+                                            ))
+                            self.db.commit()
             except Exception as e:
                 logger.error(f"Failed to provision cart items from MIO order {order_uuid}: {e}")
 
@@ -166,7 +274,7 @@ class MioWebhookHandler:
             try:
                 from app.services.billing_checkout_service import BillingCheckoutService
                 from app.models.subscription_plan import SubscriptionPlan
-                
+
                 plan = self.db.query(SubscriptionPlan).filter(SubscriptionPlan.id == order.plan_id).first()
                 if plan:
                     checkout_svc = BillingCheckoutService(self.db)
@@ -178,12 +286,10 @@ class MioWebhookHandler:
                     logger.info(f"Provisioned subscription for user {order.user_id} to plan {plan.name}")
             except Exception as e:
                 logger.error(f"Failed to provision user subscription after MIO payment: {e}")
-                # Do not raise to prevent rolling back the payment status update
 
-        # Record payment in Lago so the invoice is marked paid
+        # Record payment in Lago
         if order.lago_invoice_id:
             try:
-                # Lago expects paid_at in ISO format (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ)
                 paid_at = utc_now().strftime("%Y-%m-%d")
                 await self.lago.record_payment(
                     invoice_id=order.lago_invoice_id,
@@ -194,12 +300,10 @@ class MioWebhookHandler:
                 logger.info(f"Recorded payment for Lago invoice {order.lago_invoice_id} successfully.")
             except Exception as e:
                 logger.error(f"Failed to record payment in Lago for invoice {order.lago_invoice_id}: {e}")
-                # We do NOT raise here to prevent rolling back Fintral DB state,
-                # as the credit card has already been charged. We'll reconcile it later.
         else:
             logger.info(f"No lago_invoice_id associated with MIO order {order_uuid}")
 
-        # Send provisional invoice/receipt email using Resend
+        # Send provisional invoice/receipt email
         try:
             from app.services.email_service import send_purchase_invoice_email
             from app.models.user import User
@@ -207,8 +311,6 @@ class MioWebhookHandler:
 
             email_sent = False
             amount_dop = float(order.amount_cents) / 100.0
-            
-            # MIO card payments carry a 5% transaction fee included in the total charged
             fee_amount = amount_dop * 0.05 / 1.05
             subtotal_dop = amount_dop - fee_amount
 
@@ -235,15 +337,13 @@ class MioWebhookHandler:
             elif order.organization_id:
                 org = self.db.query(Organization).filter(Organization.id == order.organization_id).first()
                 if org:
-                    # Map price to e-CF block label
                     ecf_labels = {
                         525.0: "Fintral Factura: Bloque prepagado de 100 e-CFs",
                         2100.0: "Fintral Factura: Bloque prepagado de 500 e-CFs",
                         3675.0: "Fintral Factura: Bloque prepagado de 1000 e-CFs",
                     }
                     label = ecf_labels.get(amount_dop, "Fintral Factura: Compra de bloques e-CF")
-                    
-                    # If cart_items_json exists, use its descriptions instead
+
                     if order.cart_items_json:
                         items_desc = []
                         for ci in (order.cart_items_json if isinstance(order.cart_items_json, list) else []):
@@ -291,33 +391,5 @@ class MioWebhookHandler:
         except Exception as e:
             logger.error(f"Error sending provisional invoice email for MIO order {order_uuid}: {e}")
 
-        # Trigger websocket notification or user update
-        self.db.flush()
-
-    async def _handle_order_status_update(self, payload: Dict[str, Any], new_status: str) -> None:
-        """Process transaction failures, cancellations, and expirations from MIO webhooks."""
-        order_uuid = payload.get("order_uuid") or payload.get("data", {}).get("attributes", {}).get("uuid")
-        if not order_uuid:
-            order_uuid = payload.get("uuid")
-            
-        if not order_uuid:
-            logger.warning("MIO webhook status update missing order UUID, skipping status update")
-            return
-
-        from app.models.mio_payment_order import MioPaymentOrder
-
-        order = self.db.query(MioPaymentOrder).filter(MioPaymentOrder.order_uuid == order_uuid).first()
-        if not order:
-            logger.warning(f"MIO payment order with UUID {order_uuid} not found in database for status update")
-            return
-
-        if order.status == "SUCCESS":
-            logger.info(f"MIO order {order_uuid} is already SUCCESS, skipping status update to {new_status}")
-            return
-
-        order.status = new_status
-        order.webhook_payload = payload
-        order.updated_at = utc_now()
-        logger.info(f"MIO Order {order_uuid} status updated to {new_status} via webhook")
         self.db.flush()
 

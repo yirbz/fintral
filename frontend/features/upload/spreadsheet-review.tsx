@@ -434,14 +434,14 @@ export function SpreadsheetReview({ draftInvoices, onSuccess }: SpreadsheetRevie
         <div className="flex-1 min-h-0 bg-muted/5 relative flex justify-center items-center">
           {isSelectedPdf ? (
             <iframe
-              src={`/invoices/${selectedInvoice.id}/file#toolbar=0`}
+              src={`/invoices/${selectedInvoice.id}/file?org_id=${selectedInvoice.organization_id}#toolbar=0`}
               className="w-full h-full border-0"
               title="Previsualización PDF"
             />
           ) : isSelectedImage ? (
             <div className="w-full h-full flex items-center justify-center p-4">
               <img
-                src={`/invoices/${selectedInvoice.id}/file`}
+                src={`/invoices/${selectedInvoice.id}/file?org_id=${selectedInvoice.organization_id}`}
                 alt="Previsualización de la factura"
                 className="max-w-full max-h-full object-contain rounded-md shadow-md border border-border/30"
               />
