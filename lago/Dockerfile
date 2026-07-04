@@ -17,7 +17,7 @@ COPY lago/nginx.conf /etc/nginx/conf.d/lago.conf
 COPY lago/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY lago/start.sh /app/start.sh
 
-RUN chmod +x /app/start.sh
+RUN chmod +x /app/start.sh && mkdir -p /app/config/keys
 
 ENV RAILS_ENV=production
 ENV RAILS_LOG_TO_STDOUT=true

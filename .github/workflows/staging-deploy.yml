@@ -1,0 +1,90 @@
+name: Staging Deploy
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-frontend:
+    name: Deploy frontend → Vercel
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - uses: dopplerhq/secrets-fetch-action@v1
+        id: doppler
+        with:
+          doppler-token: ${{ secrets.DOPPLER_TOKEN_STG }}
+
+      - name: Install & build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+        env:
+          NEXT_PUBLIC_ENVIRONMENT: STAGING
+          NEXT_PUBLIC_APP_URL: ${{ steps.doppler.outputs.NEXT_PUBLIC_APP_URL }}
+          BACKEND_URL: ${{ steps.doppler.outputs.BACKEND_URL }}
+
+      - name: Deploy to Vercel (preview)
+        run: |
+          npx vercel deploy \
+            --token ${{ secrets.VERCEL_TOKEN }} \
+            --scope yvniel09s-projects \
+            --prebuilt \
+            --archive=tgz \
+            --env NEXT_PUBLIC_ENVIRONMENT=STAGING \
+            --env NEXT_PUBLIC_APP_URL=${{ steps.doppler.outputs.NEXT_PUBLIC_APP_URL }} \
+            --env BACKEND_URL=${{ steps.doppler.outputs.BACKEND_URL }} \
+            --build-env NEXT_PUBLIC_ENVIRONMENT=STAGING \
+            --build-env NEXT_PUBLIC_APP_URL=${{ steps.doppler.outputs.NEXT_PUBLIC_APP_URL }} \
+            --build-env BACKEND_URL=${{ steps.doppler.outputs.BACKEND_URL }} \
+            > /tmp/vercel-deploy.txt
+          echo "url=$(grep -o 'https://[^ ]*\.vercel\.app' /tmp/vercel-deploy.txt | head -1)" >> $GITHUB_OUTPUT
+        id: vercel
+
+  deploy-backend:
+    name: Trigger backend deploy → Railway
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Railway redeploy
+        run: |
+          curl -X POST "${{ secrets.RAILWAY_DEPLOY_HOOK_STG }}" \
+            -H "Content-Type: application/json" \
+            -d '{"branch":"develop"}'
+
+  comment:
+    name: Comment PR with staging URL
+    needs: [deploy-frontend, deploy-backend]
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const frontendUrl = '${{ needs.deploy-frontend.outputs.url }}' || 'https://stg.fintral.app';
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🚀 Staging Environment Ready\n\n| Service | URL |\n|---------|-----|\n| Frontend | ${frontendUrl} |\n| Backend | https://stg-api.fintral.app |\n| Database | \`fintral_staging\` (Supabase) |\n\n> Variables managed in [Doppler stg](https://dashboard.doppler.com/workplace/fintral/configs/stg). Changes auto-sync to Vercel via integration.`
+            });

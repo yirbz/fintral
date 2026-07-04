@@ -199,3 +199,5 @@ GOAL.md
 # Playwright test artifacts
 # ─────────────────────────────────────────────
 frontend/test-results/
+.vercel
+.env*
