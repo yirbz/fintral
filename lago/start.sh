@@ -17,8 +17,9 @@ fi
 # Run database migrations
 echo "Running database migrations..."
 cd /app
-bundle exec rails db:migrate 2>/dev/null || echo "Migration failed or already up-to-date"
-bundle exec rails signup:seed_organization 2>/dev/null || echo "Seed skipped or already seeded"
+timeout 60 bundle exec rails db:migrate || echo "Migration timeout or failed"
+echo "Running seed..."
+timeout 60 bundle exec rails signup:seed_organization || echo "Seed timeout or failed"
 
 echo "Starting Lago services..."
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
