@@ -13,6 +13,8 @@ jobs:
   deploy-frontend:
     name: Deploy frontend → Vercel
     runs-on: ubuntu-latest
+    outputs:
+      url: ${{ steps.vercel.outputs.url }}
     defaults:
       run:
         working-directory: frontend
@@ -35,31 +37,35 @@ jobs:
         with:
           doppler-token: ${{ secrets.DOPPLER_TOKEN_STG }}
 
-      - name: Install & build
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm build
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Pull Vercel Project Info
+        run: npx vercel pull --yes --environment=preview
         env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: team_EFfddjRHIl9rcFwJJP105uZ8
+          VERCEL_PROJECT_ID: prj_YxDVjxE1yDXMh7O3LKCEoDAxghEf
+
+      - name: Build Project Artifacts (Vercel)
+        run: npx vercel build
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: team_EFfddjRHIl9rcFwJJP105uZ8
+          VERCEL_PROJECT_ID: prj_YxDVjxE1yDXMh7O3LKCEoDAxghEf
           NEXT_PUBLIC_ENVIRONMENT: STAGING
           NEXT_PUBLIC_APP_URL: ${{ steps.doppler.outputs.NEXT_PUBLIC_APP_URL }}
           BACKEND_URL: ${{ steps.doppler.outputs.BACKEND_URL }}
 
       - name: Deploy to Vercel (preview)
-        run: |
-          npx vercel deploy \
-            --token ${{ secrets.VERCEL_TOKEN }} \
-            --scope yvniel09s-projects \
-            --prebuilt \
-            --archive=tgz \
-            --env NEXT_PUBLIC_ENVIRONMENT=STAGING \
-            --env NEXT_PUBLIC_APP_URL=${{ steps.doppler.outputs.NEXT_PUBLIC_APP_URL }} \
-            --env BACKEND_URL=${{ steps.doppler.outputs.BACKEND_URL }} \
-            --build-env NEXT_PUBLIC_ENVIRONMENT=STAGING \
-            --build-env NEXT_PUBLIC_APP_URL=${{ steps.doppler.outputs.NEXT_PUBLIC_APP_URL }} \
-            --build-env BACKEND_URL=${{ steps.doppler.outputs.BACKEND_URL }} \
-            > /tmp/vercel-deploy.txt
-          echo "url=$(grep -o 'https://[^ ]*\.vercel\.app' /tmp/vercel-deploy.txt | head -1)" >> $GITHUB_OUTPUT
         id: vercel
+        run: |
+          url=$(npx vercel deploy --prebuilt --stdout)
+          echo "url=$url" >> $GITHUB_OUTPUT
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: team_EFfddjRHIl9rcFwJJP105uZ8
+          VERCEL_PROJECT_ID: prj_YxDVjxE1yDXMh7O3LKCEoDAxghEf
 
   deploy-backend:
     name: Trigger backend deploy → Railway
