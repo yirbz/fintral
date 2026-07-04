@@ -14,11 +14,16 @@ if [ -f /usr/share/nginx/html/.env.sh ]; then
   bash /usr/share/nginx/html/.env.sh
 fi
 
-# Test DNS and database connectivity before Rails
-echo "Testing DNS resolution..."
-getent hosts lago-postgres 2>&1 && echo "DNS OK" || echo "DNS FAILED"
-echo "Running database migrations..."
+# Set ClickHouse env vars to prevent hanging
+export LAGO_CLICKHOUSE_HOST="127.0.0.1"
+export LAGO_CLICKHOUSE_DATABASE="lago"
+export LAGO_CLICKHOUSE_MIGRATIONS_ENABLED="false"
+
+echo "Running database setup..."
 cd /app
+# Fast path: load schema from structure.sql (creates all tables at once)
+timeout 60 bundle exec rails db:schema:load 2>&1 || echo "Schema load failed"
+# Run any pending migrations (safely handles already-loaded schema)
 timeout 300 bundle exec rails db:migrate 2>&1 || echo "Migration failed or timed out"
 timeout 30 bundle exec rails signup:seed_organization 2>&1 || echo "Seed skipped or already seeded"
 
