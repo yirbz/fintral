@@ -14,11 +14,11 @@ if [ -f /usr/share/nginx/html/.env.sh ]; then
   bash /usr/share/nginx/html/.env.sh
 fi
 
-# Run database migrations
+# Run database migrations with timeout
 echo "Running database migrations..."
 cd /app
-bundle exec rails db:migrate 2>&1 || echo "Migration failed"
-bundle exec rails signup:seed_organization 2>&1 || echo "Seed skipped or already seeded"
+timeout 120 bundle exec rails db:migrate 2>&1 || echo "Migration failed or timed out"
+timeout 30 bundle exec rails signup:seed_organization 2>&1 || echo "Seed skipped or already seeded"
 
 echo "Starting Lago services..."
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
