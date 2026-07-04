@@ -5,6 +5,7 @@ FROM getlago/api:v1.39.0
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nginx \
     supervisor \
+    redis-server \
     curl \
     && rm -rf /var/lib/apt/lists/* \
     && rm -f /etc/nginx/sites-enabled/default
