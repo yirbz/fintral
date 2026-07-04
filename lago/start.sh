@@ -14,7 +14,9 @@ if [ -f /usr/share/nginx/html/.env.sh ]; then
   bash /usr/share/nginx/html/.env.sh
 fi
 
-# Run database migrations with timeout
+# Test database connectivity before Rails
+echo "Testing database connectivity..."
+timeout 10 bash -c 'exec 3<>/dev/tcp/lago-postgres/5432' 2>&1 && echo "TCP to postgres OK" || echo "TCP to postgres FAILED"
 echo "Running database migrations..."
 cd /app
 timeout 120 bundle exec rails db:migrate 2>&1 || echo "Migration failed or timed out"
