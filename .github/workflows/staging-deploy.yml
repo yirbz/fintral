@@ -84,7 +84,7 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.RAILWAY_API_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d '{
-              "query": "mutation { serviceInstanceDeployV2(serviceId: \"${{ env.RAILWAY_SERVICE }}\", environmentId: \"${{ env.RAILWAY_ENV }}\") }"
+              "query": "mutation { serviceInstanceDeploy(serviceId: \"${{ env.RAILWAY_SERVICE }}\", environmentId: \"${{ env.RAILWAY_ENV }}\", latestCommit: true) }"
             }'
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
