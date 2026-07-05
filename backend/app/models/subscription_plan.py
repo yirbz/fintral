@@ -35,6 +35,7 @@ class SubscriptionPlan(Base):
     max_entities = Column(Integer, nullable=False, default=1)
 
     # Monthly hard caps
+    max_products = Column(Integer, nullable=False, default=0)
     max_ecf_monthly = Column(Integer, nullable=False, default=0)
     max_ai_queries_monthly = Column(Integer, nullable=False, default=0)
     max_ocr_docs_monthly = Column(Integer, nullable=False, default=0)
@@ -88,6 +89,7 @@ class SubscriptionPlan(Base):
             "addon_ai_block_size": self.addon_ai_block_size,
             "addon_ai_block_price": round(self.addon_ai_block_price_cents / 100, 2),
             "limits": {
+                "max_products": self.max_products,
                 "max_users": self.max_users,
                 "max_entities": self.max_entities,
                 "max_ecf_monthly": self.max_ecf_monthly,
