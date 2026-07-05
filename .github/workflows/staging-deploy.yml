@@ -16,10 +16,11 @@ env:
   RAILWAY_PROJECT: 3d1b6173-3b08-4965-a4e4-d2ab61d95b6b
   RAILWAY_ENV: 29f5b19a-8137-48ff-bd76-2595a7a5904c
   RAILWAY_SERVICE: 398877f8-5452-4c4c-833a-cd53aaeb66a7
+  SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF_STG }}
 
 jobs:
   frontend:
-    name: ${{ (github.event_name == 'push' && 'Deploy' || 'Preview') }} frontend → Vercel
+    name: Frontend → Vercel (preview)
     runs-on: ubuntu-latest
     outputs:
       url: ${{ steps.deploy.outputs.url }}
@@ -49,12 +50,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Pull Vercel Project Info
-        run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            npx vercel pull --yes --environment=production
-          else
-            npx vercel pull --yes --environment=preview
-          fi
+        run: npx vercel pull --yes --environment=preview
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: team_EFfddjRHIl9rcFwJJP105uZ8
@@ -70,14 +66,10 @@ jobs:
           NEXT_PUBLIC_APP_URL: ${{ steps.doppler.outputs.NEXT_PUBLIC_APP_URL }}
           BACKEND_URL: ${{ steps.doppler.outputs.BACKEND_URL }}
 
-      - name: Deploy
+      - name: Deploy (preview only)
         id: deploy
         run: |
-          flags="--prebuilt"
-          if [ "${{ github.event_name }}" = "push" ]; then
-            flags="$flags --prod"
-          fi
-          url=$(npx vercel deploy $flags --stdout)
+          url=$(npx vercel deploy --prebuilt --stdout)
           echo "url=$url" >> $GITHUB_OUTPUT
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -100,8 +92,38 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
 
+  supabase:
+    name: Database (branch on PR / migrate on merge)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: supabase
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link to staging project
+        run: supabase link --project-ref "${{ env.SUPABASE_PROJECT_REF }}"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Create preview branch (PR)
+        if: github.event_name == 'pull_request'
+        run: supabase db branch create "pr-${{ github.event.number }}"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Run pending migrations (merge)
+        if: github.event_name == 'push'
+        run: supabase db push
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
   comment:
-    name: ${{ (github.event_name == 'push' && 'Notify' || 'Comment PR') }}
+    name: ${{ (github.event_name == 'push' && 'Notify commit' || 'Comment PR') }}
     needs: [frontend]
     runs-on: ubuntu-latest
     permissions:
@@ -118,13 +140,13 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 commit_sha: context.sha,
-                body: `## ✅ Staging Deployed (stable)\n\nMerged to \`staging\`.\n\n| Service | URL |\n|---------|-----|\n| Frontend | ${frontendUrl ? `[Preview](${frontendUrl})` : 'stg.fintral.app'} |\n| Backend | [stg-api.fintral.app](https://stg-api.fintral.app) |\n\n> DNS records for \`stg.fintral.app\` and \`stg-api.fintral.app\` point to this stable version.`
+                body: `## ✅ Staging actualizado\n\nMerge a \`staging\` completado.\n\n| Servicio | URL |\n|----------|-----|\n| Frontend | ${frontendUrl || 'stg.fintral.app (via Cloudflare → Railway)'} |\n| Backend  | stg-api.fintral.app (via Cloudflare → Railway) |\n\n> Cloudflare DNS apunta a Railway. Railway tiene la última versión estable de \`staging\`.`
               });
             } else {
               await github.rest.issues.createComment({
                 issue_number: context.issue.number,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                body: `## 🚀 Staging Preview Ready\n\n| Service | URL |\n|---------|-----|\n| Frontend | ${frontendUrl || '[Preview](https://stg.fintral.app)'} |\n| Backend | [stg-api.fintral.app](https://stg-api.fintral.app) |\n\n> ⏳ **Preview** — merge this PR to \`staging\` for the stable release. CI checks ran on this branch (lint, typecheck, tests).`
+                body: `## 🚀 Staging Preview Lista\n\n| Servicio | URL | Notas |\n|----------|-----|-------|\n| Frontend | ${frontendUrl || '[preview](https://stg.fintral.app)'} | Preview de Vercel |\n| Backend  | pr-${{ github.event.number }}.stg-api.fintral.app | Railway deploy desde este branch |\n| DB       | Branch \`pr-${{ github.event.number }}\` | Supabase preview branch |\n\n> ⏳ Mergea esta PR a \`staging\` para promover a estable.`
               });
             }
