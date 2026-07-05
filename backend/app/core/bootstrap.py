@@ -154,7 +154,7 @@ def init_database() -> None:
                 logger.info("  ✓ %s (%s)", rev.revision, rev.doc or "no doc")
             except Exception as e:
                 err = str(e).lower()
-                if "already exists" in err or "duplicate" in err:
+                if "already exists" in err or "duplicate" in err or "does not exist" in err:
                     skipped_revs.append(rev.revision)
                     logger.warning(
                         "  ✗ %s (%s) — skipping (already exists): %s",
