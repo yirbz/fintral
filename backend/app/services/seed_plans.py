@@ -37,7 +37,6 @@ PLANS = [
         "description": "Para profesionales independientes, freelancers y negocios que desean automatizar su contabilidad con herramientas de IA.",
         "currency": "DOP",
         "price_monthly_cents": 99900,  # RD$ 999.00
-        "price_usd": 16.49,
         "extra_entity_price_cents": 0,  # DEPRECATED
         "extra_billing_entity_price_cents": 0,  # DEPRECATED
         "entity_slot_price_cents": 60000,  # RD$ 600 / extra entity slot
@@ -48,8 +47,6 @@ PLANS = [
         "addon_ai_block_price_cents": 60000,  # RD$ 600 / 500 AI queries
         "addon_storage_block_mb": 10240,  # 10 GB
         "addon_storage_block_price_cents": 30000,  # RD$ 300
-        "addon_ocr_block_size": 100,
-        "addon_ocr_block_price_cents": 50000,  # RD$ 500 / 100 docs
         "max_users": 3,
         "max_entities": 1,
         "max_ecf_monthly": 0,  # e-CF comes from purchased blocks
@@ -81,7 +78,6 @@ PLANS = [
         "description": "Para PyMEs en crecimiento que necesitan emitir facturas electrónicas (e-CF) válidas ante la DGII, con automatización fiscal completa.",
         "currency": "DOP",
         "price_monthly_cents": 299900,  # RD$ 2,999.00
-        "price_usd": 47.99,
         "extra_entity_price_cents": 0,  # DEPRECATED
         "extra_billing_entity_price_cents": 0,  # DEPRECATED
         "entity_slot_price_cents": 60000,
@@ -92,8 +88,6 @@ PLANS = [
         "addon_ai_block_price_cents": 60000,
         "addon_storage_block_mb": 10240,
         "addon_storage_block_price_cents": 30000,
-        "addon_ocr_block_size": 100,
-        "addon_ocr_block_price_cents": 50000,  # RD$ 500 / 100 docs
         "max_users": 10,
         "max_entities": 5,
         "max_ecf_monthly": 0,  # e-CF comes from purchased blocks
@@ -124,7 +118,6 @@ PLANS = [
         "description": "Para firmas de contabilidad, auditores y profesionales que gestionan múltiples clientes de forma centralizada con un dashboard multi-entidad.",
         "currency": "DOP",
         "price_monthly_cents": 799900,  # RD$ 7,999.00
-        "price_usd": 127.99,
         "extra_entity_price_cents": 0,  # DEPRECATED
         "extra_billing_entity_price_cents": 0,  # DEPRECATED
         "entity_slot_price_cents": 60000,
@@ -135,8 +128,6 @@ PLANS = [
         "addon_ai_block_price_cents": 60000,
         "addon_storage_block_mb": 10240,
         "addon_storage_block_price_cents": 30000,
-        "addon_ocr_block_size": 100,
-        "addon_ocr_block_price_cents": 50000,  # RD$ 500 / 100 docs
         "max_users": 999999,
         "max_entities": 20,
         "max_ecf_monthly": 0,  # e-CF comes from purchased blocks
@@ -177,8 +168,6 @@ PLANS = [
         "addon_ai_block_price_cents": 60000,
         "addon_storage_block_mb": 10240,
         "addon_storage_block_price_cents": 30000,
-        "addon_ocr_block_size": 100,
-        "addon_ocr_block_price_cents": 50000,  # RD$ 500 / 100 docs
         "max_users": 999999,
         "max_entities": 999999,
         "max_ecf_monthly": 0,
@@ -207,7 +196,7 @@ PLANS = [
 
 
 def seed_plans(db: Session = None):
-    """Insert plans if they don't exist, or update them.
+    """Insert plans if they don't already exist.
 
     Args:
         db: Optional SQLAlchemy session. If not provided, creates its own.
@@ -216,29 +205,24 @@ def seed_plans(db: Session = None):
     if own_session:
         db = SessionLocal()
     try:
+        existing = {p.name for p in db.query(SubscriptionPlan).all()}
         created = 0
-        updated = 0
         for data in PLANS:
-            plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == data["name"]).first()
-
-            if plan:
-                for k, v in data.items():
-                    setattr(plan, k, v)
-                updated += 1
-            else:
-                plan = SubscriptionPlan(**data)
-                db.add(plan)
-                created += 1
+            if data["name"] in existing:
+                logger.info("⏭️  Plan '%s' already exists, skipping", data["name"])
+                continue
+            plan = SubscriptionPlan(**data)
+            db.add(plan)
+            created += 1
 
         db.commit()
-        logger.info("✅ Seeded/Updated plans (created: %d, updated: %d)", created, updated)
+        logger.info("✅ Seeded %d plans (total: %d)", created, len(existing) + created)
 
         # Verify
         for p in db.query(SubscriptionPlan).order_by(SubscriptionPlan.sort_order).all():
             logger.info(
-                "  • %s — %s %.2f/mo | USD=%.2f | users=%s entities=%s user_slot_price=%s entity_slot_price=%s",
+                "  • %s — %s %.2f/mo | users=%s entities=%s user_slot_price=%s entity_slot_price=%s",
                 p.display_name, p.currency, p.price_monthly_cents / 100,
-                float(p.price_usd) if p.price_usd is not None else 0.0,
                 p.max_users, p.max_entities,
                 p.user_slot_price_cents, p.entity_slot_price_cents,
             )

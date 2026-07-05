@@ -217,7 +217,7 @@ function BillingSettingsPageInner() {
   // ── Organization ──
   const {data: orgQuery_data, isLoading: orgQuery_isLoading} = useQuery({
     queryKey: ["billing-org"],
-    queryFn: () => getOrganization(),
+    queryFn: getOrganization,
   });
   const [orgName, setOrgName] = useState("");
   const [taxId, setTaxId] = useState("");
@@ -295,8 +295,18 @@ function BillingSettingsPageInner() {
   }, []);
 
   // ── Helpers ──
-  function getSetting(category: string, key: string): SettingValue | undefined {
-    return editable?.[category]?.find((s) => s.key === key);
+  function getSetting(category: string, key: string): SettingValue {
+    setEditable((prev) => {
+      const cat = prev[category] ? [...prev[category]] : [];
+      let row = cat.find((s) => s.key === key);
+      if (!row) {
+        row = { key, value: "", type: "string", category, source: "user" };
+        cat.push(row);
+      }
+      return { ...prev, [category]: cat };
+    });
+    // Return a fallback — the actual value is in state
+    return { key, value: "", type: "string", category, source: "user" };
   }
 
   function updateSetting(category: string, key: string, value: string | number | boolean) {
@@ -422,22 +432,18 @@ function BillingSettingsPageInner() {
       })()
     : null;
 
-  const currencyPref = String(getSetting("preferences", "currency")?.value || "DOP");
-  const dateFormatPref = String(getSetting("preferences", "date_format")?.value || "DD/MM/YYYY");
-  const timeFormatPref = String(getSetting("preferences", "time_format")?.value || "24h");
-  const timezonePref = String(getSetting("preferences", "timezone")?.value || "America/Santo_Domingo");
-  const languagePref = String(getSetting("preferences", "language")?.value || "es");
-  const itemsPerPagePref = String(getSetting("preferences", "items_per_page")?.value || "25");
-  const defaultDueDaysPref = Number(getSetting("preferences", "default_due_days")?.value || 30);
-  const firstDayOfWeekPref = String(getSetting("preferences", "first_day_of_week")?.value || "monday");
-  const compactVal = getSetting("preferences", "compact_view")?.value;
-  const compactView = compactVal === true || compactVal === "true";
-  const soundsVal = getSetting("preferences", "system_sounds")?.value;
-  const systemSounds = soundsVal === true || soundsVal === "true";
-  const notifVal = getSetting("preferences", "desktop_notifications")?.value;
-  const desktopNotifications = notifVal === true || notifVal === "true";
-  const draftsVal = getSetting("preferences", "auto_save_drafts")?.value;
-  const autoSaveDrafts = draftsVal === true || draftsVal === "true";
+  const currencyPref = String(getSetting("preferences", "currency").value || "DOP");
+  const dateFormatPref = String(getSetting("preferences", "date_format").value || "DD/MM/YYYY");
+  const timeFormatPref = String(getSetting("preferences", "time_format").value || "24h");
+  const timezonePref = String(getSetting("preferences", "timezone").value || "America/Santo_Domingo");
+  const languagePref = String(getSetting("preferences", "language").value || "es");
+  const itemsPerPagePref = String(getSetting("preferences", "items_per_page").value || "25");
+  const defaultDueDaysPref = Number(getSetting("preferences", "default_due_days").value || 30);
+  const firstDayOfWeekPref = String(getSetting("preferences", "first_day_of_week").value || "monday");
+  const compactView = getSetting("preferences", "compact_view").value === true || getSetting("preferences", "compact_view").value === "true";
+  const systemSounds = getSetting("preferences", "system_sounds").value === true || getSetting("preferences", "system_sounds").value === "true";
+  const desktopNotifications = getSetting("preferences", "desktop_notifications").value === true || getSetting("preferences", "desktop_notifications").value === "true";
+  const autoSaveDrafts = getSetting("preferences", "auto_save_drafts").value === true || getSetting("preferences", "auto_save_drafts").value === "true";
 
   const datePreview = formatDemoDate(dateFormatPref, timeFormatPref);
   const currencyPreview = formatDemoCurrency(currencyPref);

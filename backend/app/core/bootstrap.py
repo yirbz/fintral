@@ -62,13 +62,41 @@ def init_database() -> None:
         script = ScriptDirectory.from_config(alembic_cfg)
         head_rev = script.get_current_head()
         logger.info("alembic_version=%s head=%s match=%s", row, head_rev, row == head_rev)
+
+        # Verify alembic version actually matches reality — if a column
+        # from a mid-chain migration is missing despite being at head,
+        # the previous run likely stamped head after one step failed and
+        # the whole transaction was rolled back. Reset and re-run.
+        if row == head_rev and head_rev != script.get_base():
+            with engine.connect() as conn:
+                has_deleted_at = conn.execute(text(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_name='users' AND column_name='deleted_at'"
+                )).scalar()
+                has_ecf_balance = conn.execute(text(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_name='organizations' AND column_name='e_cf_balance'"
+                )).scalar()
+                has_ledger_currency = conn.execute(text(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_name='ledger_entries' AND column_name='currency'"
+                )).scalar()
+            if not (has_deleted_at and has_ecf_balance and has_ledger_currency):
+                base_rev = script.get_base()
+                logger.warning(
+                    "alembic_version=%s but schema columns are missing "
+                    "(deleted_at=%s e_cf_balance=%s ledger_currency=%s) — "
+                    "resetting to base (%s).",
+                    row, bool(has_deleted_at), bool(has_ecf_balance), bool(has_ledger_currency),
+                    base_rev,
+                )
+                with engine.connect() as conn:
+                    conn.execute(text("UPDATE alembic_version SET version_num = :base"), {"base": base_rev})
+                    conn.commit()
+                row = base_rev
+
         if row == head_rev:
-            logger.info("Already at head revision — ensuring any new model tables exist")
-            try:
-                Base.metadata.create_all(bind=engine)
-                logger.info("create_all done — new models created if needed")
-            except Exception as ca_err:
-                logger.warning("create_all failed: %s", ca_err)
+            logger.info("Already at head revision — skipping alembic upgrade")
             return
 
         db_rev_exists = row in [r.revision for r in script.walk_revisions()]
@@ -89,27 +117,69 @@ def init_database() -> None:
 
         t1 = time.time()
         logger.info("Running pending migrations from %s to %s ...", row, head_rev)
+
+        # Disable transaction wrapping so each migration step commits
+        # individually — a failure in one step (e.g. table already exists)
+        # won't roll back earlier steps.
+        alembic_cfg.attributes["disable_transactional_ddl"] = True
+
+        skipped_revs: list[str] = []
+
+        # Phase 1: Bulk-upgrade to the last merge point (4ee1914d8429).
+        # All migrations up to here are idempotent, so this should succeed.
+        # If it fails we fall through to per-revision loop.
+        MERGE_REV = "4ee1914d8429"
+        merge_idx = row
         try:
-            command.upgrade(alembic_cfg, "head")
-            logger.info("Alembic migrations applied (%.2fs)", time.time() - t1)
+            command.upgrade(alembic_cfg, MERGE_REV)
+            logger.info("Bulk upgrade to merge point %s done (%.2fs)", MERGE_REV, time.time() - t1)
+            merge_idx = MERGE_REV
         except Exception as e:
             logger.warning(
-                "Alembic upgrade failed (%s) after %.2fs: %s — "
-                "schema objects may already exist from create_all fallback; "
-                "stamping to head + create_all fallback for any new models",
-                type(e).__name__, time.time() - t1, e,
+                "Bulk upgrade to %s failed (%s) — falling back to per-revision: %s",
+                MERGE_REV, type(e).__name__, e,
             )
+
+        # Phase 2: Per-revision upgrade for the linear tail (merge → head).
+        # Each step is tried individually; "already exists" errors are skipped
+        # so a single non-idempotent migration doesn't derail the whole chain.
+        pending = list(script.walk_revisions(head=head_rev, base=merge_idx))
+        pending.reverse()  # topological order (base → head)
+        for rev in pending:
+            if rev.revision in (merge_idx, "4ee1914d8429"):
+                # Already applied by the bulk upgrade or doesn't exist
+                continue
             try:
-                command.stamp(alembic_cfg, "head")
-                logger.info("Stamped alembic_version to head")
-            except Exception as stamp_err:
-                logger.error("Stamp also failed: %s", stamp_err)
-                raise
-            try:
-                Base.metadata.create_all(bind=engine)
-                logger.info("create_all fallback done — new models created")
-            except Exception as ca_err:
-                logger.warning("create_all fallback also failed: %s", ca_err)
+                command.upgrade(alembic_cfg, rev.revision)
+                logger.info("  ✓ %s (%s)", rev.revision, rev.doc or "no doc")
+            except Exception as e:
+                err = str(e).lower()
+                if "already exists" in err or "duplicate" in err or "does not exist" in err:
+                    skipped_revs.append(rev.revision)
+                    logger.warning(
+                        "  ✗ %s (%s) — skipping (already exists): %s",
+                        rev.revision, rev.doc or "no doc", e,
+                    )
+                    with engine.connect() as conn:
+                        conn.execute(
+                            text("UPDATE alembic_version SET version_num = :rev"),
+                            {"rev": rev.revision},
+                        )
+                        conn.commit()
+                else:
+                    logger.error(
+                        "Fatal error in migration %s (%s): %s",
+                        rev.revision, rev.doc or "no doc", e,
+                    )
+                    raise
+
+        if skipped_revs:
+            logger.warning(
+                "Skipped %d non-idempotent migration(s): %s",
+                len(skipped_revs), ", ".join(skipped_revs),
+            )
+
+        logger.info("Alembic migrations applied (%.2fs)", time.time() - t1)
         return
 
     if has_data_tables:
@@ -117,11 +187,6 @@ def init_database() -> None:
         logger.info("Existing DB without alembic_version — stamping head")
         command.stamp(alembic_cfg, "head")
         logger.info("Alembic stamp successful (%.2fs)", time.time() - t1)
-        try:
-            Base.metadata.create_all(bind=engine)
-            logger.info("create_all done — new models created")
-        except Exception as ca_err:
-            logger.warning("create_all failed: %s", ca_err)
         return
 
     logger.info("Fresh database — creating all tables via Alembic")
@@ -230,7 +295,7 @@ async def run_startup(db: Session) -> None:
     logger.info("=" * 60)
 
     logger.info("")
-    logger.info("--- Phase 1/6: Database ---")
+    logger.info("--- Phase 1/3: Database ---")
     try:
         init_database()
     except Exception as exc:
@@ -238,37 +303,28 @@ async def run_startup(db: Session) -> None:
         raise
 
     logger.info("")
-    logger.info("--- Phase 2/6: Reference Data ---")
+    logger.info("--- Phase 2/3: Reference Data ---")
     try:
         seed_reference_data(db)
     except Exception as exc:
         logger.error("Reference data seeding failed: %s", exc)
 
     logger.info("")
-    logger.info("--- Phase 3/6: Admin User ---")
+    logger.info("--- Phase 3/3: Admin User ---")
     try:
         ensure_default_admin(db)
     except Exception as exc:
         logger.error("Admin user creation failed: %s", exc)
 
     logger.info("")
-    logger.info("--- Phase 4/6: Subscription Plans ---")
+    logger.info("--- Phase 4/4: Subscription Plans ---")
     try:
         seed_plans(db)
     except Exception as exc:
         logger.error("Plan seeding failed: %s", exc)
 
     logger.info("")
-    logger.info("--- Phase 5/6: Lago Infrastructure ---")
-    try:
-        from app.services.lago_setup import setup_lago_infrastructure
-        await setup_lago_infrastructure()
-    except Exception as exc:
-        logger.error("Lago infrastructure setup failed: %s", exc)
-        raise
-
-    logger.info("")
-    logger.info("--- Phase 6/6: Services ---")
+    logger.info("--- Phase 5/5: Services ---")
     asyncio.create_task(start_heartbeat_task())
     logger.info("Heartbeat task started for WebSocket connections")
 

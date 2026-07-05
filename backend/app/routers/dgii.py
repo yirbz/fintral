@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.config import IS_DEVELOPMENT, SUPABASE_STORAGE_BUCKET, SUPABASE_URL
+from app.config import SUPABASE_STORAGE_BUCKET, SUPABASE_URL
 from app.core.container import export_service
 from app.dependencies.tenant import TenantContext, require_tenant
 from app.models import DgiiSubmission, Invoice, InvoiceDgiiStatus
@@ -363,7 +363,7 @@ _CONSUMER_FINAL_NCF_TYPES = {"02", "32"}
 _CREDIT_NOTE_NCF_TYPES = {"04", "34"}
 _CONSUMER_FINAL_ID_THRESHOLD = 250_000
 
-ITBIS_RATES = [0.18, 0.16, 0.0]
+ITBIS_RATE = 0.18
 ITBIS_TOLERANCE = 0.02  # 2% tolerance for rounding
 
 
@@ -646,20 +646,17 @@ def _validate_report_header(fmt: str, report_rnc: Optional[str], period: Optiona
 
 
 def _check_itbis(total: Optional[float], tax: Optional[float]) -> Optional[str]:
-    """Valida ITBIS contra tasas aceptadas (18%, 16%, 0%). Retorna descripción si hay error."""
-    if total is None or total == 0 or tax is None:
+    """Valida ITBIS ≈ 18% de la base (total - tax). Retorna descripción si hay error."""
+    if total is None or total == 0 or tax is None or tax == 0:
         return None
     base = total - tax
     if base <= 0:
         return None
-    for rate in ITBIS_RATES:
-        expected = base * rate
-        if expected == 0 and tax == 0:
-            return None
-        if expected and abs(tax - expected) / expected <= ITBIS_TOLERANCE:
-            return None
-    rates_str = "/".join(f"{r*100:.0f}%" for r in ITBIS_RATES)
-    return f"ITBIS ({tax:.2f}) no corresponde a ninguna tasa ({rates_str}) sobre base {base:.2f}"
+    expected_tax = base * ITBIS_RATE
+    diff_pct = abs(tax - expected_tax) / expected_tax
+    if diff_pct > ITBIS_TOLERANCE:
+        return f"ITBIS ({tax:.2f}) no corresponde al 18% de base {base:.2f} (esperado {expected_tax:.2f})"
+    return None
 
 
 def _validate_invoice(inv, fmt: str, raw_cache: Dict, report_rnc: Optional[str] = None) -> dict:
@@ -987,7 +984,7 @@ def _deduplicate_invoices(invoices):
 
 
 def _fix_itbis_in_db(db, invoices) -> int:
-    """Recalcula ITBIS = total * 18/118 para facturas con ITBIS que no coincida con 18%, 16% ni 0%."""
+    """Recalcula ITBIS = total * 18/118 para facturas con ITBIS incorrecto."""
     from app.models import Invoice
     from app.utils.dates import utc_now
     fixed = 0
@@ -995,17 +992,9 @@ def _fix_itbis_in_db(db, invoices) -> int:
         if inv.total_amount and inv.tax_amount is not None:
             base = inv.total_amount - inv.tax_amount
             if base > 0:
-                matches_any = False
-                for rate in ITBIS_RATES:
-                    expected = base * rate
-                    if expected == 0 and inv.tax_amount == 0:
-                        matches_any = True
-                        break
-                    if expected and abs(inv.tax_amount - expected) / expected <= ITBIS_TOLERANCE:
-                        matches_any = True
-                        break
-                if not matches_any:
-                    corrected = round(inv.total_amount * 0.18 / (1 + 0.18), 2)
+                expected = base * ITBIS_RATE
+                if abs(inv.tax_amount - expected) / expected > ITBIS_TOLERANCE:
+                    corrected = round(inv.total_amount * ITBIS_RATE / (1 + ITBIS_RATE), 2)
                     db.query(Invoice).filter(Invoice.id == inv.id).update({"tax_amount": corrected, "updated_at": utc_now()})
                     inv.tax_amount = corrected
                     fixed += 1
@@ -1286,8 +1275,9 @@ async def dgii_export(
             ),
         )
 
-    # ── Filtrar por fiscal_status (match preview behaviour) ──────────
-    invoices = [inv for inv in invoices if inv.fiscal_status in ("valid", "pending_review", "invalid")]
+    # ── Filtrar por fiscal_status (conciliation-ready) ────────────────
+    # Only export invoices marked as fiscally valid
+    invoices = [inv for inv in invoices if inv.fiscal_status == "valid"]
 
     # Also include deferred invoices whose period_override matches this period
     if hasattr(body, 'period') and body.period:
@@ -1308,7 +1298,7 @@ async def dgii_export(
     )
 
     if not invoices:
-        detail = "No se encontraron facturas para exportar con los filtros actuales."
+        detail = "No se encontraron facturas fiscalmente válidas para este período. Usa el panel de conciliación para revisar conflictos."
         if fmt_restrictions.get("restricted"):
             detail = fmt_restrictions["message"]
         raise HTTPException(
@@ -1377,15 +1367,9 @@ async def dgii_export(
             Invoice.is_deleted.is_(False),
         )
         if date_from:
-            if date_from.tzinfo is None:
-                from datetime import timezone
-                date_from = date_from.replace(tzinfo=timezone.utc)
-            mod_query = mod_query.filter(Invoice.created_at >= date_from)
+            mod_query = mod_query.filter(Invoice.invoice_date >= date_from)
         if date_to:
-            if date_to.tzinfo is None:
-                from datetime import timezone
-                date_to = date_to.replace(tzinfo=timezone.utc)
-            mod_query = mod_query.filter(Invoice.created_at <= date_to)
+            mod_query = mod_query.filter(Invoice.invoice_date <= date_to)
         modificatories = mod_query.all()
 
     try:
@@ -3125,10 +3109,7 @@ def _invoice_preview(
 
     file_url = None
     if inv.file_path:
-        if IS_DEVELOPMENT:
-            file_url = f"/invoices/{inv.id}/file?org_id={inv.organization_id}"
-        else:
-            file_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{inv.file_path.lstrip('/')}"
+        file_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{inv.file_path.lstrip('/')}"
 
     return {
         "id": str(inv.id),

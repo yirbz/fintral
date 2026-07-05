@@ -2,34 +2,32 @@ import json
 import logging
 import re
 from datetime import date, datetime, timedelta
-from pathlib import Path
 from typing import List, Optional
 from uuid import UUID
 
-import httpx
 from fastapi import (
     APIRouter,
     Depends,
-    File,
-    Form,
-    Header,
     HTTPException,
-    Query,
+    Header,
     Request,
     UploadFile,
+    File,
+    Form,
 )
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.config import APP_JWT_SECRET_KEY, IS_DEVELOPMENT
-from app.core.redis import invalidate_stats_cache
+import httpx
+
+from app.config import IS_DEVELOPMENT, APP_JWT_SECRET_KEY
 from app.core.reference_data import get_cached_domain
-from app.database import SessionLocal
 from app.dependencies.tenant import TenantContext, require_tenant
-from app.models import Client, EcfSequence, Invoice, Organization, Product
-from app.services import audit_logger
+from app.models import Client, Product, EcfSequence, Invoice, Organization
 from app.services.alanube import AlanubeService
+from app.services import audit_logger
 from app.services.supabase_storage import build_storage_path, upload_file
+from app.core.redis import invalidate_stats_cache
+from app.database import SessionLocal
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/billing", tags=["billing"])
@@ -403,27 +401,6 @@ class ProductUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
-class BulkProductImportRow(BaseModel):
-    name: str
-    internal_code: Optional[str] = None
-    description: Optional[str] = None
-    price: float = Field(..., ge=0.0)
-    tax_rate: float = Field(18.0, ge=0.0, le=100.0)
-
-
-class ImportRowError(BaseModel):
-    row: int
-    internal_code: Optional[str] = None
-    reason: str
-
-
-class BulkProductImportResponse(BaseModel):
-    total: int
-    imported: int
-    skipped: int
-    errors: list[ImportRowError]
-
-
 class EcfSequenceSchema(BaseModel):
     id: str
     ecf_type: int
@@ -556,7 +533,6 @@ class InvoiceCreate(BaseModel):
     reference_ecf: Optional[str] = None
     reference_date: Optional[date] = None
     items: List[InvoiceLineItem]
-    mode: Optional[str] = None  # "quick" or "detailed" — stored in raw_extracted_data
     # Quick-mode direct buyer fields (optional if client_id provided)
     buyer_name: Optional[str] = None
     buyer_rnc: Optional[str] = None
@@ -738,71 +714,23 @@ async def delete_client(client_id: str, ctx: TenantContext = Depends(require_ten
 # ---------------------------------------------------------------------------
 
 
-@router.get("/products")
-async def list_products(
-    ctx: TenantContext = Depends(require_tenant),
-    search: Optional[str] = Query(None, description="Search by name or internal_code"),
-    tax_rate: Optional[float] = Query(None, description="Filter by tax rate (0, 9, 16, 18)"),
-    is_active: Optional[bool] = Query(None, description="Filter by active status"),
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(50, ge=1, le=200, description="Items per page"),
-):
-    query = ctx.db.query(Product).filter(
-        Product.tenant_id == ctx.tenant_id,
-        Product.organization_id == ctx.org_id,
-        Product.deleted_at.is_(None),
+@router.get("/products", response_model=List[ProductSchema])
+async def list_products(ctx: TenantContext = Depends(require_tenant)):
+    products = (
+        ctx.db.query(Product)
+        .filter(
+            Product.tenant_id == ctx.tenant_id,
+            Product.organization_id == ctx.org_id,
+            Product.deleted_at.is_(None),
+        )
+        .order_by(Product.name.asc())
+        .all()
     )
-
-    if search:
-        search_term = f"%{search}%"
-        query = query.filter(Product.name.ilike(search_term) | Product.internal_code.ilike(search_term))
-    if tax_rate is not None:
-        query = query.filter(Product.tax_rate == tax_rate)
-    if is_active is not None:
-        query = query.filter(Product.is_active == is_active)
-
-    total = query.count()
-    products = query.order_by(Product.name.asc()).offset((page - 1) * page_size).limit(page_size).all()
-
-    products_list = [p.to_dict() for p in products]
-    return JSONResponse(
-        content={"products": products_list, "total": total, "page": page, "page_size": page_size},
-        headers={
-            "X-Total-Count": str(total),
-            "X-Page": str(page),
-            "X-Page-Size": str(page_size),
-        },
-    )
+    return [p.to_dict() for p in products]
 
 
 @router.post("/products", response_model=ProductSchema)
 async def create_product(payload: ProductCreate, ctx: TenantContext = Depends(require_tenant)):
-    # Check plan product limit
-    from app.services.plan_service import PlanService
-
-    plan_svc = PlanService(ctx.db)
-    limits = plan_svc.effective_limits(ctx.org_id)
-    max_products = limits.get("max_products", 0)
-
-    if max_products > 0:
-        existing_count = (
-            ctx.db.query(Product)
-            .filter(
-                Product.tenant_id == ctx.tenant_id,
-                Product.organization_id == ctx.org_id,
-                Product.deleted_at.is_(None),
-            )
-            .count()
-        )
-        if existing_count >= max_products:
-            raise HTTPException(
-                status_code=402,
-                detail=(
-                    f"Has alcanzado el límite de {max_products} productos de tu plan. "
-                    "Mejora tu plan para agregar más productos al catálogo."
-                ),
-            )
-
     product = Product(
         tenant_id=ctx.tenant_id,
         organization_id=ctx.org_id,
@@ -875,210 +803,6 @@ async def delete_product(product_id: str, ctx: TenantContext = Depends(require_t
     product.deleted_at = datetime.utcnow()
     ctx.db.commit()
     return {"message": "Producto eliminado exitosamente"}
-
-
-# ---------------------------------------------------------------------------
-# Product Import
-# ---------------------------------------------------------------------------
-
-
-@router.post("/products/import", response_model=BulkProductImportResponse)
-async def bulk_import_products(
-    conflict_mode: str = Form("skip"),
-    file: UploadFile = File(...),
-    ctx: TenantContext = Depends(require_tenant),
-):
-    """Bulk import products from CSV or XLSX file."""
-    # Rate limit — check before any I/O
-    from app.core.redis import rate_limit
-
-    if not rate_limit(f"product_import:{ctx.org_id}", 3, 60):
-        raise HTTPException(
-            status_code=429,
-            detail="Demasiadas importaciones. Intente de nuevo en 60 segundos.",
-        )
-
-    # Validate file type
-    ext = Path(file.filename).suffix.lower() if file.filename else ""
-    if ext not in (".csv", ".xlsx"):
-        raise HTTPException(status_code=400, detail="Formato de archivo no soportado. Use .csv o .xlsx")
-
-    # Read file
-    file_bytes = await file.read()
-    if len(file_bytes) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="El archivo excede el tamaño máximo de 5MB")
-
-    # Parse
-    from app.services.product_import import ProductImportError, parse_csv, parse_xlsx, validate_row
-
-    if ext == ".csv":
-        rows, parse_errors = parse_csv(file_bytes)
-    else:
-        rows, parse_errors = parse_xlsx(file_bytes)
-
-    if len(rows) > 500:
-        raise HTTPException(status_code=400, detail="Máximo 500 filas por importación")
-
-    # Validate each row
-    validated = []
-    all_errors = list(parse_errors)
-
-    for i, row in enumerate(rows, start=1):
-        result, error = validate_row(row, i)
-        if error:
-            all_errors.append(error)
-        else:
-            validated.append(result)
-
-    # Check plan product limit
-    from app.services.plan_service import PlanService
-
-    plan_svc = PlanService(ctx.db)
-    limits = plan_svc.effective_limits(ctx.org_id)
-    max_products = limits.get("max_products", 0)
-
-    if max_products > 0:
-        existing_count = (
-            ctx.db.query(Product)
-            .filter(
-                Product.tenant_id == ctx.tenant_id,
-                Product.organization_id == ctx.org_id,
-                Product.deleted_at.is_(None),
-            )
-            .count()
-        )
-        if existing_count + len(validated) > max_products:
-            remaining = max_products - existing_count
-            raise HTTPException(
-                status_code=402,
-                detail=(
-                    f"Tu plan permite un máximo de {max_products} productos en el catálogo. "
-                    f"Actualmente tienes {existing_count}. "
-                    f"Solo puedes importar hasta {max(0, remaining)} producto(s) adicional(es). "
-                    "Mejora tu plan para aumentar este límite."
-                ),
-            )
-
-    # Import
-    conflict_mode = conflict_mode.lower()
-    if conflict_mode not in ("skip", "overwrite"):
-        conflict_mode = "skip"
-
-    imported = 0
-    skipped = 0
-
-    for row_data in validated:
-        if row_data["internal_code"]:
-            existing = (
-                ctx.db.query(Product)
-                .filter(
-                    Product.tenant_id == ctx.tenant_id,
-                    Product.organization_id == ctx.org_id,
-                    Product.internal_code == row_data["internal_code"],
-                    Product.deleted_at.is_(None),
-                )
-                .first()
-            )
-        else:
-            existing = None
-
-        if existing:
-            if conflict_mode == "overwrite":
-                existing.name = row_data["name"]
-                existing.description = row_data["description"]
-                existing.price = row_data["price"]
-                existing.tax_rate = row_data["tax_rate"]
-                existing.updated_at = datetime.utcnow()
-                imported += 1
-            else:
-                all_errors.append(ProductImportError(0, row_data["internal_code"], "Producto duplicado (omitido)"))
-                skipped += 1
-            continue
-
-        product = Product(
-            tenant_id=ctx.tenant_id,
-            organization_id=ctx.org_id,
-            **row_data,
-            is_active=True,
-        )
-        ctx.db.add(product)
-        imported += 1
-
-    ctx.db.commit()
-
-    return BulkProductImportResponse(
-        total=len(validated),
-        imported=imported,
-        skipped=skipped,
-        errors=[e.to_dict() for e in all_errors],
-    )
-
-
-@router.get("/products/import/template")
-async def download_import_template(
-    format: str = "csv",
-    ctx: TenantContext = Depends(require_tenant),
-):
-    """Download a CSV or XLSX template for product import with sample rows."""
-    import csv
-    import io
-
-    from fastapi.responses import StreamingResponse
-
-    headers = ["nombre", "codigo_interno", "descripcion", "precio", "tasa_itbis"]
-    sample_rows = [
-        ["Servicio de Consultoría", "CONS-001", "Consultoría fiscal mensual", "25000.00", "18"],
-        ["Facturación Electrónica", "FE-001", "Software de facturación electrónica DGII", "1500.00", "18"],
-        ["Producto Exento", "EX-001", "Producto con tasa 0% de ITBIS", "500.00", "0"],
-    ]
-
-    if format.lower() == "xlsx":
-        import openpyxl
-        from openpyxl.styles import Font, PatternFill
-
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Productos"
-
-        header_font = Font(bold=True, color="FFFFFF")
-        header_fill = PatternFill(start_color="0EA5E9", end_color="0EA5E9", fill_type="solid")
-
-        for col_idx, header in enumerate(headers, start=1):
-            cell = ws.cell(row=1, column=col_idx, value=header)
-            cell.font = header_font
-            cell.fill = header_fill
-
-        for row_idx, row_data in enumerate(sample_rows, start=2):
-            for col_idx, val in enumerate(row_data, start=1):
-                ws.cell(row=row_idx, column=col_idx, value=val)
-
-        ws.column_dimensions["A"].width = 30
-        ws.column_dimensions["B"].width = 20
-        ws.column_dimensions["C"].width = 40
-        ws.column_dimensions["D"].width = 15
-        ws.column_dimensions["E"].width = 12
-
-        buf = io.BytesIO()
-        wb.save(buf)
-        buf.seek(0)
-
-        return StreamingResponse(
-            iter([buf.getvalue()]),
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": "attachment; filename=plantilla_productos.xlsx"},
-        )
-
-    # Default: CSV
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(headers)
-    writer.writerows(sample_rows)
-
-    return StreamingResponse(
-        iter([buf.getvalue().encode("utf-8-sig")]),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": "attachment; filename=plantilla_productos.csv"},
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1474,7 +1198,6 @@ async def register_company(
     ctx: TenantContext = Depends(require_tenant),
 ):
     import base64
-
     from app.config import APP_JWT_SECRET_KEY
     from app.utils.dates import utc_now
 
@@ -1509,7 +1232,6 @@ async def register_company(
         # If the user wants to test webhooks locally, they can configure a public
         # tunnel URL (like ngrok) in PUBLIC_APP_URL.
         from urllib.parse import urlparse
-
         from app.config import PUBLIC_APP_URL
 
         parsed_url = urlparse(base_url)
@@ -2070,12 +1792,6 @@ async def create_invoice_draft(payload: InvoiceCreate, ctx: TenantContext = Depe
         "reference_ecf": payload.reference_ecf,
         "reference_date": payload.reference_date.isoformat() if payload.reference_date else None,
         "items": [item.dict() for item in payload.items],
-        "mode": payload.mode,
-        "buyer_name": payload.buyer_name,
-        "buyer_rnc": payload.buyer_rnc,
-        "buyer_address": payload.buyer_address,
-        "buyer_phone": payload.buyer_phone,
-        "buyer_email": payload.buyer_email,
     }
 
     payment_cond = "credito" if payload.payment_type == 2 else "contado"
@@ -2090,7 +1806,7 @@ async def create_invoice_draft(payload: InvoiceCreate, ctx: TenantContext = Depe
         file_type="xml",  # e-CF invoices represent XML files
         vendor_name=ctx.organization.name,  # Issuer is our organization
         vendor_tax_id=ctx.organization.tax_id,
-        rnc_comprador=client_tax_id or payload.buyer_rnc,
+        rnc_comprador=client_tax_id,
         invoice_date=datetime.utcnow(),
         total_amount=total_amount,
         tax_amount=itbis_total,
@@ -2113,123 +1829,6 @@ async def create_invoice_draft(payload: InvoiceCreate, ctx: TenantContext = Depe
     return invoice.to_dict()
 
 
-@router.put("/invoices/{invoice_id}")
-async def update_invoice_draft(
-    invoice_id: str,
-    payload: InvoiceCreate,
-    ctx: TenantContext = Depends(require_tenant),
-):
-    from uuid import UUID
-    invoice = (
-        ctx.db.query(Invoice)
-        .filter(
-            Invoice.id == UUID(invoice_id),
-            Invoice.tenant_id == ctx.tenant_id,
-            Invoice.organization_id == ctx.org_id,
-        )
-        .first()
-    )
-    if not invoice:
-        raise HTTPException(status_code=404, detail="Factura no encontrada")
-
-    if invoice.status == "verified":
-        raise HTTPException(status_code=400, detail="No se puede modificar una factura ya emitida")
-
-    # Fetch client details if provided
-    client_tax_id = None
-    if payload.client_id:
-        client = (
-            ctx.db.query(Client)
-            .filter(
-                Client.id == UUID(payload.client_id),
-                Client.tenant_id == ctx.tenant_id,
-                Client.organization_id == ctx.org_id,
-            )
-            .first()
-        )
-        if not client:
-            raise HTTPException(status_code=422, detail="Cliente no encontrado")
-        client_tax_id = client.tax_id
-
-    # Compute calculations based on product details
-    line_items = []
-    subtotal = 0.0
-    discount_total = 0.0
-    itbis_total = 0.0
-
-    for idx, item in enumerate(payload.items):
-        product = (
-            ctx.db.query(Product)
-            .filter(
-                Product.id == UUID(item.product_id),
-                Product.tenant_id == ctx.tenant_id,
-                Product.organization_id == ctx.org_id,
-            )
-            .first()
-        )
-        if not product:
-            raise HTTPException(status_code=422, detail=f"Producto {item.product_id} no encontrado")
-
-        gross = item.quantity * item.unit_price
-        discount = gross * (item.discount_rate / 100.0)
-        net = gross - discount
-        tax_amt = net * (product.tax_rate / 100.0)
-
-        subtotal += net
-        discount_total += discount
-        itbis_total += tax_amt
-
-        line_items.append(
-            {
-                "line": idx + 1,
-                "product_id": str(product.id),
-                "name": product.name,
-                "quantity": item.quantity,
-                "unit_price": item.unit_price,
-                "discount_rate": item.discount_rate,
-                "tax_rate": product.tax_rate,
-                "total": net + tax_amt,
-            }
-        )
-
-    total_amount = subtotal + itbis_total
-
-    # Serialize raw data metadata
-    raw_data = {
-        "client_id": payload.client_id,
-        "ecf_type": payload.ecf_type,
-        "payment_type": payload.payment_type,
-        "payment_method": payload.payment_method,
-        "notes": payload.notes,
-        "reference_ecf": payload.reference_ecf,
-        "reference_date": payload.reference_date.isoformat() if payload.reference_date else None,
-        "items": [item.dict() for item in payload.items],
-        "mode": payload.mode,
-        "buyer_name": payload.buyer_name,
-        "buyer_rnc": payload.buyer_rnc,
-        "buyer_address": payload.buyer_address,
-        "buyer_phone": payload.buyer_phone,
-        "buyer_email": payload.buyer_email,
-    }
-
-    payment_cond = "credito" if payload.payment_type == 2 else "contado"
-    invoice_due_date = None
-
-    invoice.vendor_name = ctx.organization.name
-    invoice.vendor_tax_id = ctx.organization.tax_id
-    invoice.rnc_comprador = client_tax_id or payload.buyer_rnc
-    invoice.total_amount = total_amount
-    invoice.tax_amount = itbis_total
-    invoice.line_items_data = json.dumps(line_items, ensure_ascii=False)
-    invoice.raw_extracted_data = json.dumps(raw_data, ensure_ascii=False)
-    invoice.payment_condition = payment_cond
-    invoice.due_date = invoice_due_date
-    invoice.updated_at = datetime.utcnow()
-
-    ctx.db.commit()
-    return invoice.to_dict()
-
-
 @router.post("/invoices/{invoice_id}/transmit")
 async def transmit_invoice(invoice_id: str, ctx: TenantContext = Depends(require_tenant)):
     invoice = (
@@ -2246,23 +1845,8 @@ async def transmit_invoice(invoice_id: str, ctx: TenantContext = Depends(require
 
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
-    if invoice.processed and invoice.status == "verified":
-        if invoice.is_electronic:
-            raise HTTPException(
-                status_code=400,
-                detail=json.dumps({
-                    "error": "already_emitted",
-                    "message": (
-                        "Esta factura electrónica ya fue timbrada ante la DGII. "
-                        "Para corregirla, use la opción 'Corregir' que emitirá una "
-                        "Nota de Crédito (E34) y luego una nueva factura corregida."
-                    ),
-                })
-            )
-        # Físico: permitir editar y re-emitir (resetear a draft)
-        invoice.status = "draft"
-        invoice.processed = False
-        logger.info("Factura física reabierta para edición: %s", invoice_id)
+    if invoice.processed:
+        raise HTTPException(status_code=400, detail="La factura ya ha sido transmitida")
 
     # Deserialize operational metadata
     raw_data = {}
@@ -2271,14 +1855,6 @@ async def transmit_invoice(invoice_id: str, ctx: TenantContext = Depends(require
             raw_data = json.loads(invoice.raw_extracted_data)
         except Exception:
             pass
-
-    # Validate payment method on the invoice
-    payment_method = raw_data.get("payment_method")
-    if not payment_method:
-        raise HTTPException(
-            status_code=400,
-            detail="Falta registrar un método de pago. Por favor, seleccione un método de pago para la factura.",
-        )
 
     ecf_type = raw_data.get("ecf_type") or 32  # Default to Consumer e-CF 32 if unspecified
 
@@ -2310,8 +1886,7 @@ async def transmit_invoice(invoice_id: str, ctx: TenantContext = Depends(require
     sequence.current_number += 1
 
     # ── Plan enforcement: check e-CF quota before transmitting ──
-    from app.services.plan_service import PlanLimitExceeded, PlanService
-
+    from app.services.plan_service import PlanService, PlanLimitExceeded
     plan_svc = PlanService(ctx.db)
     try:
         plan_svc.check_ecf_limit(ctx.org_id, amount=1)
@@ -2325,10 +1900,10 @@ async def transmit_invoice(invoice_id: str, ctx: TenantContext = Depends(require
                 "error": "ecf_limit_exceeded",
                 "message": (
                     "Has alcanzado el límite mensual de comprobantes electrónicos (e-CF) "
-                    "de tu plan. Por favor, adquiere un paquete adicional en la tienda."
+                    "de tu plan. Contrata un add-on o mejora tu plan para continuar emitiendo."
                 ),
-                "usage": e.usage if hasattr(e, "usage") else {},
-            },
+                "usage": e.usage if hasattr(e, 'usage') else {},
+            }
         )
 
     is_electronic = sequence.prefix == "E"
@@ -2494,7 +2069,8 @@ async def transmit_invoice(invoice_id: str, ctx: TenantContext = Depends(require
 
         # Build QR URL: prefer Alanube's official documentStampUrl, fall back to DGII portal
         qr_url = document_stamp_url or (
-            f"https://dgii.gov.do/consulta/ecf?rnc={sender_rnc}&encf={encf}&trackId={track_id}" if track_id else None
+            f"https://dgii.gov.do/consulta/ecf?rnc={sender_rnc}&encf={encf}&trackId={track_id}"
+            if track_id else None
         )
 
         # Update raw metadata to include Alanube response details
@@ -2573,11 +2149,6 @@ class EmitRequest(BaseModel):
     payment_splits: Optional[List[PaymentSplit]] = None
     items: List[EmitLineItem] = Field(..., min_length=1)
     notes: Optional[str] = None
-    invoice_id: Optional[str] = None
-    is_correction: bool = Field(
-        default=False,
-        description="True cuando se corrige una factura ya emitida (genera NC + nueva)",
-    )
 
     # Quick mode fields (buyer details inline)
     buyer_name: Optional[str] = None
@@ -3051,25 +2622,6 @@ async def emit_invoice(payload: EmitRequest, ctx: TenantContext = Depends(requir
             error_message=f"Debe cargar un nuevo rango de secuencia e-CF para el tipo {payload.ecf_type}.",
         )
 
-    # ── Plan enforcement: check e-CF quota before transmitting ──
-    from app.services.plan_service import PlanLimitExceeded, PlanService
-    plan_svc = PlanService(ctx.db)
-    try:
-        plan_svc.check_ecf_limit(ctx.org_id, amount=1)
-    except PlanLimitExceeded:
-        return EmitResponse(
-            message=(
-                "Has alcanzado el límite mensual de comprobantes electrónicos (e-CF) "
-                "de tu plan o tu balance es insuficiente. Por favor, adquiere un paquete adicional en la tienda."
-            ),
-            status="error",
-            error_code="ecf_limit_exceeded",
-            error_message=(
-                "Has alcanzado el límite mensual de comprobantes electrónicos (e-CF) "
-                "de tu plan o tu balance es insuficiente. Por favor, adquiere un paquete adicional en la tienda."
-            ),
-        )
-
     sequence.current_number += 1
     is_electronic_seq = sequence.prefix == "E"
     if is_electronic_seq:
@@ -3149,107 +2701,31 @@ async def emit_invoice(payload: EmitRequest, ctx: TenantContext = Depends(requir
     if payment_cond == "credito":
         invoice_due_date = datetime.utcnow() + timedelta(days=30)
 
-    # 6. Create or update invoice draft
-    invoice = None
-    if payload.invoice_id:
-        invoice = (
-            ctx.db.query(Invoice)
-            .filter(
-                Invoice.id == UUID(payload.invoice_id),
-                Invoice.tenant_id == ctx.tenant_id,
-                Invoice.organization_id == ctx.org_id,
-            )
-            .first()
-        )
-
-    # ── Validar re-emisión ──
-    if invoice and invoice.processed and invoice.status == "verified":
-        if invoice.is_electronic and not payload.is_correction:
-            raise HTTPException(
-                status_code=400,
-                detail=json.dumps({
-                    "error": "already_emitted",
-                    "correction_required": True,
-                    "message": (
-                        "Esta factura electrónica ya fue timbrada ante la DGII. "
-                        "Para corregirla, use is_correction=true en el payload "
-                        "para que se emita una Nota de Crédito y una nueva factura."
-                    ),
-                })
-            )
-        if invoice.is_electronic and payload.is_correction:
-            from app.routers.invoices import _issue_credit_note_for_correction
-            await _issue_credit_note_for_correction(
-                db=ctx.db,
-                invoice=invoice,
-                tenant_id=ctx.tenant_id,
-                org_id=ctx.org_id,
-                organization=ctx.organization,
-            )
-            new_invoice = Invoice(
-                tenant_id=ctx.tenant_id,
-                organization_id=ctx.org_id,
-                rnc_comprador=invoice.rnc_comprador,
-                ecf_type=str(payload.ecf_type),
-                is_electronic=True,
-                status="draft",
-                processed=False,
-                source_type="billing",
-                currency=invoice.currency or "DOP",
-                parent_invoice_id=invoice.id,
-                modified_ncf=invoice.invoice_number,
-                modification_reason="02",
-            )
-            ctx.db.add(new_invoice)
-            ctx.db.flush()
-            ctx.db.refresh(new_invoice)
-            invoice = new_invoice
-
-    if invoice:
-        invoice.filename = "Factura Emitida"
-        invoice.file_type = "xml" if is_electronic_seq else "manual"
-        invoice.vendor_name = ctx.organization.name
-        invoice.vendor_tax_id = ctx.organization.tax_id
-        invoice.rnc_comprador = buyer_rnc
-        invoice.invoice_date = datetime.utcnow()
-        invoice.total_amount = total_amount
-        invoice.tax_amount = itbis_total
-        invoice.currency = "DOP"
-        invoice.transaction_type = "income"
-        invoice.source_type = "billing"
-        invoice.ecf_type = str(payload.ecf_type)
-        invoice.is_electronic = is_electronic_seq
-        invoice.processed = False
-        invoice.status = "draft"
-        invoice.line_items_data = json.dumps(line_items, ensure_ascii=False)
-        invoice.raw_extracted_data = json.dumps(raw_data, ensure_ascii=False)
-        invoice.payment_condition = payment_cond
-        invoice.due_date = invoice_due_date
-    else:
-        invoice = Invoice(
-            tenant_id=ctx.tenant_id,
-            organization_id=ctx.org_id,
-            filename="Factura Emitida",
-            file_type="xml" if is_electronic_seq else "manual",
-            vendor_name=ctx.organization.name,
-            vendor_tax_id=ctx.organization.tax_id,
-            rnc_comprador=buyer_rnc,
-            invoice_date=datetime.utcnow(),
-            total_amount=total_amount,
-            tax_amount=itbis_total,
-            currency="DOP",
-            transaction_type="income",
-            source_type="billing",
-            ecf_type=str(payload.ecf_type),
-            is_electronic=is_electronic_seq,
-            processed=False,
-            status="draft",
-            line_items_data=json.dumps(line_items, ensure_ascii=False),
-            raw_extracted_data=json.dumps(raw_data, ensure_ascii=False),
-            payment_condition=payment_cond,
-            due_date=invoice_due_date,
-        )
-        ctx.db.add(invoice)
+    # 6. Create invoice draft
+    invoice = Invoice(
+        tenant_id=ctx.tenant_id,
+        organization_id=ctx.org_id,
+        filename="Factura Emitida",
+        file_type="xml" if is_electronic_seq else "manual",
+        vendor_name=ctx.organization.name,
+        vendor_tax_id=ctx.organization.tax_id,
+        rnc_comprador=buyer_rnc,
+        invoice_date=datetime.utcnow(),
+        total_amount=total_amount,
+        tax_amount=itbis_total,
+        currency="DOP",
+        transaction_type="income",
+        source_type="billing",
+        ecf_type=str(payload.ecf_type),
+        is_electronic=is_electronic_seq,
+        processed=False,
+        status="draft",
+        line_items_data=json.dumps(line_items, ensure_ascii=False),
+        raw_extracted_data=json.dumps(raw_data, ensure_ascii=False),
+        payment_condition=payment_cond,
+        due_date=invoice_due_date,
+    )
+    ctx.db.add(invoice)
     ctx.db.flush()
 
     # 7. Transmit to Alanube (skip for physical NCFs)
@@ -3324,7 +2800,8 @@ async def emit_invoice(payload: EmitRequest, ctx: TenantContext = Depends(requir
 
         document_stamp_url = res.get("documentStampUrl") or res.get("document_stamp_url")
         qr_url = document_stamp_url or (
-            f"https://dgii.gov.do/consulta/ecf?rnc={sender_rnc}&encf={encf}&trackId={track_id}" if track_id else None
+            f"https://dgii.gov.do/consulta/ecf?rnc={sender_rnc}&encf={encf}&trackId={track_id}"
+            if track_id else None
         )
 
         raw_data.update(
@@ -3503,7 +2980,10 @@ class BatchSyncResponse(BaseModel):
 
 
 @router.post("/sync/batch", response_model=BatchSyncResponse)
-async def sync_batch_invoices(payload: BatchSyncRequest, ctx: TenantContext = Depends(require_tenant)):
+async def sync_batch_invoices(
+    payload: BatchSyncRequest,
+    ctx: TenantContext = Depends(require_tenant)
+):
     """
     Receives a batch of offline-created invoices, emits each via Alanube,
     saves them to the local Postgres database, and returns results.
@@ -3633,9 +3113,7 @@ async def sync_batch_invoices(payload: BatchSyncRequest, ctx: TenantContext = De
                 income_type=int(inv.formData.income_type) if inv.formData.income_type else 1,
                 payment_type=inv.formData.payment_type,
                 payment_method=inv.formData.payment_method,
-                payment_splits=[s.model_dump() for s in inv.formData.payment_splits]
-                if inv.formData.payment_splits
-                else None,
+                payment_splits=[s.model_dump() for s in inv.formData.payment_splits] if inv.formData.payment_splits else None,
                 reference_ecf=inv.formData.reference_ecf,
                 reference_date=inv.formData.reference_date,
                 modification_code=inv.formData.modification_code,
@@ -3776,8 +3254,7 @@ async def sync_batch_invoices(payload: BatchSyncRequest, ctx: TenantContext = De
                 document_stamp_url = res.get("documentStampUrl") or res.get("document_stamp_url")
                 qr_url = document_stamp_url or (
                     f"https://dgii.gov.do/consulta/ecf?rnc={sender_rnc}&encf={encf}&trackId={track_id}"
-                    if track_id
-                    else None
+                    if track_id else None
                 )
 
                 raw_data.update(
@@ -3838,3 +3315,4 @@ async def sync_batch_invoices(payload: BatchSyncRequest, ctx: TenantContext = De
             )
 
     return BatchSyncResponse(results=results)
+

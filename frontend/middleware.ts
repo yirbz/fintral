@@ -1,32 +1,39 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PROTECTED_PREFIXES = ["/dashboard", "/billing"];
-
 export function middleware(request: NextRequest) {
   const url = request.nextUrl.clone();
-  const hasToken = request.cookies.has("access_token");
+  const hostname = request.headers.get("host") || "";
 
-  const isAuthPage =
-    url.pathname === "/login" ||
-    url.pathname === "/signup" ||
-    url.pathname.startsWith("/login/") ||
-    url.pathname.startsWith("/signup/");
+  // Check if hostname starts with 'factura.'
+  const isBillingSubdomain = hostname.startsWith("factura.");
 
-  const isProtectedPage = PROTECTED_PREFIXES.some((prefix) =>
-    url.pathname === prefix || url.pathname.startsWith(prefix + "/")
-  );
+  if (isBillingSubdomain) {
+    // Prevent infinite loop if already rewritten to /billing
+    if (url.pathname.startsWith("/billing")) {
+      return NextResponse.next();
+    }
 
-  // If trying to access a protected page without a token, redirect to login
-  if (isProtectedPage && !hasToken) {
-    const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("redirect", request.url);
-    return NextResponse.redirect(loginUrl);
-  }
+    // Skip API, static assets, internal next paths, static files, auth pages, and docs
+    if (
+      url.pathname.startsWith("/_next") ||
+      url.pathname.startsWith("/api") ||
+      url.pathname.startsWith("/static") ||
+      url.pathname.includes(".") ||
+      url.pathname.startsWith("/login") ||
+      url.pathname.startsWith("/signup") ||
+      url.pathname.startsWith("/forgot-password") ||
+      url.pathname.startsWith("/verify") ||
+      url.pathname.startsWith("/accept-invite") ||
+      url.pathname.startsWith("/auth") ||
+      url.pathname.startsWith("/docs")
+    ) {
+      return NextResponse.next();
+    }
 
-  // If trying to access an auth page with a token, redirect to dashboard
-  if (isAuthPage && hasToken) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    // Rewrite URL to /billing/...
+    url.pathname = `/billing${url.pathname}`;
+    return NextResponse.rewrite(url);
   }
 
   return NextResponse.next();
@@ -34,6 +41,13 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    /*
+     * Match all request paths except for:
+     * - api (API routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     */
     "/((?!api|_next/static|_next/image|favicon.ico).*)",
   ],
 };

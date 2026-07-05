@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { register, verifyAndLogin, resendCode } from "@/lib/api/auth";
 import { dgiiService } from "@/lib/services/dgii";
+import { consultRncAction } from "@/app/actions/dgii";
 import { Loader2 } from "lucide-react";
 
 const SIGNUP_STORAGE_KEY = "fintral_signup";
@@ -307,17 +308,18 @@ function StepCompany({
       setVerifying(true);
       setApiResult(null);
       try {
-        const data = await dgiiService.consultTaxpayer(cleanRnc);
+        const data = await consultRncAction(cleanRnc);
         if (!active) return;
         if (data && data.name) {
           setApiResult({ success: true, name: data.name });
+          // Autofill company name if empty
           if (!companyName.trim()) {
             setCompanyName(data.name);
           }
         } else {
           setApiResult({ success: false, message: "No encontrado en padrón DGII" });
         }
-      } catch {
+      } catch (e) {
         if (!active) return;
         setApiResult({ success: false, message: "Error de conexión con DGII" });
       } finally {
@@ -397,7 +399,6 @@ function StepVerify({
   onResend,
   loading,
   resending,
-  cooldown,
 }: {
   email: string;
   code: string;
@@ -406,10 +407,8 @@ function StepVerify({
   onResend: () => void;
   loading: boolean;
   resending: boolean;
-  cooldown: number;
 }) {
   const valid = code.trim().length === 6;
-  const canResend = !resending && cooldown <= 0;
   return (
     <FieldGroup>
       <div className="flex flex-col items-center gap-1 text-center">
@@ -430,9 +429,9 @@ function StepVerify({
         </Button>
       </Field>
       <div className="flex justify-center">
-        <button type="button" onClick={onResend} disabled={!canResend}
-          className="text-sm text-zinc-500 underline-offset-4 hover:text-zinc-300 hover:underline disabled:opacity-50 disabled:no-underline">
-          {resending ? "Reenviando..." : cooldown > 0 ? `Reenviar en ${cooldown}s` : "Reenviar código"}
+        <button type="button" onClick={onResend} disabled={resending}
+          className="text-sm text-zinc-500 underline-offset-4 hover:text-zinc-300 hover:underline disabled:opacity-50">
+          {resending ? "Reenviando..." : "Reenviar código"}
         </button>
       </div>
       <div className="flex justify-center">
@@ -469,7 +468,6 @@ export function SignUpForm({
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [resuming, setResuming] = useState(false);
-  const [cooldown, setCooldown] = useState(0);
 
   useEffect(() => {
     const saved = loadSignupState();
@@ -479,12 +477,6 @@ export function SignUpForm({
       setResuming(true);
     }
   }, []);
-
-  useEffect(() => {
-    if (cooldown <= 0) return;
-    const id = setInterval(() => setCooldown((c) => c - 1), 1000);
-    return () => clearInterval(id);
-  }, [cooldown]);
 
   function goToStep(newStep: number) {
     setStep(newStep);
@@ -558,14 +550,8 @@ export function SignUpForm({
     setError("");
     try {
       await resendCode(email);
-      setCooldown(30);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Error al reenviar el código";
-      const match = msg.match(/(\d+)\s*segundo/);
-      if (match) {
-        setCooldown(parseInt(match[1], 10));
-      }
-      setError(msg);
+      setError(err instanceof Error ? err.message : "Error al reenviar el código");
     } finally {
       setResending(false);
     }
@@ -625,7 +611,6 @@ export function SignUpForm({
             onResend={handleResend}
             loading={loading}
             resending={resending}
-            cooldown={cooldown}
           />
         )}
       </div>

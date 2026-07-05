@@ -56,10 +56,14 @@ def run_migrations_online() -> None:
             target_metadata=target_metadata,
             compare_type=True,
             include_schemas=False,
+            transactional_ddl=not config.attributes.get("disable_transactional_ddl", False),
         )
 
-        with context.begin_transaction():
+        if config.attributes.get("disable_transactional_ddl"):
             context.run_migrations()
+        else:
+            with context.begin_transaction():
+                context.run_migrations()
 
 
 if context.is_offline_mode():

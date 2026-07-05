@@ -599,7 +599,6 @@ async def get_invoices(
     payment_status: Optional[str] = None,
     payment_condition: Optional[str] = None,
     status: Optional[str] = None,
-    exclude_source_type: Optional[str] = None,
     include_drafts: bool = False,
     ctx: TenantContext = Depends(require_tenant),
 ):
@@ -621,7 +620,6 @@ async def get_invoices(
         payment_status=payment_status,
         payment_condition=payment_condition,
         status=status,
-        exclude_source_type=exclude_source_type,
         include_drafts=include_drafts,
     )
 
@@ -674,7 +672,6 @@ async def get_invoice(
 ):
     invoice = invoice_repo.get_including_trashed(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
     if not invoice:
-        logger.warning("Detail request for unknown invoice: %s (org=%s, tenant=%s)", invoice_id, ctx.org_id, ctx.tenant_id)
         raise HTTPException(status_code=404, detail="Factura no encontrada")
     return _serialize_invoices_with_dgii_status(ctx, [invoice])[0]
 
@@ -682,31 +679,19 @@ async def get_invoice(
 @router.get("/invoices/{invoice_id}/file")
 async def get_invoice_file(
     invoice_id: str,
-    processed: bool = False,
     ctx: TenantContext = Depends(require_tenant),
 ):
-    logger.info("File lookup: invoice=%s org=%s tenant=%s", invoice_id, ctx.org_id, ctx.tenant_id)
     invoice = invoice_repo.get_including_trashed(ctx.db, invoice_id, ctx.tenant_id, ctx.org_id)
     if not invoice:
-        logger.warning("File request for unknown invoice: %s (org=%s, tenant=%s)", invoice_id, ctx.org_id, ctx.tenant_id)
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
-    target_path = invoice.processed_path if processed and invoice.processed_path else invoice.file_path
-    if not target_path:
-        logger.warning(
-            "Invoice %s has no file_path (type=%s, source=%s, processed=%s)",
-            invoice_id, invoice.file_type, invoice.source_type, processed,
-        )
+    if not invoice.file_path:
         raise HTTPException(status_code=404, detail="Archivo no adjunto o sin ruta de almacenamiento")
 
     from app.services.supabase_storage import download_file
 
-    file_data = download_file(target_path)
+    file_data = download_file(invoice.file_path)
     if not file_data:
-        logger.warning(
-            "File not found in storage for invoice %s: path=%s",
-            invoice_id, target_path,
-        )
         raise HTTPException(status_code=404, detail="No se pudo descargar el archivo del almacenamiento")
 
     content_type = "application/octet-stream"
@@ -1424,202 +1409,6 @@ async def uncancel_invoice(
 class VoidInvoiceRequest(BaseModel):
     cancellation_type: str = "01"
     reason: Optional[str] = None
-
-
-async def _issue_credit_note_for_correction(
-    db,
-    invoice,
-    tenant_id,
-    org_id,
-    organization,
-) -> "Invoice":
-    """
-    Emitir una Nota de Crédito (E34) para corrección de una factura electrónica.
-    Reutiliza la lógica existente de void_invoice pero sin marcar la original como cancelada.
-    """
-    from app.models import EcfSequence
-    from app.services.alanube import AlanubeService
-
-    sequence = (
-        db.query(EcfSequence)
-        .filter(
-            EcfSequence.tenant_id == tenant_id,
-            EcfSequence.organization_id == org_id,
-            EcfSequence.ecf_type == 34,
-            EcfSequence.is_active.is_(True),
-        )
-        .first()
-    )
-    if not sequence:
-        raise HTTPException(status_code=400, detail="No hay secuencia E34 activa para Notas de Crédito")
-    if sequence.current_number >= sequence.end_number:
-        raise HTTPException(status_code=400, detail="Secuencia E34 agotada")
-
-    sequence.current_number += 1
-    encf = f"{sequence.prefix}34{sequence.current_number:010d}"
-
-    sender_rnc = re.sub(r"[^0-9]", "", organization.tax_id or "") or "132109122"
-    sender_name = organization.name or "Fintral"
-
-    items = []
-    if invoice.line_items:
-        for li in invoice.line_items:
-            items.append({
-                "description": li.get("name", "") or li.get("description", ""),
-                "quantity": float(li.get("quantity", 1)),
-                "unit_price": float(li.get("unit_price", 0)),
-                "discount_rate": float(li.get("discount_rate", 0)),
-                "tax_rate": float(li.get("tax_rate", 18)),
-                "good_service_indicator": int(li.get("good_service_indicator", 1)),
-            })
-
-    if not items:
-        items.append({
-            "description": "Anulación por corrección",
-            "quantity": 1,
-            "unit_price": invoice.total_amount or 0,
-            "discount_rate": 0,
-            "tax_rate": 18,
-            "good_service_indicator": 1,
-        })
-
-    buyer_rnc = invoice.rnc_comprador or "132109122"
-    buyer_name = "Consumidor Final"
-    buyer_address = ""
-
-    raw_data = {}
-    if invoice.raw_extracted_data:
-        try:
-            raw_data = json.loads(invoice.raw_extracted_data)
-            buyer_name = raw_data.get("buyer_name", "Consumidor Final")
-            buyer_address = raw_data.get("buyer_address", "")
-        except Exception:
-            pass
-
-    from app.routers.billing import EmitLineItem, _build_emit_alanube_payload
-
-    emit_items = [EmitLineItem(**it) for it in items]
-
-    alanube_payload, subtotal, itbis_total, total_amount = _build_emit_alanube_payload(
-        encf=encf,
-        sequence=sequence,
-        ecf_type=34,
-        sender_rnc=sender_rnc,
-        sender_name=sender_name,
-        buyer_name=buyer_name,
-        buyer_rnc=buyer_rnc,
-        items=emit_items,
-        income_type=1,
-        payment_type=1,
-        reference_ecf=invoice.invoice_number,
-        reference_date=invoice.invoice_date.date() if invoice.invoice_date else None,
-        modification_code=1,
-        sender_address=organization.fiscal_address,
-        sender_municipality=organization.municipality,
-        sender_province=organization.province,
-        sender_phone=[organization.phone] if organization.phone else None,
-        sender_email=organization.email_contact,
-        sender_website=organization.website,
-        sender_economic_activity=organization.economic_activity,
-        buyer_address=buyer_address,
-        stamp_date=datetime.utcnow().date().isoformat(),
-    )
-
-    alanube_payload["idDoc"]["creditNoteIndicator"] = 0
-
-    child_raw_data = {
-        "ecf_type": "34",
-        "parent_invoice_id": str(invoice.id),
-        "modified_ncf": invoice.invoice_number,
-        "modification_reason": "01",
-        "buyer_name": buyer_name,
-        "buyer_rnc": buyer_rnc,
-        "correction": True,
-    }
-
-    child_line_items = [
-        {
-            "line": idx + 1,
-            "name": it.description,
-            "quantity": it.quantity,
-            "unit_price": it.unit_price,
-            "discount_rate": it.discount_rate,
-            "tax_rate": it.tax_rate,
-            "total": round((it.quantity * it.unit_price * (1 - it.discount_rate / 100)) * (1 + it.tax_rate / 100), 2),
-        }
-        for idx, it in enumerate(emit_items)
-    ]
-
-    child_invoice = Invoice(
-        tenant_id=tenant_id,
-        organization_id=org_id,
-        filename=f"Nota de Crédito - {invoice.invoice_number or ''}",
-        file_type="xml",
-        vendor_name=sender_name,
-        vendor_tax_id=sender_rnc,
-        rnc_comprador=buyer_rnc,
-        invoice_number=encf,
-        invoice_date=datetime.utcnow(),
-        total_amount=total_amount,
-        tax_amount=itbis_total,
-        currency="DOP",
-        transaction_type="income",
-        source_type="billing",
-        ecf_type="34",
-        is_electronic=True,
-        processed=False,
-        status="draft",
-        parent_invoice_id=invoice.id,
-        modified_ncf=invoice.invoice_number,
-        modification_reason="01",
-        line_items_data=json.dumps(child_line_items, ensure_ascii=False),
-        raw_extracted_data=json.dumps(child_raw_data, ensure_ascii=False),
-    )
-    db.add(child_invoice)
-    db.flush()
-
-    alanube_service = AlanubeService(
-        db=db,
-        tenant_id=tenant_id,
-        organization_id=org_id,
-    )
-    try:
-        res = await alanube_service.emit_document(
-            ecf_type=34,
-            payload=alanube_payload,
-            company_id=organization.alanube_company_id,
-        )
-
-        track_id = res.get("id") or res.get("trackId")
-        pdf_url = res.get("pdfUrl") or res.get("pdf_url")
-        xml_url = res.get("xmlUrl") or res.get("xml_url")
-        security_code = res.get("securityCode") or res.get("security_code")
-        legal_status = res.get("legalStatus") or res.get("legal_status") or "ACCEPTED"
-
-        child_raw_data.update({
-            "security_code": security_code,
-            "track_id": track_id,
-            "legal_status": legal_status,
-            "pdf_url": pdf_url,
-            "xml_url": xml_url,
-            "qr_url": f"https://dgii.gov.do/consulta/ecf?rnc={sender_rnc}&encf={encf}&trackId={track_id}" if track_id else None,
-        })
-        child_invoice.raw_extracted_data = json.dumps(child_raw_data, ensure_ascii=False)
-        child_invoice.file_path = xml_url
-        child_invoice.processed_path = pdf_url
-        child_invoice.status = "verified"
-        child_invoice.processed = True
-        child_invoice.updated_at = datetime.utcnow()
-
-        db.commit()
-        db.refresh(child_invoice)
-
-    except Exception:
-        db.rollback()
-        logger.exception("Error emitiendo Nota de Crédito para corrección")
-        raise HTTPException(status_code=502, detail="Error al emitir la Nota de Crédito para corrección")
-
-    return child_invoice
 
 
 @router.post("/invoices/{invoice_id}/void")
@@ -2432,22 +2221,9 @@ async def hard_delete_draft_invoice(
     if invoice.status != "draft":
         raise HTTPException(status_code=400, detail="Solo se pueden archivar facturas en estado borrador")
 
-    # 1. Delete files from Supabase Storage
-    from app.services.supabase_storage import delete_invoice_folder
-    delete_invoice_folder(
-        invoice.tenant_id,
-        invoice.organization_id,
-        invoice.id,
-        file_path=invoice.file_path,
-        processed_path=invoice.processed_path,
-    )
-
-    # 2. Delete related InvoiceDgiiStatus records
-    from app.models.invoice_dgii_status import InvoiceDgiiStatus
-    ctx.db.query(InvoiceDgiiStatus).filter(InvoiceDgiiStatus.invoice_id == invoice.id).delete()
-
-    # 3. Hard delete from database
-    ctx.db.delete(invoice)
+    invoice.is_deleted = True
+    invoice.deleted_at = datetime.utcnow()
+    invoice.deleted_by = ctx.user.id
     ctx.db.commit()
 
     record(
@@ -2458,14 +2234,14 @@ async def hard_delete_draft_invoice(
         actor_id=str(ctx.user.id),
         actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
-        action="invoice.deleted",
+        action="invoice.archived",
         resource_type="invoice",
         resource_id=str(invoice_id),
-        summary=f"Factura borrador '{invoice.invoice_number}' eliminada permanentemente",
+        summary=f"Factura borrador '{invoice.invoice_number}' archivada",
     )
 
     invalidate_stats_cache(ctx.tenant_id, ctx.org_id)
-    return {"message": "Factura borrador eliminada permanentemente"}
+    return {"message": "Factura borrador archivada"}
 
 
 @router.post("/api/invoices/bulk-hard-delete")
@@ -2484,29 +2260,18 @@ async def bulk_hard_delete_drafts(
         Invoice.original_xml_data.is_(None),
     ).all()
 
-    from app.services.supabase_storage import delete_invoice_folder
-    from app.models.invoice_dgii_status import InvoiceDgiiStatus
-
+    now = datetime.utcnow()
     count = 0
     for invoice in invoices:
-        # Delete from storage
-        delete_invoice_folder(
-            invoice.tenant_id,
-            invoice.organization_id,
-            invoice.id,
-            file_path=invoice.file_path,
-            processed_path=invoice.processed_path,
-        )
-        # Delete related InvoiceDgiiStatus
-        ctx.db.query(InvoiceDgiiStatus).filter(InvoiceDgiiStatus.invoice_id == invoice.id).delete()
-        # Hard delete from DB
-        ctx.db.delete(invoice)
+        invoice.is_deleted = True
+        invoice.deleted_at = now
+        invoice.deleted_by = ctx.user.id
         count += 1
 
     ctx.db.commit()
 
     skipped = len(action.invoice_ids) - len(invoices)
-    summary = f"{count} factura(s) borrador eliminada(s) permanentemente"
+    summary = f"{count} factura(s) borrador archivada(s)"
     if skipped:
         summary += f", {skipped} omitida(s) (no borrador)"
 
@@ -2518,7 +2283,7 @@ async def bulk_hard_delete_drafts(
         actor_id=str(ctx.user.id),
         actor_name=getattr(ctx.user, "full_name", None) or getattr(ctx.user, "name", None),
         actor_email=ctx.user.email,
-        action="invoice.bulk_deleted",
+        action="invoice.bulk_archived",
         resource_type="invoice",
         summary=summary,
     )

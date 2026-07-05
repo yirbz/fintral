@@ -13,7 +13,6 @@ import { cn } from "@/lib/utils";
 
 interface InvoiceImageViewerProps {
   invoiceId: string;
-  orgId?: string;
   filename?: string;
   fileType?: string;
   className?: string;
@@ -21,7 +20,6 @@ interface InvoiceImageViewerProps {
 
 export function InvoiceImageViewer({
   invoiceId,
-  orgId,
   filename,
   fileType,
   className,
@@ -198,7 +196,7 @@ export function InvoiceImageViewer({
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
-  const fileUrl = `/invoices/${invoiceId}/file${orgId ? `?org_id=${orgId}` : ""}`;
+  const fileUrl = `/invoices/${invoiceId}/file`;
 
   return (
     <div

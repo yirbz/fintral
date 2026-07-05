@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Optional
 from uuid import UUID, uuid4
 
-from fastapi import Depends, HTTPException, Request, Response
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -30,7 +30,6 @@ class TenantContext:
     organization: Organization
     role: str  # owner / admin / member / viewer
     permissions: list[str] | None = None  # explicit permission overrides; None = use role defaults
-    grace_hours: int | None = None
 
 
 @dataclass
@@ -45,7 +44,6 @@ class FallbackOrganization:
 
 async def require_tenant(
     request: Request,
-    response: Response,
     db: Session = Depends(get_db),
 ) -> TenantContext:
     """
@@ -159,109 +157,6 @@ async def require_tenant(
     if not org:
         raise HTTPException(status_code=403, detail="Organización no encontrada o inactiva")
 
-    # Differentiate Fintral Factura (billing module) vs Hub
-    path = request.url.path
-    is_bypass_path = (
-        path.startswith("/api/auth/") or
-        path.startswith("/api/plans/") or
-        path.startswith("/api/billing/") or
-        path.startswith("/api/organizations/user-orgs") or
-        path.startswith("/api/organizations/switch") or
-        path.startswith("/api/me")
-    )
-
-    grace_hours = None
-
-    if not is_bypass_path:
-        from app.models.user_subscription import UserSubscription
-        from app.utils.dates import utc_now
-
-        sub = (
-            db.query(UserSubscription)
-            .filter(UserSubscription.user_id == user.id)
-            .filter(UserSubscription.status.in_(["active", "trialing", "past_due"]))
-            .order_by(UserSubscription.created_at.desc())
-            .first()
-        )
-
-        if sub and sub.status == "trialing":
-            if sub.trial_ends_at and sub.trial_ends_at < utc_now():
-                sub.status = "expired"
-                db.commit()
-                try:
-                    from app.services.email_service import send_trial_expired_email
-                    send_trial_expired_email(user.email, user.full_name or user.email)
-                except Exception:
-                    pass
-                sub = None
-
-        if sub and sub.status == "past_due":
-            from datetime import timedelta
-            grace_period = timedelta(days=3)
-            time_since_failed = utc_now() - sub.updated_at
-            
-            if time_since_failed > grace_period:
-                sub = None
-            else:
-                grace_hours = max(0, int((grace_period - time_since_failed).total_seconds() / 3600))
-
-        if not sub:
-            expired_sub = (
-                db.query(UserSubscription)
-                .filter(UserSubscription.user_id == user.id, UserSubscription.status == "expired")
-                .first()
-            )
-            if expired_sub and request.method in ("GET", "HEAD", "OPTIONS"):
-                response.headers["X-Subscription-Status"] = "expired"
-            else:
-                raise HTTPException(
-                    status_code=402,
-                    detail="Suscripción requerida para acceder al Hub Contable."
-                )
-
-        # 1. Check if entity limit is exceeded (ENTITY_BLOCKED)
-        if sub and not user.is_superuser:
-            user_plan = sub.plan
-            if user_plan:
-                max_entities = user_plan.max_entities + (sub.addon_entity_slots or 0)
-                all_user_orgs = (
-                    db.query(UserOrganization)
-                    .filter(UserOrganization.user_id == user.id)
-                    .order_by(UserOrganization.created_at.asc())
-                    .all()
-                )
-                allowed_org_ids = [uo.organization_id for uo in all_user_orgs[:max_entities]]
-                if org.id not in allowed_org_ids:
-                    raise HTTPException(status_code=403, detail="ENTITY_BLOCKED")
-
-        # 2. Check if user limit inside organization is exceeded (USER_BLOCKED)
-        if not user.is_superuser:
-            from app.models.organization_subscription import OrganizationSubscription
-            org_sub = (
-                db.query(OrganizationSubscription)
-                .filter(
-                    OrganizationSubscription.organization_id == org.id,
-                    OrganizationSubscription.status.in_(["active", "trialing", "past_due"]),
-                )
-                .order_by(OrganizationSubscription.created_at.desc())
-                .first()
-            )
-            if org_sub and org_sub.plan:
-                max_users = org_sub.plan.max_users + (org_sub.addon_user_slots or 0)
-                all_org_users = (
-                    db.query(UserOrganization)
-                    .filter(UserOrganization.organization_id == org.id)
-                    .order_by(UserOrganization.created_at.asc())
-                    .all()
-                )
-                allowed_user_ids = [uo.user_id for uo in all_org_users[:max_users]]
-                if user.id not in allowed_user_ids:
-                    raise HTTPException(status_code=403, detail="USER_BLOCKED")
-
-
-    if grace_hours is not None:
-        response.headers["X-Subscription-Grace-Remaining"] = str(grace_hours)
-
     if org.is_deleted:
         is_write = request.method in ("POST", "PUT", "PATCH", "DELETE")
         is_allowed_write = (
@@ -287,7 +182,6 @@ async def require_tenant(
         organization=org,
         role=user_org.role,
         permissions=permissions,
-        grace_hours=grace_hours,
     )
 
 
@@ -373,10 +267,9 @@ async def optional_tenant(
 
 async def require_admin(
     request: Request,
-    response: Response,
     db: Session = Depends(get_db),
 ) -> TenantContext:
-    ctx = await require_tenant(request, response, db)
+    ctx = await require_tenant(request, db)
     if not ctx.user.is_superuser:
         raise HTTPException(status_code=403, detail="Se requieren permisos de administrador")
     return ctx

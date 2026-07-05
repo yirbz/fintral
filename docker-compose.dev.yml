@@ -37,7 +37,7 @@ services:
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_JWT_ISSUER=${SUPABASE_JWT_ISSUER:-http://127.0.0.1:54321/auth/v1}
       - SUPABASE_STORAGE_BUCKET=${SUPABASE_STORAGE_BUCKET:-invoices}
-      - DATABASE_URL=${LOCAL_DATABASE_URL:-${DATABASE_URL:-postgresql://postgres:postgres@supabase_db_fintral-dev:5432/postgres}}
+      - DATABASE_URL=${LOCAL_DATABASE_URL:-${DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:5440/invoices}}
       - REDIS_URL=${LOCAL_REDIS_URL:-${REDIS_URL}}
       # ── Secrets (inherited from Doppler via shell — no default) ──
       - APP_JWT_SECRET_KEY
@@ -65,50 +65,14 @@ services:
       # ── Telegram bot (admin notifications) ──
       - TELEGRAM_BOT_TOKEN
       - TELEGRAM_CHAT_ID
-      # ── Paddle Billing ──
-      - PADDLE_API_KEY
-      - PADDLE_WEBHOOK_SECRET
-      - PADDLE_ENVIRONMENT
-      - PADDLE_CLIENT_TOKEN
-      - PADDLE_PRODUCT_INICIAL
-      - PADDLE_PRICE_INICIAL_MONTHLY
-      - PADDLE_PRODUCT_PROFESIONAL
-      - PADDLE_PRICE_PROFESIONAL_MONTHLY
-      - PADDLE_PRODUCT_DESPACHO
-      - PADDLE_PRICE_DESPACHO_MONTHLY
-      # ── Lago Billing Engine ──
-      - LAGO_API_URL=${LOCAL_LAGO_API_URL:-http://lago-api:3000}
-      - LAGO_API_KEY=${LAGO_API_KEY:-fintral-lago-key-dev}
-      - LAGO_WEBHOOK_SECRET=${LAGO_WEBHOOK_SECRET:-fintral-lago-webhook-secret-dev}
-      # ── MIO Payment Gateway ──
-      - MIO_CLIENT_ID
-      - MIO_CLIENT_SECRET
-      - MIO_ENVIRONMENT=${MIO_ENVIRONMENT:-staging}
-      - MIO_API_BASE_URL=${MIO_API_BASE_URL:-https://api-mpos-mio.stg.geopagos.io}
-      - MIO_AUTH_URL=${MIO_AUTH_URL:-https://auth.stg.geopagos.io}
-      - MIO_WEBHOOK_URL
-      - MIO_SUCCESS_REDIRECT
-      - MIO_FAILED_REDIRECT
-      # ── Banco Popular Exchange Rate API ──
-      - BANCO_POPULAR_API_URL
-      - BANCO_POPULAR_API_KEY
-      - BANCO_POPULAR_SECRET_KEY
-      - BANCO_POPULAR_FALLBACK_RATE
-      # ── Bank Transfer Details ──
-      - BANK_NAME
-      - BANK_ACCOUNT_HOLDER
-      - BANK_ACCOUNT_NUMBER
     depends_on:
       redis:
-        condition: service_healthy
-      lago-api:
         condition: service_healthy
     volumes:
       - ./backend:/app
       - /app/__pycache__/
       - uploads_data:/app/uploads
       - static_data:/app/static
-      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "${LOCAL_BACKEND_PORT:-${BACKEND_PORT:-8000}}:${LOCAL_BACKEND_PORT:-${BACKEND_PORT:-8000}}"
     extra_hosts:
@@ -126,8 +90,6 @@ services:
       - BACKEND_URL=http://backend:8000
       - NEXT_PUBLIC_ENVIRONMENT=${LOCAL_ENVIRONMENT:-${ENVIRONMENT:-DEVELOPMENT}}
       - NEXT_PUBLIC_APP_URL=${LOCAL_NEXT_PUBLIC_APP_URL:-${NEXT_PUBLIC_APP_URL:-${PUBLIC_APP_URL:-http://localhost:3000}}}
-      - NEXT_PUBLIC_PADDLE_ENVIRONMENT
-      - NEXT_PUBLIC_PADDLE_CLIENT_TOKEN
       # Optional overrides:
       # - NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
       # - NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws
@@ -157,121 +119,6 @@ services:
     networks:
       - fintral-dev
 
-  # ── Lago Billing Engine Stack ──
-  lago-db:
-    image: getlago/postgres-partman:15.0-alpine
-    container_name: fintral-lago-db-dev
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: lago
-      POSTGRES_DB: lago
-    volumes:
-      - lago_db_dev_data:/var/lib/postgresql/data
-    networks:
-      - fintral-dev
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-  lago-redis:
-    image: redis:7-alpine
-    container_name: fintral-lago-redis-dev
-    volumes:
-      - lago_redis_dev_data:/data
-    networks:
-      - fintral-dev
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-  lago-api:
-    image: getlago/api:v1.48.1
-    container_name: fintral-lago-api-dev
-    ports:
-      - "${LOCAL_LAGO_API_PORT:-3100}:3000"
-    environment:
-      PORT: 3000
-      RAILS_ENV: production
-      DATABASE_URL: postgresql://postgres:lago@lago-db:5432/lago?pool=5
-      REDIS_URL: redis://lago-redis:6379/0
-      SECRET_KEY_BASE: ${LAGO_SECRET_KEY_BASE:-change-me-dev-lago-secret-key-base-12345}
-      LAGO_RSA_PRIVATE_KEY: &lago_rsa_private_key ${LAGO_RSA_PRIVATE_KEY:-LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUV2QUlCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQktZd2dnU2lBZ0VBQW9JQkFRQzdZT0I5QVkvNWtJeGkKc3lubUVUR3VlbXJYWVYyZEFmSGxLR2REZ3dsV3BjeXZFcnl5YXh2V0ZUSXpudFNWNjlDQ1Zma0wwUVZlODR0Mwp0RnAwU0hpMXdNdjJvSi85bHlYZkwxakUxdDI1ZzBSSll5dVJYR2xvTEg5cmVtYXgzZC9mRlMvWTJPTWFoaGZkCjQ4NEhZTUQybmc0VXVuL3YrelVQRTQ1ZlJpcG1PTy9tZ1ZqbFVjdUVNb1p5QS9nSkhCUi9FMWNBa3FFMXlEUW4KZUttOU80djlqOFpHc3grQkNEOEE1bFkwaHZweTIxQUlIb2VhZEs0MHkxRzNTdjNqU1hNL3VsbnIxU1VWZnBTSAphYXNFMURQd3Q0UHhLeTE2MEM0QkZQRXVXVW15NHVYVWJHN3ZQR2kwMXE4RFEyYlRodXFGTnViYS9hQm11T3VLCkJRTHhSdzVEQWdNQkFBRUNnZ0VBRGJScGpEc1BzTGZRZDJ6ck9rSGZyd2M5Ryt1cDBTWDhtZW9qN2dnbzByR1EKWlpoVlBOSWdyYjUzSVlJVEY3UUdXQmRrVTd6c29QazhlM3VHeDNmVmZGV202cTdzMmhDeXNHbU14ZU9CUVdSSApHNmIraWhuY05uRUFFTTJ2QjlZQk14WjFuVzFLT2FlOUdjN2ptWFBnMDlOK1FYM2RNRXcxOXBoVGtzY0FWWXczCkg4NFRwbXJ5VzBUaWQwQ0lyRTduM1RyYTNvZmwrZkU3OVNMMWF4V3JXeHNnZEJuWkZvR2N6NUR3di9ETHNoNnIKR21zS2NDQ2NYeDFualZDbVNnZThsMEh5V2xDQUswMTZtekRxdDFTdG9TaEJzditqamF3NXVuM2d0a2czWGRmSwowNEh3dk1DekpmU0hQeWxpN1lPWURsbVBxMHVhcHJaU0VJeXJDOE0xSVFLQmdRRG01QU0zYXg1bXdwc1BIa0xNCjdSVGN3MXVMaVJ1QUt1eUl1eXc2bXRUMTczK3JwNmxRekY3RFFYWmZMc0t4ZTZmazFENmdSOWRDMmc5ZWFJMnUKajlITlN5Rm1KK25XMVdkcnpVUDFHbkQyNEt1cG4xNTRjWGxPckk1OEJIeUdIWW41R2l6b1FFc2VsekFybWlQWApJT2ViVnV4R0tCekdTUUdMMndkZ0dSKzZ2UUtCZ1FEUHdYd3FmcDZZTWFWQ2FTdkdGclcraHM1YzhpZWhzUnE3ClAxb0tqRVI5Rnd1UjhITnJhNGNONFFhekhNR1pOTDRTRDVYZTVLVndmd2NUdEk4ZG51bTZxUHExY1U0NTVSRTQKTWJKUjJpOGgrZDdXZzVNL0wyQ1d3N1NBZWpWNWpyTFR4U3h0d2lub0lhZk5WOXROUHc1aVgvc2U2SW5NOWdBYgo0WG1pWk9MOC93S0JnQ2l2TE5IckVpUlJUamxQdjcyVVdRUzlkN2dTcE1Ia3ptRVplaVdwZXJVTFNwZllwMEVSCmdmRXQ2OG5CMTVTbWtXTUU4elFTOUo5WEJUWkJmaFd3U2V1K3ZWZmUySmwrYVFiSGhUMy9Oc0NKdmpYWld6QWwKN3BZcVdjRUltVmlZZytOYzlXVEhUM1ZJZHJoNEpMQ1huN2dEalFhZnN0Sk5zdlFOMkRMYXVuaVJBb0dBWVIvRgpHbUNqWitjZHFSUmR3SGR4YzZhMTVzSFdRVUw0aWowdHJPeXlRQUI4Q2pmczNYVWhhQjJnOGk4cFdxUkxqMG4xCitJUFB5KzIyczBHZi9tc0NQWjh0eFpFNHp0d0YxczEwM2Nzd2FhUFV4MWd2aUVSdjFVdWNvTXVCSUZqVHhTalMKZ21WWkRncGQxaU9TaEdSTUp6VlR3cmxYWXBoR3FNSWFDUTg5QnFVQ2dZQjZENFQ3a0llRWJtY0J6S0JKTGMrWQptQzg1QWFWekUvbEdTTDJwcll4ZjU5NnFkREdzcWZhakc5aGxlaDNRdUFmUU9kMHJOaytmNXY2Mi83K2tyM1JQCmR6TzNhNmN3Z1dVcXRoditZWldFeGpoL3NqWW1KdTZoV0poOGplcXlPbFpNazgxaGdHeUFvNzZEQ0lCWGtqNFkKVnlONlVSUWdhbTgvQWVYM0RBSTU2dz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K}
-      LAGO_ENCRYPTION_PRIMARY_KEY: ${LAGO_ENCRYPTION_PRIMARY_KEY:-change-me-dev-lago-encryption-key-32}
-      LAGO_API_URL: http://localhost:3100
-      LAGO_FRONT_URL: http://localhost:3200
-      LAGO_ORG_NAME: Fintral
-      LAGO_ORG_USER_EMAIL: admin@fintral.com
-      LAGO_ORG_USER_PASSWORD: ${LAGO_ADMIN_PASSWORD:-admin123}
-      LAGO_DISABLE_PDF_GENERATION: "true"
-    healthcheck:
-      test: curl --fail http://localhost:3000/health || exit 1
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 60s
-    depends_on:
-      lago-db:
-        condition: service_healthy
-      lago-redis:
-        condition: service_healthy
-    networks:
-      - fintral-dev
-
-  lago-worker:
-    image: getlago/api:v1.48.1
-    container_name: fintral-lago-worker-dev
-    command: bundle exec sidekiq
-    environment:
-      RAILS_ENV: production
-      DATABASE_URL: postgresql://postgres:lago@lago-db:5432/lago?pool=5
-      REDIS_URL: redis://lago-redis:6379/0
-      SECRET_KEY_BASE: ${LAGO_SECRET_KEY_BASE:-change-me-dev-lago-secret-key-base-12345}
-      LAGO_RSA_PRIVATE_KEY: *lago_rsa_private_key
-      LAGO_ENCRYPTION_PRIMARY_KEY: ${LAGO_ENCRYPTION_PRIMARY_KEY:-change-me-dev-lago-encryption-key-32}
-    depends_on:
-      lago-db:
-        condition: service_healthy
-      lago-redis:
-        condition: service_healthy
-    networks:
-      - fintral-dev
-
-  lago-clock:
-    image: getlago/api:v1.48.1
-    container_name: fintral-lago-clock-dev
-    command: bundle exec clockwork clock.rb
-    environment:
-      RAILS_ENV: production
-      DATABASE_URL: postgresql://postgres:lago@lago-db:5432/lago?pool=5
-      REDIS_URL: redis://lago-redis:6379/0
-      SECRET_KEY_BASE: ${LAGO_SECRET_KEY_BASE:-change-me-dev-lago-secret-key-base-12345}
-      LAGO_RSA_PRIVATE_KEY: *lago_rsa_private_key
-      LAGO_ENCRYPTION_PRIMARY_KEY: ${LAGO_ENCRYPTION_PRIMARY_KEY:-change-me-dev-lago-encryption-key-32}
-    depends_on:
-      lago-db:
-        condition: service_healthy
-      lago-redis:
-        condition: service_healthy
-    networks:
-      - fintral-dev
-
-  lago-front:
-    image: getlago/front:v1.48.1
-    container_name: fintral-lago-front-dev
-    ports:
-      - "${LOCAL_LAGO_FRONT_PORT:-3200}:80"
-    environment:
-      LAGO_API_URL: http://localhost:3100
-      APP_ENV: development
-    depends_on:
-      - lago-api
-    networks:
-      - fintral-dev
-
 networks:
   fintral-dev:
     name: fintral-dev
@@ -284,5 +131,3 @@ volumes:
   redis_dev_data:
   uploads_data:
   static_data:
-  lago_db_dev_data:
-  lago_redis_dev_data:

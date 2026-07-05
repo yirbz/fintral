@@ -635,7 +635,7 @@ export function DgiiPage() {
     recalculate_itbis: {
       title: "Recalcular ITBIS",
       icon: <Percent className="size-3.5" />,
-      desc: "El sistema recalculará el ITBIS a la tasa correcta (18%/16%/0%) para cada factura donde no coincida.",
+      desc: "El sistema recalculará el ITBIS al 18% real para cada factura donde no coincida.",
       warning: "Esta acción MODIFICA la base de datos. Los valores de ITBIS se actualizarán permanentemente.",
     },
     assign_goods_type: {
@@ -1076,7 +1076,7 @@ export function DgiiPage() {
                   <CardTitle className="text-base leading-tight font-semibold">{fmtCurrency(preview.total_tax)}</CardTitle>
                 </CardHeader>
                 <CardFooter className="pb-3 pt-0 px-4">
-                  <span className="text-[10px] text-muted-foreground">Impuesto</span>
+                  <span className="text-[10px] text-muted-foreground">18% impuesto</span>
                 </CardFooter>
               </Card>
             </div>
@@ -1132,7 +1132,7 @@ export function DgiiPage() {
                   <AlertTriangle className="size-3.5" /> Advertencias ({preview.total_warnings}) — no bloquean la exportación
                 </p>
                 <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] text-amber-600">
-                  {preview.has_itbis_errors && <span className="flex items-center gap-1"><Percent className="size-3" />ITBIS no coincide con tasa esperada (18%/16%/0%) en algunas facturas</span>}
+                  {preview.has_itbis_errors && <span className="flex items-center gap-1"><Percent className="size-3" />ITBIS no coincide con 18% en algunas facturas</span>}
                 </div>
                 {preview.has_itbis_errors && !autoFixes.includes("recalculate_itbis") && (
                   <div className="flex flex-wrap gap-2 mt-3 pt-2 border-t border-amber-200">
@@ -1584,10 +1584,10 @@ export function DgiiPage() {
               ¿Cómo fue el resultado al cargar el reporte?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-xs space-y-3">
-              <span>
+              <p>
                 Reporte <strong>{selectedFormat.replace("dgii_", "")}</strong> para <strong>{periodLabel(submittingPeriod)}</strong> —
                 <strong> {submittingIds.length}</strong> factura(s).
-              </span>
+              </p>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="flex flex-col gap-2 px-6 pb-4">

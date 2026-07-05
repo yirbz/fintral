@@ -1,24 +1,29 @@
-name: Staging Deploy
+name: Staging
 
 on:
   pull_request:
-    branches: [main]
+    branches: [staging]
     types: [opened, synchronize, reopened]
+  push:
+    branches: [staging]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  RAILWAY_API: https://backboard.railway.com/graphql/v2
+  RAILWAY_PROJECT: 3d1b6173-3b08-4965-a4e4-d2ab61d95b6b
+  RAILWAY_ENV: 29f5b19a-8137-48ff-bd76-2595a7a5904c
+  RAILWAY_SERVICE: 398877f8-5452-4c4c-833a-cd53aaeb66a7
+  SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF_STG }}
+
 jobs:
-  deploy-frontend:
-    name: Deploy frontend → Vercel
+  frontend:
+    name: Frontend → Vercel (preview)
     runs-on: ubuntu-latest
     outputs:
-      url: ${{ steps.vercel.outputs.url }}
-    defaults:
-      run:
-        working-directory: frontend
-
+      url: ${{ steps.deploy.outputs.url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -39,6 +44,7 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+        working-directory: frontend
 
       - name: Pull Vercel Project Info
         run: npx vercel pull --yes --environment=preview
@@ -47,7 +53,7 @@ jobs:
           VERCEL_ORG_ID: team_EFfddjRHIl9rcFwJJP105uZ8
           VERCEL_PROJECT_ID: prj_YxDVjxE1yDXMh7O3LKCEoDAxghEf
 
-      - name: Build Project Artifacts (Vercel)
+      - name: Build
         run: npx vercel build
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -57,43 +63,88 @@ jobs:
           NEXT_PUBLIC_APP_URL: ${{ steps.doppler.outputs.NEXT_PUBLIC_APP_URL }}
           BACKEND_URL: ${{ steps.doppler.outputs.BACKEND_URL }}
 
-      - name: Deploy to Vercel (preview)
-        id: vercel
+      - name: Deploy (preview only)
+        id: deploy
         run: |
-          url=$(npx vercel deploy --prebuilt --stdout)
-          echo "url=$url" >> $GITHUB_OUTPUT
+          url=$(npx vercel deploy --prebuilt 2>&1 | tail -1)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: team_EFfddjRHIl9rcFwJJP105uZ8
           VERCEL_PROJECT_ID: prj_YxDVjxE1yDXMh7O3LKCEoDAxghEf
 
-  deploy-backend:
-    name: Trigger backend deploy → Railway
+  backend:
+    name: ${{ (github.event_name == 'push' && 'Deploy' || 'Preview') }} backend → Railway
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Railway redeploy
-        if: env.RAILWAY_DEPLOY_HOOK != ''
+      - name: Trigger Railway deploy
+        if: env.RAILWAY_TOKEN != ''
         run: |
-          curl -X POST "${{ secrets.RAILWAY_DEPLOY_HOOK_STG }}" \
+          curl -s -X POST "${{ env.RAILWAY_API }}" \
+            -H "Authorization: Bearer ${{ secrets.RAILWAY_API_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d '{"branch":"develop"}'
+            -d '{
+              "query": "mutation { serviceInstanceDeploy(serviceId: \"${{ env.RAILWAY_SERVICE }}\", environmentId: \"${{ env.RAILWAY_ENV }}\", latestCommit: true) }"
+            }'
         env:
-          RAILWAY_DEPLOY_HOOK: ${{ secrets.RAILWAY_DEPLOY_HOOK_STG }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+
+  supabase:
+    name: Database (branch on PR / migrate on merge)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: supabase
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link to staging project
+        run: supabase link --project-ref "${{ env.SUPABASE_PROJECT_REF }}"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Create preview branch (PR)
+        if: github.event_name == 'pull_request'
+        run: supabase db branch create "pr-${{ github.event.number }}"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Run pending migrations (merge)
+        if: github.event_name == 'push'
+        run: supabase db push
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
   comment:
-    name: Comment PR with staging URL
-    needs: [deploy-frontend, deploy-backend]
+    name: ${{ (github.event_name == 'push' && 'Notify commit' || 'Comment PR') }}
+    needs: [frontend]
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
+      contents: write
     steps:
       - uses: actions/github-script@v7
         with:
           script: |
-            const frontendUrl = '${{ needs.deploy-frontend.outputs.url }}' || 'https://stg.fintral.app';
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `## 🚀 Staging Environment Ready\n\n| Service | URL |\n|---------|-----|\n| Frontend | ${frontendUrl} |\n| Backend | https://stg-api.fintral.app |\n| Database | \`fintral_staging\` (Supabase) |\n\n> Variables managed in [Doppler stg](https://dashboard.doppler.com/workplace/fintral/configs/stg). Changes auto-sync to Vercel via integration.`
-            });
+            const isMerge = '${{ github.event_name }}' === 'push';
+            const frontendUrl = '${{ needs.frontend.outputs.url }}';
+
+            if (isMerge) {
+              await github.rest.repos.createCommitComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: context.sha,
+                body: `## ✅ Staging actualizado\n\nMerge a \`staging\` completado.\n\n| Servicio | URL |\n|----------|-----|\n| Frontend | ${frontendUrl || 'stg.fintral.app (via Cloudflare → Railway)'} |\n| Backend  | stg-api.fintral.app (via Cloudflare → Railway) |\n\n> Cloudflare DNS apunta a Railway. Railway tiene la última versión estable de \`staging\`.`
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `## 🚀 Staging Preview Lista\n\n| Servicio | URL | Notas |\n|----------|-----|-------|\n| Frontend | ${frontendUrl || '[preview](https://stg.fintral.app)'} | Preview de Vercel |\n| Backend  | pr-${{ github.event.number }}.stg-api.fintral.app | Railway deploy desde este branch |\n| DB       | Branch \`pr-${{ github.event.number }}\` | Supabase preview branch |\n\n> ⏳ Mergea esta PR a \`staging\` para promover a estable.`
+              });
+            }

@@ -64,7 +64,7 @@ export default function AuthCallbackPage() {
         } catch { /* noop */ }
 
         toast.success("¡Sesión iniciada con éxito!")
-        window.location.href = "/dashboard"
+        router.replace("/dashboard")
       } catch (err: any) {
         console.error("Auth callback error:", err)
         setError(err.message || "Error de autenticación.")

@@ -4,7 +4,7 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 from uuid_utils import uuid7
 
-from app.config import IS_DEVELOPMENT, SUPABASE_URL, SUPABASE_STORAGE_BUCKET
+from app.config import SUPABASE_URL, SUPABASE_STORAGE_BUCKET
 from app.database import Base, GUID
 from app.utils.dates import utc_now
 
@@ -39,11 +39,8 @@ class PendingUpload(Base):
 
     def to_dict(self) -> dict:
         file_url = None
-        if self.file_path:
-            if IS_DEVELOPMENT:
-                file_url = f"/pending-uploads/{self.id}/file"
-            elif SUPABASE_URL:
-                file_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{self.file_path.lstrip('/')}"
+        if SUPABASE_URL and self.file_path:
+            file_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{self.file_path.lstrip('/')}"
         return {
             "id": str(self.id),
             "tenant_id": str(self.tenant_id),

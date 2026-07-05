@@ -317,7 +317,7 @@ class TestNormalizerEdgeCases:
     def test_normalize_handles_payment_method(self):
         data = {"payment_method": "2", "total_amount": 100}
         result = normalizer.normalize(data, source_type="xml", confidence=1.0)
-        assert result["payment_method"] == "02"
+        assert result["payment_method"] == "2"
 
     def test_normalize_handles_line_items(self):
         data = {

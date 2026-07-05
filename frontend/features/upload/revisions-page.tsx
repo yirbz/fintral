@@ -75,7 +75,7 @@ export function RevisionsPage() {
 
   const {data: draftsQuery_data, isLoading: draftsQuery_isLoading} = useQuery({
     queryKey: ["invoices", "drafts", "revisions"],
-    queryFn: () => listInvoices({ status: "draft", exclude_source_type: "billing" }),
+    queryFn: () => listInvoices({ status: "draft" }),
     refetchInterval: 15_000,
   });
 

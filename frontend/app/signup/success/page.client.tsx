@@ -26,7 +26,7 @@ export default function SignUpSuccessPage() {
     const timer = setTimeout(async () => {
       try {
         await getMe();
-        window.location.href = "/dashboard";
+        router.replace("/dashboard");
       } catch {
         // No session — stay on success page
       } finally {
@@ -35,7 +35,7 @@ export default function SignUpSuccessPage() {
     }, 600);
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [router]);
 
   if (showLoader) return <LogoLoader />
 

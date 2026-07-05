@@ -8,7 +8,6 @@ import pytest
 os.environ.pop("DYNO", None)
 os.environ["DATABASE_URL"] = "sqlite:///./test_refactor.db"
 os.environ["SUPABASE_URL"] = ""
-os.environ["RESEND_API_KEY"] = ""
 
 # Remove stale test DB BEFORE the engine is created (which happens at first import)
 if os.path.exists("./test_refactor.db"):
@@ -18,24 +17,6 @@ from app.core.auth import get_password_hash
 from app.core.bootstrap import init_database
 from app.database import SessionLocal
 from app.models import Organization, Tenant, User, UserOrganization
-from app.services.email_sender import NoopEmailSender
-from app.services.email_service import configure_email_service
-
-# Hard safety: use NoopEmailSender during ALL tests
-configure_email_service(NoopEmailSender())
-
-# Nuclear safety net: resend.Emails.send explota si se llama accidentalmente
-try:
-    import resend
-
-    def _forbidden_send(*args, **kwargs):
-        raise RuntimeError(
-            "resend.Emails.send() llamado desde test. "
-            "Usa configure_email_service() o mock."
-        )
-    resend.Emails.send = _forbidden_send
-except ImportError:
-    pass
 
 
 @pytest.fixture(scope="session", autouse=True)

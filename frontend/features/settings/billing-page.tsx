@@ -15,7 +15,6 @@ import {
   Brain,
   Scan,
   FileCheck,
-  Loader2,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -237,11 +236,6 @@ function PlanUsageSection({
   const u = data?.usage;
   const [drilldownResource, setDrilldownResource] = useState<"ecf" | "ai" | "ocr" | "storage" | null>(null);
 
-  const { data: session } = useSession();
-  const role = session?.role;
-  const orgId = session?.organization?.id;
-  const canManage = isOwnerOrAdmin(role);
-
   const { data: usageDaily } = useQuery({
     queryKey: ["plans", "usage-daily"],
     queryFn: getUsageDaily,
@@ -269,7 +263,7 @@ function PlanUsageSection({
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="rounded-lg border border-primary/20 bg-gradient-to-r from-primary/5 to-primary/2 p-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-start justify-between">
               <div>
                 <Badge variant="default" className="mb-2 text-[10px] h-5 px-2">
                   {data?.plan?.display_name || "Sin plan"}
@@ -289,8 +283,6 @@ function PlanUsageSection({
                     ` · Ciclo hasta ${new Date(data.subscription.billing_cycle_end).toLocaleDateString("es-DO")}`}
                 </p>
               </div>
-
-
             </div>
           </div>
 

@@ -7,7 +7,6 @@ from typing import Optional, Dict, Any
 from uuid import UUID
 
 from app.services.plan_service import PlanService
-from app.services.telegram_notifier import TelegramNotifier
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -1370,7 +1369,6 @@ async def admin_finance_mrr(
     ctx: TenantContext = Depends(require_admin),
 ):
     from app.models.organization_subscription import OrganizationSubscription
-    from app.models.user_subscription import UserSubscription
 
     # Sums price_monthly_cents of active subscriptions taking custom overrides into account, deselecting trialing
     subs = db.query(OrganizationSubscription).filter(OrganizationSubscription.status == "active").all()
@@ -1389,20 +1387,13 @@ async def admin_finance_mrr(
             sub.addon_ecf_blocks * plan.addon_ecf_block_price_cents
             + sub.addon_ai_blocks * plan.addon_ai_block_price_cents
             + sub.addon_storage_blocks * plan.addon_storage_block_price_cents
+            + sub.addon_entity_slots * plan.entity_slot_price_cents
             + sub.addon_user_slots * plan.user_slot_price_cents
         )
 
         base_mrr_cents += base_price
         addon_mrr_cents += addon_price
         total_mrr_cents += base_price + addon_price
-
-    # Also account for user-level entity slot addons
-    user_subs = db.query(UserSubscription).filter(UserSubscription.status == "active").all()
-    for us in user_subs:
-        if us.addon_entity_slots and us.plan:
-            entity_revenue = us.addon_entity_slots * us.plan.entity_slot_price_cents
-            addon_mrr_cents += entity_revenue
-            total_mrr_cents += entity_revenue
 
     return {
         "mrr": round(total_mrr_cents / 100, 2),
@@ -1422,10 +1413,34 @@ async def admin_finance_payments(
     db: Session = Depends(get_db),
     ctx: TenantContext = Depends(require_admin),
 ):
-    # DEPRECATED: MIO has been deprecated and deleted
+    from app.models.mio_payment import MioPayment
+
+    q = db.query(MioPayment)
+    if status:
+        q = q.filter(MioPayment.status == status)
+    if organization_id:
+        q = q.filter(MioPayment.organization_id == organization_id)
+
+    total = q.count()
+    payments = q.order_by(MioPayment.created_at.desc()).offset(offset).limit(limit).all()
+
+    result = []
+    for p in payments:
+        p_dict = p.to_dict()
+        p_dict["organization_name"] = p.organization.name if p.organization else None
+        if p.invoice:
+            p_dict["invoice_number"] = p.invoice.invoice_number
+            p_dict["invoice_date"] = p.invoice.invoice_date.isoformat() if p.invoice.invoice_date else None
+            p_dict["invoice_total"] = float(p.invoice.total_amount) if p.invoice.total_amount else 0.0
+        else:
+            p_dict["invoice_number"] = None
+            p_dict["invoice_date"] = None
+            p_dict["invoice_total"] = 0.0
+        result.append(p_dict)
+
     return {
-        "payments": [],
-        "total": 0,
+        "payments": result,
+        "total": total,
         "limit": limit,
         "offset": offset,
     }
@@ -1737,8 +1752,6 @@ class AdminPaymentProofItem(BaseModel):
     plan_name: str
     amount: float
     currency: str
-    exchange_rate: float | None = None
-    usd_amount: float | None = None
     addons: str | None
     items: list[AdminCartItemResponse] | None = None
     status: str
@@ -1789,8 +1802,6 @@ async def list_admin_payment_proofs(
             plan_name=d["plan_name"],
             amount=d["amount"],
             currency=d["currency"],
-            exchange_rate=d.get("exchange_rate"),
-            usd_amount=d.get("usd_amount"),
             addons=d["addons"],
             items=items_list,
             status=d["status"],
@@ -1861,8 +1872,8 @@ async def admin_verify_payment(
     db: Session = Depends(get_db),
     ctx: TenantContext = Depends(require_admin),
 ):
-    if body.action not in ("verified", "rejected", "revoked"):
-        raise HTTPException(status_code=400, detail="Acción inválida. Usa 'verified', 'rejected' o 'revoked'")
+    if body.action not in ("verified", "rejected"):
+        raise HTTPException(status_code=400, detail="Acción inválida. Usa 'verified' o 'rejected'")
 
     proof = db.query(PaymentProof).filter(PaymentProof.id == proof_id).first()
     if not proof:
@@ -1874,243 +1885,8 @@ async def admin_verify_payment(
     proof.verified_at = utc_now()
     db.flush()
 
-    provision_errors = []
-
-    if body.action == "revoked":
-        try:
-            from app.models.organization_subscription import OrganizationSubscription
-            from app.models.user_subscription import UserSubscription
-            from app.services.lago_service import LagoService
-            lago = LagoService()
-
-            # 1. Revert OrganizationSubscription if provisioned
-            org_sub = (
-                db.query(OrganizationSubscription)
-                .filter(
-                    OrganizationSubscription.organization_id == proof.organization_id,
-                    OrganizationSubscription.status.in_(["active", "trialing"]),
-                )
-                .order_by(OrganizationSubscription.created_at.desc())
-                .first()
-            )
-            if org_sub:
-                org_sub.status = "canceled"
-                org_sub.canceled_at = utc_now()
-                if org_sub.lago_subscription_id:
-                    try:
-                        await lago.cancel_subscription(org_sub.lago_subscription_id)
-                        logger.info("Canceled Lago org subscription %s", org_sub.lago_subscription_id)
-                    except Exception as e:
-                        logger.warning("Could not cancel Lago subscription %s: %s", org_sub.lago_subscription_id, e)
-
-                # Find and restore previous organization subscription
-                previous_org_sub = (
-                    db.query(OrganizationSubscription)
-                    .filter(
-                        OrganizationSubscription.organization_id == proof.organization_id,
-                        OrganizationSubscription.id != org_sub.id,
-                    )
-                    .order_by(OrganizationSubscription.created_at.desc())
-                    .first()
-                )
-                if previous_org_sub:
-                    previous_org_sub.status = "active"
-                    previous_org_sub.canceled_at = None
-                    db.flush()
-                    logger.info("Restored previous OrganizationSubscription %s to active", previous_org_sub.id)
-                    if previous_org_sub.lago_subscription_id:
-                        try:
-                            from app.models.subscription_plan import SubscriptionPlan
-                            prev_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == previous_org_sub.plan_id).first()
-                            if prev_plan:
-                                await lago.create_subscription(
-                                    customer_external_id=str(proof.organization_id),
-                                    plan_code=prev_plan.lago_plan_code or prev_plan.name,
-                                    external_id=previous_org_sub.lago_subscription_id,
-                                    billing_time="anniversary",
-                                )
-                                logger.info("Recreated Lago subscription for old plan %s", prev_plan.name)
-                        except Exception as lago_err:
-                            logger.warning("Could not recreate old subscription in Lago: %s", lago_err)
-
-            # 2. Revert UserSubscription
-            if proof.user_id:
-                user_sub = (
-                    db.query(UserSubscription)
-                    .filter(UserSubscription.user_id == proof.user_id)
-                    .order_by(UserSubscription.created_at.desc())
-                    .first()
-                )
-                if user_sub:
-                    user_sub.status = "expired"
-                    if user_sub.lago_subscription_id:
-                        try:
-                            await lago.cancel_subscription(user_sub.lago_subscription_id)
-                            logger.info("Canceled Lago user subscription %s", user_sub.lago_subscription_id)
-                        except Exception as e:
-                            logger.warning("Could not cancel Lago user subscription %s: %s", user_sub.lago_subscription_id, e)
-
-                    # Find and restore previous user subscription
-                    previous_user_sub = (
-                        db.query(UserSubscription)
-                        .filter(
-                            UserSubscription.user_id == proof.user_id,
-                            UserSubscription.id != user_sub.id,
-                        )
-                        .order_by(UserSubscription.created_at.desc())
-                        .first()
-                    )
-                    if previous_user_sub:
-                        previous_user_sub.status = "active"
-                        previous_user_sub.canceled_at = None
-                        db.flush()
-                        logger.info("Restored previous UserSubscription %s to active", previous_user_sub.id)
-                        if previous_user_sub.lago_subscription_id:
-                            try:
-                                from app.models.subscription_plan import SubscriptionPlan
-                                prev_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == previous_user_sub.plan_id).first()
-                                if prev_plan:
-                                    await lago.create_subscription(
-                                        customer_external_id=str(proof.user_id),
-                                        plan_code=prev_plan.lago_plan_code or prev_plan.name,
-                                        external_id=previous_user_sub.lago_subscription_id,
-                                    )
-                                    logger.info("Recreated Lago user subscription for old plan %s", prev_plan.name)
-                            except Exception as lago_err:
-                                logger.warning("Could not recreate old user subscription in Lago: %s", lago_err)
-
-            # 3. Revert addons and prepaid balances
-            items = []
-            if proof.items_json:
-                try:
-                    items = json.loads(proof.items_json)
-                except Exception:
-                    pass
-
-            for item in items:
-                itype = item.get("type")
-                qty = item.get("quantity", 1)
-
-                if itype == "ecf_blocks":
-                    org_id = item.get("organization_id") or proof.organization_id
-                    org = db.query(Organization).filter(Organization.id == org_id).first()
-                    if org:
-                        org.e_cf_balance = max(0, (org.e_cf_balance or 0) - (100 * qty))
-                        logger.info("Deducted e-CF balance from org %s: new balance %s", org.id, org.e_cf_balance)
-
-                elif itype == "addon":
-                    addon_type = item.get("addon_type")
-                    if addon_type and org_sub:
-                        if addon_type == "ecf":
-                            org_sub.addon_ecf_blocks = max(0, (org_sub.addon_ecf_blocks or 0) - qty)
-                        elif addon_type == "ai":
-                            org_sub.addon_ai_blocks = max(0, (org_sub.addon_ai_blocks or 0) - qty)
-                        elif addon_type == "storage":
-                            org_sub.addon_storage_blocks = max(0, (org_sub.addon_storage_blocks or 0) - qty)
-                        elif addon_type == "user_slot":
-                            org_sub.addon_user_slots = max(0, (org_sub.addon_user_slots or 0) - qty)
-
-                elif itype == "entity_slot" and proof.user_id:
-                    # Retrieve latest user subscription (which we just expired above)
-                    # and deduct slots
-                    user_sub_to_deduct = (
-                        db.query(UserSubscription)
-                        .filter(UserSubscription.user_id == proof.user_id)
-                        .order_by(UserSubscription.created_at.desc())
-                        .first()
-                    )
-                    if user_sub_to_deduct:
-                        user_sub_to_deduct.addon_entity_slots = max(0, (user_sub_to_deduct.addon_entity_slots or 0) - qty)
-
-                elif itype == "user_slot" and org_sub:
-                    org_sub.addon_user_slots = max(0, (org_sub.addon_user_slots or 0) - qty)
-
-            db.flush()
-        except Exception as e:
-            logger.exception("Failed to rollback subscription/addons during revocation")
-            provision_errors.append(f"rollback: {e}")
-
-    # ── Ensure user's UserSubscription is activated upon verification ──
-    if body.action == "verified" and proof.user_id:
-        try:
-            from app.models.user_subscription import UserSubscription
-            from datetime import timedelta
-            user_sub = (
-                db.query(UserSubscription)
-                .filter(UserSubscription.user_id == proof.user_id)
-                .order_by(UserSubscription.created_at.desc())
-                .first()
-            )
-            
-            # Determine plan_name and months
-            plan_name = None
-            months = 1
-            if proof.items_json:
-                try:
-                    items = json.loads(proof.items_json)
-                    for item in items:
-                        if item.get("type") in ("plan_change", "renewal"):
-                            plan_name = item.get("plan_name")
-                            months = item.get("months", 1)
-                            break
-                except Exception:
-                    pass
-            
-            if not plan_name and proof.plan_name:
-                plan_name = proof.plan_name
-
-            if user_sub:
-                user_sub.status = "active"
-                if not user_sub.billing_cycle_end or user_sub.billing_cycle_end < utc_now():
-                    user_sub.billing_cycle_start = utc_now()
-                    user_sub.billing_cycle_end = utc_now() + timedelta(days=30 * months)
-                db.flush()
-                logger.info("Successfully activated UserSubscription %s for user %s", user_sub.id, proof.user_id)
-            else:
-                # If no user sub exists, provision one
-                from app.models.subscription_plan import SubscriptionPlan
-                p_slug = plan_name.strip().lower() if plan_name else "inicial"
-                plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == p_slug).first()
-                if not plan:
-                    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "inicial").first()
-                
-                if plan:
-                    user_sub = UserSubscription(
-                        user_id=proof.user_id,
-                        plan_id=plan.id,
-                        status="active",
-                        payment_method="transfer",
-                        billing_cycle_start=utc_now(),
-                        billing_cycle_end=utc_now() + timedelta(days=30 * months),
-                    )
-                    db.add(user_sub)
-                    db.flush()
-                    logger.info("Created new UserSubscription for user %s", proof.user_id)
-        except Exception as e:
-            logger.exception("Failed to update UserSubscription status upon verification")
-            provision_errors.append(f"user_subscription: {e}")
-
-    # ── Lago: crear suscripción al verificar transferencia ──────────
-    if body.action == "verified" and proof.user_id:
-        try:
-            from app.services.billing_checkout_service import BillingCheckoutService
-            plan_slug = proof.plan_name.strip().lower() if proof.plan_name else ""
-            if plan_slug in ["inicial", "profesional", "despacho"]:
-                checkout_svc = BillingCheckoutService(db)
-                await checkout_svc.provision_user_subscription(
-                    user_id=str(proof.user_id),
-                    plan_name=plan_slug,
-                    payment_method="transfer"
-                )
-                logger.info(
-                    "Created Lago manual user subscription for user %s",
-                    proof.user_id,
-                )
-        except Exception as e:
-            logger.exception("Failed to create Lago manual user subscription for proof %s", proof.id)
-            provision_errors.append(f"lago: {e}")
-
     # ── Auto-provision cart items when verified ──────────────────────
+    provision_errors = []
     if body.action == "verified" and proof.items_json:
         try:
             items = json.loads(proof.items_json)
@@ -2134,12 +1910,7 @@ async def admin_verify_payment(
                     addon_type = item.get("addon_type")
                     qty = item.get("quantity", 1)
                     if addon_type:
-                        svc.purchase_addon(
-                            proof.organization_id,
-                            addon_type,
-                            qty,
-                            user_id=str(proof.user_id) if addon_type == "entity_slot" else None,
-                        )
+                        svc.purchase_addon(proof.organization_id, addon_type, qty)
 
                 elif item.get("type") == "ecf_blocks":
                     org_id = item.get("organization_id") or proof.organization_id
@@ -2153,21 +1924,10 @@ async def admin_verify_payment(
                 elif item.get("type") == "entity_slot":
                     months = item.get("months", 1)
                     qty = item.get("quantity", 1)
-                    svc.purchase_addon(proof.organization_id, "entity_slot", qty, user_id=str(proof.user_id))
+                    svc.purchase_addon(proof.organization_id, "entity_slot", qty)
                     sub_obj, _ = svc.get_plan_for_org(proof.organization_id)
                     if sub_obj and sub_obj.billing_cycle_end:
                         sub_obj.billing_cycle_end = sub_obj.billing_cycle_end + timedelta(days=30 * months)
-                    # Activate the pre-created target org if bound to this slot
-                    target_org_id = item.get("target_org_id")
-                    if target_org_id:
-                        target_org = db.query(Organization).filter(Organization.id == target_org_id).first()
-                        if target_org and not target_org.is_active:
-                            target_org.is_active = True
-                            logger.info("✅ Activated pre-created org %s after entity_slot verification", target_org_id)
-
-                elif item.get("type") in ("ai", "storage", "ocr"):
-                    qty = item.get("quantity", 1)
-                    svc.purchase_addon(proof.organization_id, item.get("type"), qty)
 
                 elif item.get("type") == "user_slot":
                     months = item.get("months", 1)
@@ -2187,12 +1947,7 @@ async def admin_verify_payment(
                     addon_type = item.get("addon_type")
                     qty = item.get("quantity", 0)
                     if addon_type and qty > 0:
-                        svc.purchase_addon(
-                            proof.organization_id,
-                            addon_type,
-                            qty,
-                            user_id=str(proof.user_id) if addon_type == "entity_slot" else None,
-                        )
+                        svc.purchase_addon(proof.organization_id, addon_type, qty)
 
             except Exception as e:
                 provision_errors.append(f"{item.get('type')}: {e}")
@@ -2234,71 +1989,6 @@ async def admin_verify_payment(
         except Exception as e:
             logger.exception("Failed to send purchase invoice email for proof %s", proof.id)
             provision_errors.append(f"email: {e}")
-
-    # ── Send verified/rejected/revoked email to customer ─────────
-    if body.action == "verified":
-        try:
-            from app.services.email_service import send_payment_verified_email
-            if proof.user and proof.user.email:
-                send_payment_verified_email(
-                    customer_email=proof.user.email,
-                    customer_name=proof.user.full_name or proof.user.email,
-                    amount=float(proof.amount),
-                    currency=proof.currency,
-                    admin_notes=body.admin_notes,
-                )
-        except Exception:
-            logger.exception("Error sending payment verified email")
-    elif body.action == "rejected":
-        try:
-            from app.services.email_service import send_payment_rejected_email
-            if proof.user and proof.user.email:
-                send_payment_rejected_email(
-                    customer_email=proof.user.email,
-                    customer_name=proof.user.full_name or proof.user.email,
-                    amount=float(proof.amount),
-                    currency=proof.currency,
-                    admin_notes=body.admin_notes,
-                )
-        except Exception:
-            logger.exception("Error sending payment rejected email")
-    elif body.action == "revoked":
-        try:
-            from app.services.email_service import send_payment_revoked_email
-            if proof.user and proof.user.email:
-                send_payment_revoked_email(
-                    customer_email=proof.user.email,
-                    customer_name=proof.user.full_name or proof.user.email,
-                    amount=float(proof.amount),
-                    currency=proof.currency,
-                    admin_notes=body.admin_notes,
-                )
-        except Exception:
-            logger.exception("Error sending payment revoked email")
-
-    # ── Telegram notifications ──────────────────────────────────────
-    org = db.query(Organization).filter(Organization.id == proof.organization_id).first()
-    if body.action == "verified":
-        try:
-            notifier = TelegramNotifier()
-            await notifier.notify_payment_proof_verified(
-                org_name=org.name if org else "N/A",
-                amount_dop=float(proof.amount or 0),
-                admin_name=ctx.user.full_name or ctx.user.email,
-            )
-        except Exception as notify_err:
-            logger.warning(f"Telegram notification failed: {notify_err}")
-    elif body.action == "rejected":
-        try:
-            notifier = TelegramNotifier()
-            await notifier.notify_payment_proof_rejected(
-                org_name=org.name if org else "N/A",
-                amount_dop=float(proof.amount or 0),
-                admin_name=ctx.user.full_name or ctx.user.email,
-                reason=body.admin_notes,
-            )
-        except Exception as notify_err:
-            logger.warning(f"Telegram notification failed: {notify_err}")
 
     db.commit()
     db.refresh(proof)

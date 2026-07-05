@@ -100,7 +100,7 @@ export default function HelpPage() {
       setMessages((prev) => [
         ...prev,
         {
-          text: "Error de conexión. Por favor intenta de nuevo o escribe a support@fintral.app",
+          text: "Error de conexión. Por favor intenta de nuevo o escribe a soporte@fintral.app",
           isUser: false,
           needsEscalation: true,
         },
@@ -132,7 +132,7 @@ export default function HelpPage() {
       setMessages((prev) => [
         ...prev,
         {
-          text: "Error al enviar. Escribe directamente a support@fintral.app",
+          text: "Error al enviar. Escribe directamente a soporte@fintral.app",
           isUser: false,
         },
       ]);
@@ -333,7 +333,7 @@ export default function HelpPage() {
             </h3>
             <div className="space-y-3">
               <a
-                href="mailto:support@fintral.app"
+                href="mailto:soporte@fintral.app"
                 className="flex items-center gap-3 rounded-lg bg-muted/30 px-3 py-2.5 text-xs transition-colors hover:bg-muted/50"
               >
                 <div className="flex size-7 items-center justify-center rounded-md bg-primary/10">
@@ -341,7 +341,7 @@ export default function HelpPage() {
                 </div>
                 <div>
                   <p className="font-medium">Email</p>
-                  <p className="text-[11px] text-muted-foreground">support@fintral.app</p>
+                  <p className="text-[11px] text-muted-foreground">soporte@fintral.app</p>
                 </div>
               </a>
               <button

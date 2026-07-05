@@ -963,18 +963,16 @@ export function DgiiSubmissionsPage() {
               <Trash2 className="size-4 text-red-500" />
               Eliminar envío
             </AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="text-xs space-y-3">
-                <p className="m-0">
-                  Esto desmarcará todas las facturas de este envío como <strong>no reportadas</strong>.
-                  Volverán a aparecer como pendientes en futuros reportes.
+            <AlertDialogDescription className="text-xs space-y-3">
+              <p>
+                Esto desmarcará todas las facturas de este envío como <strong>no reportadas</strong>.
+                Volverán a aparecer como pendientes en futuros reportes.
+              </p>
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-800">
+                <p className="text-[11px] flex items-center gap-1.5">
+                  <Info className="size-3.5" />
+                  Esta acción no se puede deshacer.
                 </p>
-                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-800">
-                  <span className="text-[11px] flex items-center gap-1.5">
-                    <Info className="size-3.5" />
-                    Esta acción no se puede deshacer.
-                  </span>
-                </div>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
