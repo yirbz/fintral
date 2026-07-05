@@ -42,7 +42,6 @@ class SubscriptionPlan(Base):
     max_products = Column(Integer, nullable=False, default=0)  # 0 = unlimited
 
     # Monthly hard caps
-    max_products = Column(Integer, nullable=False, default=0)
     max_ecf_monthly = Column(Integer, nullable=False, default=0)
     max_ai_queries_monthly = Column(Integer, nullable=False, default=0)
     max_ocr_docs_monthly = Column(Integer, nullable=False, default=0)
@@ -115,7 +114,6 @@ class SubscriptionPlan(Base):
                 "max_products": self.max_products,
                 "max_users": self.max_users,
                 "max_entities": self.max_entities,
-                "max_products": self.max_products,
                 "max_ecf_monthly": self.max_ecf_monthly,
                 "max_ai_queries_monthly": self.max_ai_queries_monthly,
                 "max_ocr_docs_monthly": self.max_ocr_docs_monthly,
