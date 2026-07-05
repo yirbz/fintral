@@ -123,27 +123,63 @@ def init_database() -> None:
         # won't roll back earlier steps.
         alembic_cfg.attributes["disable_transactional_ddl"] = True
 
+        skipped_revs: list[str] = []
+
+        # Phase 1: Bulk-upgrade to the last merge point (4ee1914d8429).
+        # All migrations up to here are idempotent, so this should succeed.
+        # If it fails we fall through to per-revision loop.
+        MERGE_REV = "4ee1914d8429"
+        merge_idx = row
         try:
-            command.upgrade(alembic_cfg, "head")
-            logger.info("Alembic migrations applied (%.2fs)", time.time() - t1)
+            command.upgrade(alembic_cfg, MERGE_REV)
+            logger.info("Bulk upgrade to merge point %s done (%.2fs)", MERGE_REV, time.time() - t1)
+            merge_idx = MERGE_REV
         except Exception as e:
-            if "already exists" in str(e) or "duplicate" in str(e).lower():
-                logger.error(
-                    "Migration failed — a table/column already exists (%s) after %.2fs. "
-                    "This likely means the migration DAG has non-idempotent operations "
-                    "or a stale rollback. NOT stamping head — will retry on next restart. "
-                    "Error: %s",
-                    type(e).__name__, time.time() - t1, e,
-                )
-                # Safety net for any missing tables (not columns — those need migration)
-                try:
-                    Base.metadata.create_all(bind=engine)
-                except Exception as ca_err:
-                    logger.warning("create_all safety net also failed: %s", ca_err)
-                raise
-            else:
-                logger.error("Alembic upgrade failed (%s) after %.2fs: %s", type(e).__name__, time.time() - t1, e)
-                raise
+            logger.warning(
+                "Bulk upgrade to %s failed (%s) — falling back to per-revision: %s",
+                MERGE_REV, type(e).__name__, e,
+            )
+
+        # Phase 2: Per-revision upgrade for the linear tail (merge → head).
+        # Each step is tried individually; "already exists" errors are skipped
+        # so a single non-idempotent migration doesn't derail the whole chain.
+        pending = list(script.walk_revisions(head=head_rev, base=merge_idx))
+        pending.reverse()  # topological order (base → head)
+        for rev in pending:
+            if rev.revision in (merge_idx, "4ee1914d8429"):
+                # Already applied by the bulk upgrade or doesn't exist
+                continue
+            try:
+                command.upgrade(alembic_cfg, rev.revision)
+                logger.info("  ✓ %s (%s)", rev.revision, rev.doc or "no doc")
+            except Exception as e:
+                err = str(e).lower()
+                if "already exists" in err or "duplicate" in err:
+                    skipped_revs.append(rev.revision)
+                    logger.warning(
+                        "  ✗ %s (%s) — skipping (already exists): %s",
+                        rev.revision, rev.doc or "no doc", e,
+                    )
+                    with engine.connect() as conn:
+                        conn.execute(
+                            text("UPDATE alembic_version SET version_num = :rev"),
+                            {"rev": rev.revision},
+                        )
+                        conn.commit()
+                else:
+                    logger.error(
+                        "Fatal error in migration %s (%s): %s",
+                        rev.revision, rev.doc or "no doc", e,
+                    )
+                    raise
+
+        if skipped_revs:
+            logger.warning(
+                "Skipped %d non-idempotent migration(s): %s",
+                len(skipped_revs), ", ".join(skipped_revs),
+            )
+
+        logger.info("Alembic migrations applied (%.2fs)", time.time() - t1)
         return
 
     if has_data_tables:

@@ -27,81 +27,71 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # ── 1. Create credit_notes table ──────────────────────────────────────
-    op.create_table(
-        "credit_notes",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("tenant_id", sa.Uuid(), nullable=False),
-        sa.Column("organization_id", sa.Uuid(), nullable=False),
-        sa.Column("invoice_id", sa.Uuid(), nullable=True),  # nullable for pending_review
-        sa.Column("credit_note_number", sa.String(), nullable=True),
-        sa.Column("ecf_type", sa.String(length=2), nullable=True),
-        sa.Column("is_electronic", sa.Boolean(), nullable=False, server_default=sa.text("false")),
-        sa.Column("credit_note_date", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("ncf_modified", sa.String(), nullable=True),
-        sa.Column("modification_reason", sa.String(length=2), nullable=True),
-        sa.Column("subtotal", sa.Float(), nullable=True),
-        sa.Column("tax_amount", sa.Float(), nullable=True),
-        sa.Column("total_amount", sa.Float(), nullable=False),
-        sa.Column("currency", sa.String(), nullable=False, server_default="DOP"),
-        sa.Column("vendor_name", sa.String(), nullable=True),
-        sa.Column("vendor_tax_id", sa.String(), nullable=True),
-        sa.Column("vendor_country", sa.String(length=3), nullable=True),
-        sa.Column("filename", sa.String(), nullable=True),
-        sa.Column("file_path", sa.String(), nullable=True),
-        sa.Column("processed_path", sa.String(), nullable=True),
-        sa.Column("file_type", sa.String(), nullable=True),
-        sa.Column("source_type", sa.String(length=20), nullable=True),
-        sa.Column("raw_extracted_data", sa.Text(), nullable=True),
-        sa.Column("confidence_score", sa.Float(), nullable=True),
-        sa.Column("audit_flags", sa.Text(), nullable=True),
-        sa.Column("original_xml_data", sa.Text(), nullable=True),
-        sa.Column("quality_report", sa.Text(), nullable=True),
-        sa.Column("status", sa.String(length=20), nullable=False, server_default="verified"),
-        sa.Column("review_notes", sa.Text(), nullable=True),
-        sa.Column("linked_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("linked_by", sa.Uuid(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.Column("created_by", sa.Uuid(), nullable=True),
-        sa.Column("is_deleted", sa.Boolean(), nullable=False, server_default=sa.text("false")),
-        sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("deleted_by", sa.Uuid(), nullable=True),
-        sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["invoice_id"], ["invoices.id"], ondelete="RESTRICT"),
-        sa.ForeignKeyConstraint(["created_by"], ["users.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["linked_by"], ["users.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["deleted_by"], ["users.id"], ondelete="SET NULL"),
-        sa.PrimaryKeyConstraint("id"),
-        sa.CheckConstraint(
-            "status IN ('pending_review', 'verified', 'rejected', 'voided')",
-            name="ck_credit_notes_status",
-        ),
-    )
+    conn = op.get_bind()
+    insp = sa.inspect(conn)
 
-    # Performance indexes
-    op.create_index("ix_cn_tenant_org", "credit_notes", ["tenant_id", "organization_id"])
-    op.create_index("ix_cn_invoice", "credit_notes", ["invoice_id"])
-    op.create_index("ix_cn_status", "credit_notes", ["tenant_id", "organization_id", "status"])
-    op.create_index("ix_cn_ncf", "credit_notes", ["tenant_id", "organization_id", "credit_note_number"])
-    op.create_index("ix_cn_ncf_modified", "credit_notes", ["tenant_id", "organization_id", "ncf_modified"])
-    op.create_index(
-        "ix_cn_vendor_date",
-        "credit_notes",
-        ["tenant_id", "organization_id", "vendor_tax_id", "credit_note_date"],
-    )
-    op.create_index("ix_cn_is_deleted", "credit_notes", ["is_deleted"])
-    op.create_index("ix_cn_deleted_at", "credit_notes", ["deleted_at"])
-
-    # Idempotency: same NCF cannot be ingested twice in the same org
-    op.create_index(
-        "uq_cn_tenant_org_ncf",
-        "credit_notes",
-        ["tenant_id", "organization_id", "credit_note_number"],
-        unique=True,
-        postgresql_where=sa.text("credit_note_number IS NOT NULL AND is_deleted = false"),
-    )
+    # ── 1. Create credit_notes table idempotently ──────────────────────────
+    if "credit_notes" not in insp.get_table_names():
+        op.create_table(
+            "credit_notes",
+            sa.Column("id", sa.Uuid(), nullable=False),
+            sa.Column("tenant_id", sa.Uuid(), nullable=False),
+            sa.Column("organization_id", sa.Uuid(), nullable=False),
+            sa.Column("invoice_id", sa.Uuid(), nullable=True),
+            sa.Column("credit_note_number", sa.String(), nullable=True),
+            sa.Column("ecf_type", sa.String(length=2), nullable=True),
+            sa.Column("is_electronic", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+            sa.Column("credit_note_date", sa.DateTime(timezone=True), nullable=True),
+            sa.Column("ncf_modified", sa.String(), nullable=True),
+            sa.Column("modification_reason", sa.String(length=2), nullable=True),
+            sa.Column("subtotal", sa.Float(), nullable=True),
+            sa.Column("tax_amount", sa.Float(), nullable=True),
+            sa.Column("total_amount", sa.Float(), nullable=False),
+            sa.Column("currency", sa.String(), nullable=False, server_default="DOP"),
+            sa.Column("vendor_name", sa.String(), nullable=True),
+            sa.Column("vendor_tax_id", sa.String(), nullable=True),
+            sa.Column("vendor_country", sa.String(length=3), nullable=True),
+            sa.Column("filename", sa.String(), nullable=True),
+            sa.Column("file_path", sa.String(), nullable=True),
+            sa.Column("processed_path", sa.String(), nullable=True),
+            sa.Column("file_type", sa.String(), nullable=True),
+            sa.Column("source_type", sa.String(length=20), nullable=True),
+            sa.Column("raw_extracted_data", sa.Text(), nullable=True),
+            sa.Column("confidence_score", sa.Float(), nullable=True),
+            sa.Column("audit_flags", sa.Text(), nullable=True),
+            sa.Column("original_xml_data", sa.Text(), nullable=True),
+            sa.Column("quality_report", sa.Text(), nullable=True),
+            sa.Column("status", sa.String(length=20), nullable=False, server_default="verified"),
+            sa.Column("review_notes", sa.Text(), nullable=True),
+            sa.Column("linked_at", sa.DateTime(timezone=True), nullable=True),
+            sa.Column("linked_by", sa.Uuid(), nullable=True),
+            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+            sa.Column("created_by", sa.Uuid(), nullable=True),
+            sa.Column("is_deleted", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+            sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
+            sa.Column("deleted_by", sa.Uuid(), nullable=True),
+            sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
+            sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"], ondelete="CASCADE"),
+            sa.ForeignKeyConstraint(["invoice_id"], ["invoices.id"], ondelete="RESTRICT"),
+            sa.ForeignKeyConstraint(["created_by"], ["users.id"], ondelete="SET NULL"),
+            sa.ForeignKeyConstraint(["linked_by"], ["users.id"], ondelete="SET NULL"),
+            sa.ForeignKeyConstraint(["deleted_by"], ["users.id"], ondelete="SET NULL"),
+            sa.PrimaryKeyConstraint("id"),
+            sa.CheckConstraint(
+                "status IN ('pending_review', 'verified', 'rejected', 'voided')",
+                name="ck_credit_notes_status",
+            ),
+        )
+        op.execute("CREATE INDEX IF NOT EXISTS ix_cn_tenant_org ON credit_notes (tenant_id, organization_id)")
+        op.execute("CREATE INDEX IF NOT EXISTS ix_cn_invoice ON credit_notes (invoice_id)")
+        op.execute("CREATE INDEX IF NOT EXISTS ix_cn_status ON credit_notes (tenant_id, organization_id, status)")
+        op.execute("CREATE INDEX IF NOT EXISTS ix_cn_ncf ON credit_notes (tenant_id, organization_id, credit_note_number)")
+        op.execute("CREATE INDEX IF NOT EXISTS ix_cn_ncf_modified ON credit_notes (tenant_id, organization_id, ncf_modified)")
+        op.execute("CREATE INDEX IF NOT EXISTS ix_cn_vendor_date ON credit_notes (tenant_id, organization_id, vendor_tax_id, credit_note_date)")
+        op.execute("CREATE INDEX IF NOT EXISTS ix_cn_is_deleted ON credit_notes (is_deleted)")
+        op.execute("CREATE INDEX IF NOT EXISTS ix_cn_deleted_at ON credit_notes (deleted_at)")
+        op.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_cn_tenant_org_ncf ON credit_notes (tenant_id, organization_id, credit_note_number) WHERE credit_note_number IS NOT NULL AND is_deleted = false")
 
     # ── 2. Drop the obsolete parent_invoice_id column ────────────────────
     # Idempotent: the constraint may be named differently (e.g. fk_invoices_parent_invoice)
