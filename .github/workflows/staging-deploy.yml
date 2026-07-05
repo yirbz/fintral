@@ -16,7 +16,6 @@ env:
   RAILWAY_PROJECT: 3d1b6173-3b08-4965-a4e4-d2ab61d95b6b
   RAILWAY_ENV: 29f5b19a-8137-48ff-bd76-2595a7a5904c
   RAILWAY_SERVICE: 398877f8-5452-4c4c-833a-cd53aaeb66a7
-  SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF_STG }}
 
 jobs:
   frontend:
@@ -66,7 +65,7 @@ jobs:
       - name: Deploy (preview only)
         id: deploy
         run: |
-          url=$(npx vercel deploy --prebuilt 2>&1 | tail -1)
+          url=$(npx vercel deploy --prebuilt 2>&1 | tail -1 | xargs)
           echo "url=$url" >> "$GITHUB_OUTPUT"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -89,39 +88,9 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
 
-  supabase:
-    name: Database (branch on PR / migrate on merge)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: supabase
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: supabase/setup-cli@v1
-        with:
-          version: latest
-
-      - name: Link to staging project
-        run: supabase link --project-ref "${{ env.SUPABASE_PROJECT_REF }}"
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-
-      - name: Create preview branch (PR)
-        if: github.event_name == 'pull_request'
-        run: supabase db branch create "pr-${{ github.event.number }}"
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-
-      - name: Run pending migrations (merge)
-        if: github.event_name == 'push'
-        run: supabase db push
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-
   comment:
     name: ${{ (github.event_name == 'push' && 'Notify commit' || 'Comment PR') }}
-    needs: [frontend]
+    needs: [frontend, backend]
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -132,19 +101,20 @@ jobs:
           script: |
             const isMerge = '${{ github.event_name }}' === 'push';
             const frontendUrl = '${{ needs.frontend.outputs.url }}';
+            const deployStatus = '${{ needs.backend.result }}';
 
             if (isMerge) {
               await github.rest.repos.createCommitComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 commit_sha: context.sha,
-                body: `## ✅ Staging actualizado\n\nMerge a \`staging\` completado.\n\n| Servicio | URL |\n|----------|-----|\n| Frontend | ${frontendUrl || 'stg.fintral.app (via Cloudflare → Railway)'} |\n| Backend  | stg-api.fintral.app (via Cloudflare → Railway) |\n\n> Cloudflare DNS apunta a Railway. Railway tiene la última versión estable de \`staging\`.`
+                body: `## ✅ Staging actualizado\n\nMerge a \`staging\` completado.\n\n| Servicio | URL |\n|----------|-----|\n| Frontend | ${frontendUrl || 'stg.fintral.app'} |\n| Backend  | stg-api.fintral.app |\n\n> Railway desplegó la última versión de \`staging\`.`
               });
             } else {
               await github.rest.issues.createComment({
                 issue_number: context.issue.number,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                body: `## 🚀 Staging Preview Lista\n\n| Servicio | URL | Notas |\n|----------|-----|-------|\n| Frontend | ${frontendUrl || '[preview](https://stg.fintral.app)'} | Preview de Vercel |\n| Backend  | pr-${{ github.event.number }}.stg-api.fintral.app | Railway deploy desde este branch |\n| DB       | Branch \`pr-${{ github.event.number }}\` | Supabase preview branch |\n\n> ⏳ Mergea esta PR a \`staging\` para promover a estable.`
+                body: `## 🚀 Preview lista — PR #${{ github.event.number }}\n\n| Servicio | URL | Estado |\n|----------|-----|--------|\n| Frontend | ${frontendUrl || 'stg.fintral.app'} | ✅ Deployed |\n| Backend  | stg-api.fintral.app (Railway \`staging\`) | ${deployStatus === 'success' ? '✅ Deploy triggered' : '❌ Failed'} |\n\nMergea esta PR a \`staging\` para promover los cambios a estable.`
               });
             }
