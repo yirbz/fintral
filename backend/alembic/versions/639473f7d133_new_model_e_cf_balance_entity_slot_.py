@@ -19,16 +19,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('organization_subscriptions', sa.Column('addon_entity_slots', sa.Integer(), nullable=True))
-    op.alter_column('organization_subscriptions', 'addon_billing_entities',
-               existing_type=sa.INTEGER(),
-               nullable=True)
-    op.add_column('organizations', sa.Column('e_cf_balance', sa.Integer(), nullable=True))
+    op.execute("ALTER TABLE organization_subscriptions ADD COLUMN IF NOT EXISTS addon_entity_slots INTEGER")
+    op.execute("ALTER TABLE organization_subscriptions ALTER COLUMN addon_billing_entities DROP NOT NULL")
+    op.execute("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS e_cf_balance INTEGER")
     op.execute("UPDATE organizations SET e_cf_balance = 0 WHERE e_cf_balance IS NULL")
-    op.alter_column('organizations', 'e_cf_balance',
-               existing_type=sa.INTEGER(),
-               nullable=False)
-    op.add_column('subscription_plans', sa.Column('entity_slot_price_cents', sa.Integer(), nullable=True))
+    op.execute("ALTER TABLE organizations ALTER COLUMN e_cf_balance SET NOT NULL")
+    op.execute("ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS entity_slot_price_cents INTEGER")
     op.execute("UPDATE subscription_plans SET entity_slot_price_cents = 60000 WHERE entity_slot_price_cents IS NULL")
 
 
