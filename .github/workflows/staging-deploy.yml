@@ -62,19 +62,16 @@ jobs:
           NEXT_PUBLIC_APP_URL: ${{ steps.doppler.outputs.NEXT_PUBLIC_APP_URL }}
           BACKEND_URL: ${{ steps.doppler.outputs.BACKEND_URL }}
 
-      - name: Deploy (preview only)
+      - name: Deploy and alias to stg.fintral.app
         id: deploy
         run: |
-          url=$(npx vercel deploy --prebuilt 2>&1 | grep -oE 'https://[a-zA-Z0-9.-]+\.vercel\.app' | head -1)
+          json=$(npx vercel deploy --prebuilt --json 2>&1)
+          url=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['url'])")
           echo "url=$url" >> "$GITHUB_OUTPUT"
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: team_EFfddjRHIl9rcFwJJP105uZ8
-          VERCEL_PROJECT_ID: prj_YxDVjxE1yDXMh7O3LKCEoDAxghEf
-
-      - name: Alias to stg.fintral.app (push only)
-        if: github.event_name == 'push'
-        run: npx vercel alias set "${{ steps.deploy.outputs.url }}" stg.fintral.app
+          echo "Deployed at: $url"
+          if [ '${{ github.event_name }}' = 'push' ]; then
+            npx vercel alias set "$url" stg.fintral.app
+          fi
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: team_EFfddjRHIl9rcFwJJP105uZ8
