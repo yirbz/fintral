@@ -1,12 +1,10 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { ArrowLeft, Zap, Layers } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { QuickInvoicePanel } from "@/features/billing/emit/quick-invoice-panel";
 import { DetailedInvoiceWizard } from "@/features/billing/emit/detailed-invoice-wizard";
 import { PendingInvoiceView } from "@/features/billing/emit/pending-invoice-view";
 import type { EmitResult } from "@/lib/api/billing";
@@ -15,10 +13,26 @@ type ViewState =
   | { type: "form" }
   | { type: "pending"; result: EmitResult & { invoice: NonNullable<EmitResult["invoice"]> } };
 
+const ACTION_LABELS: Record<string, { title: string; description: string }> = {
+  credit_note: {
+    title: "Nota de Crédito (E34)",
+    description: "Emite una Nota de Crédito electrónica para anular o reducir el monto de un comprobante ya timbrado",
+  },
+  debit_note: {
+    title: "Nota de Débito (E33)",
+    description: "Emite una Nota de Débito electrónica para incrementar el monto de un comprobante ya timbrado",
+  },
+};
+
 export default function EmitInvoicePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [view, setView] = useState<ViewState>({ type: "form" });
-  const [mode, setMode] = useState<"quick" | "detailed">("quick");
+
+  const sourceInvoiceId = searchParams.get("invoiceId");
+  const sourceAction = searchParams.get("action");
+
+  const actionLabel = sourceAction ? ACTION_LABELS[sourceAction] : null;
 
   const handleSuccess = (result: EmitResult) => {
     if (result.status === "pending" && result.invoice?.id) {
@@ -48,44 +62,26 @@ export default function EmitInvoicePage() {
     <div className="h-full w-full flex flex-col gap-6 p-6 lg:px-8 lg:py-8">
       {/* Header */}
       <div className="flex items-center gap-3 shrink-0">
-        <Button variant="ghost" size="icon" onClick={() => router.push("/billing")} className="shrink-0">
+        <Button variant="ghost" size="icon" onClick={() => (window.history.length > 1 ? router.back() : router.push("/billing"))} className="shrink-0">
           <ArrowLeft className="size-4" />
         </Button>
         <div>
-          <h1 className="text-lg font-semibold">Nueva factura electrónica</h1>
+          <h1 className="text-2xl font-light tracking-tight text-foreground">
+            {actionLabel?.title ?? "Nueva factura electrónica"}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Emita un comprobante fiscal electrónico (e-CF) timbrado por la DGII
+            {actionLabel?.description ?? "Emita un comprobante fiscal electrónico (e-CF) timbrado por la DGII"}
           </p>
         </div>
       </div>
 
-      {/* Mode toggle */}
-      <Tabs
-        value={mode}
-        onValueChange={(v) => setMode(v as "quick" | "detailed")}
-        className="w-full shrink-0"
-      >
-        <TabsList className="w-[300px] grid grid-cols-2 h-10">
-          <TabsTrigger value="quick" className="text-sm gap-2">
-            <Zap className="size-4" />
-            Rápida
-            <span className="text-[10px] text-muted-foreground font-normal">POS</span>
-          </TabsTrigger>
-          <TabsTrigger value="detailed" className="text-sm gap-2">
-            <Layers className="size-4" />
-            Detallada
-            <span className="text-[10px] text-muted-foreground font-normal">Asistente</span>
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
-
-      {/* Panels — fill remaining height */}
+      {/* Invoice wizard — fill remaining height */}
       <div className="flex-1 min-h-0">
-        {mode === "quick" ? (
-          <QuickInvoicePanel onSuccess={handleSuccess} />
-        ) : (
-          <DetailedInvoiceWizard onSuccess={handleSuccess} />
-        )}
+        <DetailedInvoiceWizard
+          onSuccess={handleSuccess}
+          sourceInvoiceId={sourceInvoiceId ?? undefined}
+          sourceAction={sourceAction ?? undefined}
+        />
       </div>
     </div>
   );

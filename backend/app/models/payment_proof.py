@@ -21,6 +21,8 @@ class PaymentProof(Base):
     plan_name = Column(String(64), nullable=False)
     amount = Column(Numeric(12, 2), nullable=False)
     currency = Column(String(3), default="DOP", nullable=False)
+    exchange_rate = Column(Numeric(12, 4), nullable=True)  # DOP/USD exchange rate at checkout
+    usd_amount = Column(Numeric(12, 2), nullable=True)     # Original USD amount of checkout
     addons_json = Column(Text, nullable=True)
     items_json = Column(Text, nullable=True)  # JSON array of cart items
 
@@ -62,6 +64,8 @@ class PaymentProof(Base):
             "plan_name": self.plan_name,
             "amount": float(self.amount),
             "currency": self.currency,
+            "exchange_rate": float(self.exchange_rate) if self.exchange_rate else None,
+            "usd_amount": float(self.usd_amount) if self.usd_amount else None,
             "addons": self.addons_json,
             "items": json.loads(self.items_json) if self.items_json else None,
             "status": self.status,

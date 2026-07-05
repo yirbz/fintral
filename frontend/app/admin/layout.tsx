@@ -30,9 +30,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     if (!isLoading && !session?.user?.is_superuser) {
-      router.replace("/dashboard");
+      window.location.href = "/dashboard";
     }
-  }, [isLoading, session, router]);
+  }, [isLoading, session]);
 
   if (isLoading) {
     return (

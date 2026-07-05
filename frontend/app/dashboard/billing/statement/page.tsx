@@ -1,5 +1,6 @@
-import { StatementPage } from "@/features/billing/statement-page";
+import { redirect } from "next/navigation";
 
-export default function Statement() {
-  return <StatementPage />;
+export default function StatementRedirect() {
+  redirect("/dashboard/cuenta?tab=statement");
 }
+

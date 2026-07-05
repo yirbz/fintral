@@ -45,7 +45,9 @@ import {
 import { useSession } from "@/hooks/use-session";
 import { useOrg } from "@/hooks/use-org";
 import { useRNCValidation } from "@/hooks/use-rnc-validation";
-import { getMyPlan } from "@/lib/api/plans";
+import { getMyPlan, getTransactions, type TransactionItem } from "@/lib/api/plans";
+import { TransactionInvoiceModal } from "@/features/account/components/transaction-invoice-modal";
+import { CreditCard, Building, Receipt, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -434,7 +436,7 @@ function CreateOrgDialog({ onSuccess }: { onSuccess: () => void }) {
       }
       if (nameSearchTimer.current) clearTimeout(nameSearchTimer.current);
       if (value.trim().length >= 4) {
-        nameSearchTimer.current = setTimeout(() => handleNameSearch(value), 350);
+        nameSearchTimer.current = setTimeout(() => handleNameSearch(value), 600);
       } else {
         setNameSearchResults([]);
         setShowNameDropdown(false);
@@ -967,7 +969,7 @@ export function OrganizationPage() {
 
   const {data: orgQuery_data} = useQuery({
     queryKey: ["organization-settings"],
-    queryFn: getOrganization,
+    queryFn: () => getOrganization(),
   });
 
   const [name, setName] = useState("");
@@ -980,6 +982,38 @@ export function OrganizationPage() {
   const [municipality, setMunicipality] = useState("");
   const [province, setProvince] = useState("");
   const [hasChanges, setHasChanges] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState<TransactionItem | null>(null);
+
+  const currentOrgId = activeOrgId || orgQuery_data?.id;
+
+  const { data: orgTransactions, isLoading: isLoadingTransactions } = useQuery({
+    queryKey: ["organization-transactions", currentOrgId],
+    queryFn: () => getTransactions("org", currentOrgId),
+    enabled: !!currentOrgId,
+    staleTime: 30_000,
+  });
+
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return "—";
+    try {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString("es-DO", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const formatAmount = (amount: number, currency: string) => {
+    return new Intl.NumberFormat("es-DO", {
+      style: "currency",
+      currency: currency || "DOP",
+      minimumFractionDigits: amount % 1 === 0 ? 0 : 2,
+    }).format(amount);
+  };
 
   // Populate form fields when data loads
   useEffect(() => {
@@ -1052,7 +1086,6 @@ export function OrganizationPage() {
   const memberCount = orgQuery_data?.member_count ?? 0;
   const updatedAt = relativeTime(orgQuery_data?.updated_at ?? null);
   const currentUserId = session.data?.user?.id;
-  const currentOrgId = activeOrgId ?? orgQuery_data?.id;
 
   // Member management mutations
   const removeMutation = useMutation({
@@ -1420,8 +1453,169 @@ export function OrganizationPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* ── Historial de Pagos de la Empresa ── */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-heading flex items-center gap-2">
+                <Receipt className="size-3.5 text-muted-foreground" />
+                Historial de Pagos de la Empresa
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Desglose de compras consolidadas bajo esta organización (usuarios adicionales, bloques e-CF y licencias).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {isLoadingTransactions ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : orgTransactions && orgTransactions.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-border/40 text-muted-foreground">
+                        <th className="py-2.5 font-semibold">Concepto / Elementos</th>
+                        <th className="py-2.5 font-semibold hidden md:table-cell">Pagado por</th>
+                        <th className="py-2.5 font-semibold text-right">Monto</th>
+                        <th className="py-2.5 font-semibold text-right hidden sm:table-cell">Fecha</th>
+                        <th className="py-2.5 font-semibold text-right">Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/20">
+                      {orgTransactions.map((tx) => {
+                        // Badge generator based on cart items or description content
+                        const getItemBadges = (transaction: TransactionItem) => {
+                          const badges: React.ReactNode[] = [];
+                          const itemsList = transaction.items || [];
+                          
+                          if (itemsList.length > 0) {
+                            itemsList.forEach((item, idx) => {
+                              const type = (item.type || "").toLowerCase();
+                              const label = (item.label || "").toLowerCase();
+                              
+                              if (type.includes("user") || label.includes("usuario") || label.includes("miembro")) {
+                                badges.push(
+                                  <Badge key={`user-${idx}`} variant="outline" className="text-[9px] h-4 bg-sky-50 dark:bg-sky-950/20 text-sky-700 dark:text-sky-400 border-sky-100 dark:border-sky-900/30 gap-1 font-medium">
+                                    <Users className="size-2" />
+                                    Usuario Extra
+                                  </Badge>
+                                );
+                              } else if (type.includes("org") || label.includes("organización") || label.includes("empresa") || label.includes("slot")) {
+                                badges.push(
+                                  <Badge key={`org-${idx}`} variant="outline" className="text-[9px] h-4 bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-100 dark:border-purple-900/30 gap-1 font-medium">
+                                    <Building className="size-2" />
+                                    Slot Org
+                                  </Badge>
+                                );
+                              } else if (type.includes("ecf") || label.includes("ecf") || label.includes("comprobante") || label.includes("bloque")) {
+                                badges.push(
+                                  <Badge key={`ecf-${idx}`} variant="outline" className="text-[9px] h-4 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30 gap-1 font-medium">
+                                    <Receipt className="size-2" />
+                                    Bloque e-CF
+                                  </Badge>
+                                );
+                              } else {
+                                badges.push(
+                                  <Badge key={`item-${idx}`} variant="outline" className="text-[9px] h-4 font-medium bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-350">
+                                    {item.label || item.type}
+                                  </Badge>
+                                );
+                              }
+                            });
+                          } else {
+                            const desc = transaction.description.toLowerCase();
+                            if (desc.includes("usuario") || desc.includes("miembro")) {
+                              badges.push(
+                                <Badge key="desc-user" variant="outline" className="text-[9px] h-4 bg-sky-50 dark:bg-sky-950/20 text-sky-700 dark:text-sky-400 border-sky-100 dark:border-sky-900/30 gap-1 font-medium">
+                                  <Users className="size-2" />
+                                  Usuario Extra
+                                </Badge>
+                              );
+                            } else if (desc.includes("organización") || desc.includes("empresa") || desc.includes("slot")) {
+                              badges.push(
+                                <Badge key="desc-org" variant="outline" className="text-[9px] h-4 bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-100 dark:border-purple-900/30 gap-1 font-medium">
+                                  <Building className="size-2" />
+                                  Slot Org
+                                </Badge>
+                              );
+                            } else if (desc.includes("ecf") || desc.includes("comprobante") || desc.includes("bloque")) {
+                              badges.push(
+                                <Badge key="desc-ecf" variant="outline" className="text-[9px] h-4 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30 gap-1 font-medium">
+                                  <Receipt className="size-2" />
+                                  Bloque e-CF
+                                </Badge>
+                              );
+                            } else {
+                              badges.push(
+                                <Badge key="desc-fallback" variant="outline" className="text-[9px] h-4 font-medium bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-350">
+                                  Plan General
+                                </Badge>
+                              );
+                            }
+                          }
+                          return <div className="flex flex-wrap gap-1 mt-1">{badges}</div>;
+                        };
+
+                        return (
+                          <tr key={tx.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/20 transition-colors">
+                            <td className="py-3 pr-3 font-medium min-w-[160px]">
+                              <div className="text-foreground">{tx.description}</div>
+                              {getItemBadges(tx)}
+                            </td>
+                            <td className="py-3 pr-3 hidden md:table-cell text-muted-foreground font-mono text-[11px] max-w-[160px] truncate" title={tx.paid_by || ""}>
+                              {tx.paid_by ? (
+                                <span className="flex items-center gap-1.5">
+                                  <UserRound className="size-3 text-muted-foreground/60 shrink-0" />
+                                  {tx.paid_by}
+                                </span>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                            <td className="py-3 text-right font-medium text-foreground tabular-nums">
+                              {formatAmount(tx.amount, tx.currency)}
+                            </td>
+                            <td className="py-3 text-right text-muted-foreground tabular-nums hidden sm:table-cell">
+                              {formatDate(tx.date)}
+                            </td>
+                            <td className="py-3 text-right">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2.5 text-[11px] rounded-lg text-primary hover:text-primary-deep hover:bg-primary/5 active:scale-[0.97] transition-all"
+                                onClick={() => setSelectedTransaction(tx)}
+                              >
+                                Ver Detalle
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <Receipt className="size-8 text-muted-foreground/30 mb-2" />
+                  <p className="text-xs text-muted-foreground font-medium">No se han registrado pagos para esta empresa.</p>
+                  <p className="text-[10px] text-muted-foreground/65 max-w-xs mt-0.5">Las compras de adicionales o activaciones a nombre de la organización aparecerán aquí.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </>
       )}
+
+      <TransactionInvoiceModal
+        transaction={selectedTransaction}
+        isOpen={!!selectedTransaction}
+        onClose={() => setSelectedTransaction(null)}
+        formatDate={formatDate}
+        formatAmount={formatAmount}
+        organizationName={orgQuery_data?.name || ""}
+        userEmail={selectedTransaction?.paid_by || session.data?.user?.email || ""}
+      />
     </div>
   );
 }

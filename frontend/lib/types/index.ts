@@ -37,6 +37,7 @@ export interface SessionPayload {
 
 export interface Invoice {
   id: string;
+  organization_id: string;
   filename: string;
   file_type: "image" | "pdf" | "xml";
   file_url: string | null;

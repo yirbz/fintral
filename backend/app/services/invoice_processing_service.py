@@ -17,7 +17,120 @@ from app.core.redis import invalidate_cache_pattern
 
 logger = logging.getLogger(__name__)
 
-INVOICES_PREFIX = "invoices"
+async def lookup_rnc_name_from_dgii(rnc: str) -> Optional[str]:
+    import re
+    import html
+    import httpx
+    
+    clean_rnc = re.sub(r"[^0-9]", "", rnc)
+    if len(clean_rnc) not in (9, 11):
+        return None
+        
+    RNC_URL = "https://dgii.gov.do/app/WebApps/ConsultasWeb2/ConsultasWeb/consultas/rnc.aspx"
+    CEDULA_URL = "https://dgii.gov.do/app/WebApps/ConsultasWeb2/ConsultasWeb/consultas/ciudadanos.aspx"
+    UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    
+    def _extract_all_form_fields(html_text: str) -> dict[str, str]:
+        fields = {}
+        for m in re.finditer(r'<input\s+([^>]+)>', html_text, re.IGNORECASE):
+            attrs = m.group(1)
+            name_match = re.search(r'name="([^"]+)"', attrs, re.IGNORECASE)
+            if name_match:
+                name = name_match.group(1)
+                val_match = re.search(r'value="([^"]*)"', attrs, re.IGNORECASE)
+                val = val_match.group(1) if val_match else ""
+                fields[name] = val
+        return fields
+
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            if len(clean_rnc) == 9:
+                r = await client.get(RNC_URL, headers={"User-Agent": UA})
+                r.raise_for_status()
+                
+                viewstate_match = re.search(r'id="__VIEWSTATE" value="([^"]+)"', r.text)
+                viewstate = viewstate_match.group(1) if viewstate_match else ""
+                viewstate_gen_match = re.search(r'id="__VIEWSTATEGENERATOR" value="([^"]+)"', r.text)
+                viewstate_gen = viewstate_gen_match.group(1) if viewstate_gen_match else ""
+                event_val_match = re.search(r'id="__EVENTVALIDATION" value="([^"]+)"', r.text)
+                event_val = event_val_match.group(1) if event_val_match else ""
+                
+                if not viewstate:
+                    return None
+                    
+                post_data = {
+                    "__VIEWSTATE": viewstate,
+                    "__VIEWSTATEGENERATOR": viewstate_gen,
+                    "__EVENTVALIDATION": event_val,
+                    "ctl00$cphMain$txtRNCCedula": clean_rnc,
+                    "ctl00$cphMain$btnBuscarPorRNC": "Buscar",
+                    "__ASYNCPOST": "true"
+                }
+                
+                resp = await client.post(
+                    RNC_URL,
+                    data=post_data,
+                    headers={
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "User-Agent": UA,
+                        "Referer": RNC_URL
+                    }
+                )
+                resp.raise_for_status()
+                
+                content = resp.text
+                match = re.search(r"updatePanel\|upMainMaster\|([\s\S]*?)(?=\|8\|hiddenField|$)", content)
+                parsed_content = match.group(1).strip() if match else content
+                
+                table_match = re.search(r'<table[^>]*id="[^"]*dvDatosContribuyentes[^"]*"[^>]*>([\s\S]*?)<\/table>', parsed_content)
+                if table_match:
+                    rows = re.findall(r'<tr[^>]*>([\s\S]*?)</tr>', table_match.group(1))
+                    for row in rows:
+                        cells = re.findall(r'<td[^>]*>([\s\S]*?)</td>', row)
+                        if len(cells) >= 2:
+                            label = html.unescape(re.sub(r'<[^>]*>', '', cells[0]).strip().lower())
+                            if 'razon social' in label or 'razón social' in label or 'nombre' in label:
+                                val_raw = re.sub(r'<[^>]*>', '', cells[1]).strip()
+                                return re.sub(r'\s+', ' ', html.unescape(val_raw))
+            else:
+                r = await client.get(CEDULA_URL, headers={"User-Agent": UA})
+                r.raise_for_status()
+                
+                fields = _extract_all_form_fields(r.text)
+                fields["ctl00$cphMain$txtCedula"] = clean_rnc
+                fields["ctl00$cphMain$btnBuscarCedula"] = "Buscar"
+                fields["__ASYNCPOST"] = "true"
+                
+                resp = await client.post(
+                    CEDULA_URL,
+                    data=fields,
+                    headers={
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "User-Agent": UA,
+                        "Referer": CEDULA_URL
+                    }
+                )
+                resp.raise_for_status()
+                
+                content = resp.text
+                match = re.search(r"updatePanel\|upMainMaster\|([\s\S]*?)(?=\|8\|hiddenField|$)", content)
+                parsed_content = match.group(1).strip() if match else content
+                
+                table_match = re.search(r'<table[^>]*id="[^"]*dvResultadoCedula[^"]*"[^>]*>([\s\S]*?)<\/table>', parsed_content)
+                if not table_match:
+                    table_match = re.search(r'<table[^>]*>([\s\S]*?)<\/table>', parsed_content)
+                if table_match:
+                    rows = re.findall(r'<tr[^>]*>([\s\S]*?)</tr>', table_match.group(1))
+                    for row in rows:
+                        cells = re.findall(r'<td[^>]*>([\s\S]*?)</td>', row)
+                        if len(cells) >= 2:
+                            label = html.unescape(re.sub(r'<[^>]*>', '', cells[0]).strip().lower())
+                            if 'nombre' in label or 'razon' in label or 'razón' in label:
+                                val_raw = re.sub(r'<[^>]*>', '', cells[1]).strip()
+                                return re.sub(r'\s+', ' ', html.unescape(val_raw))
+    except Exception as e:
+        logger.warning(f"Error looking up RNC {rnc} from DGII in background: {e}")
+    return None
 
 
 class InvoiceProcessingService:
@@ -39,11 +152,18 @@ class InvoiceProcessingService:
     def _parse_invoice_date(value: Optional[str]) -> Optional[datetime]:
         if not value:
             return None
-        for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"):
-            try:
-                return datetime.strptime(value, fmt)
-            except Exception:
-                continue
+        try:
+            import re
+            raw_str = str(value).strip()
+            date_str = raw_str.split("T")[0].split()[0]
+            date_str = re.sub(r'^[^\w]+|[^\w]+$', '', date_str)
+            for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"):
+                try:
+                    return datetime.strptime(date_str, fmt)
+                except Exception:
+                    continue
+        except Exception:
+            pass
         return None
 
     @staticmethod
@@ -360,6 +480,13 @@ class InvoiceProcessingService:
                 "error": error_details,
                 "extracted_data": extracted_data or {},
             }
+
+        if success and extracted_data:
+            tax_id = extracted_data.get("vendor_tax_id")
+            if tax_id:
+                official_name = await lookup_rnc_name_from_dgii(tax_id)
+                if official_name:
+                    extracted_data["vendor_name"] = official_name
 
         invoice, conflicting = self.apply_extracted_data(db, invoice, extracted_data, tenant_id, org_id)
         invoice.source_type = source_type or invoice.file_type

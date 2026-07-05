@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   Clock,
   Edit3,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -73,16 +74,12 @@ interface InvoiceListProps {
   invoices: BillingInvoice[];
   loading: boolean;
   isEcfAuthorized: boolean;
-  transmittingId: string | null;
-  onTransmit: (id: string) => void;
 }
 
 export function InvoiceList({
   invoices,
   loading,
   isEcfAuthorized,
-  transmittingId,
-  onTransmit,
 }: InvoiceListProps) {
   return (
     <Card className="border border-border/50 bg-card/50">
@@ -179,36 +176,31 @@ export function InvoiceList({
                     <TableCell className="text-right pr-6 py-3">
                       <div className="flex items-center justify-end gap-1.5">
                         {/* Emitir / Timbrado */}
-                        {invoice.status === "draft" && isEcfAuthorized && (
-                          <Button
-                            onClick={() => onTransmit(invoice.id)}
-                            disabled={transmittingId === invoice.id}
-                            className="h-7 text-[11px] bg-emerald-600 text-white hover:bg-emerald-600/90 rounded-md px-2"
-                            size="xs"
-                          >
-                            {transmittingId === invoice.id ? (
-                              <Loader2 className="size-3 animate-spin mr-1" />
-                            ) : (
-                              <Send className="size-3 mr-1" />
-                            )}
-                            Timbrado DGII
-                          </Button>
-                        )}
-                        {invoice.status === "draft" && !isEcfAuthorized && (
-                          <Button
-                            onClick={() => onTransmit(invoice.id)}
-                            disabled={transmittingId === invoice.id}
-                            variant="outline"
-                            className="h-7 text-[11px] rounded-md px-2"
-                            size="xs"
-                          >
-                            {transmittingId === invoice.id ? (
-                              <Loader2 className="size-3 animate-spin mr-1" />
-                            ) : (
-                              <CheckCircle2 className="size-3 mr-1" />
-                            )}
-                            Emitir
-                          </Button>
+                        {invoice.status === "draft" && (
+                          (() => {
+                            let raw: any = null;
+                            try { raw = JSON.parse(invoice.raw_extracted_data || "null"); } catch {}
+                            const isQuick = raw?.mode === "quick";
+                            const editUrl = isQuick
+                              ? `/billing/quick?draftId=${invoice.id}`
+                              : `/billing/emit?invoiceId=${invoice.id}`;
+                            return (
+                              <Link href={editUrl} passHref>
+                                <Button
+                                  className={`h-7 text-[11px] px-2 rounded-md ${
+                                    isEcfAuthorized
+                                      ? "bg-emerald-600 text-white hover:bg-emerald-600/90"
+                                      : "border-border/80 text-foreground hover:bg-muted"
+                                  }`}
+                                  size="xs"
+                                  variant={isEcfAuthorized ? "default" : "outline"}
+                                >
+                                  <Edit3 className="size-3 mr-1" />
+                                  {isEcfAuthorized ? "Editar y Timbrar" : "Editar y Emitir"}
+                                </Button>
+                              </Link>
+                            );
+                          })()
                         )}
 
                         {/* Ticket / Print */}
@@ -229,8 +221,22 @@ export function InvoiceList({
                           </Link>
                         )}
 
-                        {/* Corregir (solo para emitidas) */}
-                        {invoice.status === "verified" && (
+                        {/* Re-editar (físico) */}
+                        {invoice.status === "verified" && !invoice.is_electronic && (
+                          <Link href={`/billing/emit?invoiceId=${invoice.id}&action=reemit`} passHref>
+                            <Button
+                              variant="outline"
+                              size="xs"
+                              className="h-7 text-[11px] border-amber-500/30 text-amber-600 hover:bg-amber-50 rounded-md px-2"
+                            >
+                              <RefreshCw className="size-3 mr-1" />
+                              Re-editar
+                            </Button>
+                          </Link>
+                        )}
+
+                        {/* Corregir (e-CF) */}
+                        {invoice.status === "verified" && invoice.is_electronic && (
                           <Button
                             variant="ghost"
                             size="xs"
@@ -244,7 +250,7 @@ export function InvoiceList({
                             }}
                           >
                             <Edit3 className="size-3 mr-1" />
-                            Corregir
+                            Corregir (NC)
                           </Button>
                         )}
                       </div>

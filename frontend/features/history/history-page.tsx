@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
+import { useState, useMemo, Fragment } from "react";
 import {
   Search, Upload, Download, Brain, MessageCircle,
   AlertTriangle, CheckCircle2, XCircle, Clock, Zap,
@@ -520,11 +520,11 @@ function EventRow({ event }: { event: AuditEvent }) {
                 <span className="text-red-600/70">Antes</span>
                 <span className="text-emerald-600/70">Después</span>
                 {diff.map(([label, b, a]) => (
-                  <>
+                  <Fragment key={label}>
                     <span className="text-muted-foreground">{label}</span>
                     <span className="truncate font-mono text-red-600/70">{b}</span>
                     <span className="truncate font-mono text-emerald-600/70">{a}</span>
-                  </>
+                  </Fragment>
                 ))}
               </div>
             </div>
