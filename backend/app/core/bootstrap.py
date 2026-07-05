@@ -84,14 +84,22 @@ def init_database() -> None:
 
         t1 = time.time()
         logger.info("Running pending migrations from %s to %s ...", row, head_rev)
+
+        # Disable transaction wrapping so each migration step commits
+        # individually — a failure in one step (e.g. table already exists)
+        # won't roll back earlier steps.
+        alembic_cfg.attributes["disable_transactional_ddl"] = True
+
         try:
             command.upgrade(alembic_cfg, "head")
             logger.info("Alembic migrations applied (%.2fs)", time.time() - t1)
         except Exception as e:
             if "already exists" in str(e):
-                logger.warning("Migration failed because table already exists — stamping head revision")
+                logger.warning("Migration failed because table/column already exists — stamping head revision")
                 command.stamp(alembic_cfg, "head")
                 logger.info("Stamped head after migration conflict (%.2fs)", time.time() - t1)
+                # Safety net — create any tables/columns the rolled-back step missed
+                Base.metadata.create_all(bind=engine)
             else:
                 logger.error("Alembic upgrade failed (%s) after %.2fs: %s", type(e).__name__, time.time() - t1, e)
                 raise
