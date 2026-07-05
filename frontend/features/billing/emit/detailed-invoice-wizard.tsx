@@ -1,18 +1,21 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import {
+  AlertCircle,
   Calculator,
   CreditCard,
   FileText,
   Loader2,
   Plus,
-  ReceiptText,
   RefreshCw,
   Send,
   ShoppingCart,
   User,
+  Save,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -28,6 +31,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
@@ -41,6 +45,7 @@ import { CustomerSearch } from "./customer-search";
 import { ProductSearch } from "./product-search";
 import { NcfSelector } from "./ncf-selector";
 import { LineItemTable } from "./line-item-table";
+import { DetailedInvoicePreview } from "./detailed-invoice-preview";
 
 const INCOME_TYPES: { value: string; label: string }[] = [
   { value: "01", label: "Ingresos por operaciones" },
@@ -74,13 +79,16 @@ const REFERENCE_REQUIRED_TYPES = new Set([33, 34]);
 
 interface DetailedInvoiceWizardProps {
   onSuccess?: (result: EmitResult) => void;
+  sourceInvoiceId?: string;
+  sourceAction?: string;
 }
 
 function fmt(n: number) {
   return n.toLocaleString("es-DO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function DetailedInvoiceWizard({ onSuccess }: DetailedInvoiceWizardProps) {
+export function DetailedInvoiceWizard({ onSuccess, sourceInvoiceId, sourceAction }: DetailedInvoiceWizardProps) {
+  const router = useRouter();
   const [ecfType, setEcfType] = useState<number | null>(null);
   const [incomeType, setIncomeType] = useState("01");
   const [paymentType, setPaymentType] = useState(1);
@@ -107,6 +115,108 @@ export function DetailedInvoiceWizard({ onSuccess }: DetailedInvoiceWizardProps)
   const [modificationCode, setModificationCode] = useState<number | undefined>(3);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"form" | "preview">("form");
+
+  const { data: organization } = useQuery({
+    queryKey: ["active-organization"],
+    queryFn: () => billingApi.getOrganization().catch(() => null),
+  });
+
+  const { data: typesData } = useQuery({
+    queryKey: ["invoice-types"],
+    queryFn: billingApi.getInvoiceTypes,
+  });
+
+  const isCorrectionFlow = !!(sourceInvoiceId && sourceAction);
+  const isDraftContinuation = !!(sourceInvoiceId && !sourceAction);
+  const isCorrectEcfFlow = sourceAction === "correct";
+  const isReemitFlow = sourceAction === "reemit";
+
+  const { data: sourceInvoice, isLoading: isSourceLoading } = useQuery({
+    queryKey: ["billing-invoice", sourceInvoiceId],
+    queryFn: () => billingApi.getInvoice(sourceInvoiceId!),
+    enabled: isCorrectionFlow || isDraftContinuation,
+  });
+
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    if (!sourceInvoice || initialized) return;
+    setInitialized(true);
+
+    // Redirect quick-mode invoices to /billing/quick
+    const rawData = sourceInvoice.raw_extracted_data
+      ? (JSON.parse(sourceInvoice.raw_extracted_data) as Record<string, any>)
+      : null;
+    if (rawData?.mode === "quick" && !sourceAction) {
+      router.replace(`/billing/quick?draftId=${sourceInvoiceId}`);
+      return;
+    }
+
+    if (sourceAction === "credit_note") {
+      setEcfType(34);
+      setModificationCode(3);
+    } else if (sourceAction === "debit_note") {
+      setEcfType(33);
+      setModificationCode(3);
+    } else if (isDraftContinuation) {
+      if (sourceInvoice.ecf_type) {
+        setEcfType(parseInt(sourceInvoice.ecf_type));
+      }
+    } else if (isCorrectEcfFlow) {
+      if (sourceInvoice.ecf_type) {
+        setEcfType(parseInt(sourceInvoice.ecf_type));
+      }
+    }
+
+    if (sourceInvoice.invoice_number && isCorrectionFlow) {
+      setReferenceEcf(sourceInvoice.invoice_number);
+    }
+    if (sourceInvoice.invoice_date && isCorrectionFlow) {
+      setReferenceDate(sourceInvoice.invoice_date);
+    }
+
+    if (isDraftContinuation && rawData) {
+      if (rawData.payment_type) setPaymentType(rawData.payment_type);
+      if (rawData.payment_method) setPaymentMethod(rawData.payment_method);
+      if (rawData.notes) setNotes(rawData.notes);
+      if (rawData.reference_ecf) setReferenceEcf(rawData.reference_ecf);
+      if (rawData.reference_date) setReferenceDate(rawData.reference_date);
+    }
+    if (isReemitFlow && rawData) {
+      if (rawData.payment_type) setPaymentType(rawData.payment_type);
+      if (rawData.payment_method) setPaymentMethod(rawData.payment_method);
+      if (rawData.notes) setNotes(rawData.notes);
+    }
+
+    const buyerName = rawData?.buyer_name || sourceInvoice.client?.name || "";
+    const buyerAddress = rawData?.buyer_address || sourceInvoice.client?.address || "";
+    const buyerRnc = sourceInvoice.rnc_comprador || sourceInvoice.client?.tax_id || "";
+    const clientId = rawData?.client_id || sourceInvoice.client?.id || undefined;
+
+    setCustomer({
+      id: clientId,
+      name: buyerName,
+      rnc: buyerRnc,
+      address: buyerAddress || undefined,
+    });
+
+    if (sourceInvoice.line_items && sourceInvoice.line_items.length > 0) {
+      setItems(
+        sourceInvoice.line_items
+          .filter((li: any) => li.name)
+          .map((li: any) => ({
+            description: li.name,
+            quantity: li.quantity,
+            unit_price: li.unit_price,
+            discount_rate: li.discount_rate ?? 0,
+            tax_rate: li.tax_rate ?? 18,
+            good_service_indicator: 1,
+            product_id: li.product_id || undefined,
+          }))
+      );
+    }
+  }, [sourceInvoice, sourceAction, isDraftContinuation, isCorrectionFlow, isCorrectEcfFlow, isReemitFlow, initialized, router, sourceInvoiceId]);
 
   const isConsumerFinal = ecfType !== null && CONSUMIDOR_FINAL_TYPES.has(ecfType);
   const isExemptType = ecfType !== null && EXEMPT_TYPES.has(ecfType);
@@ -157,6 +267,40 @@ export function DetailedInvoiceWizard({ onSuccess }: DetailedInvoiceWizardProps)
     };
   }, [items, isExemptType]);
 
+  const isSplitTotalValid = useMemo(() => {
+    if (!showSplitPayment) return true;
+    const splitTotal = paymentSplits.reduce((s, p) => s + p.payment_amount, 0);
+    return Math.abs(splitTotal - itemTotals.totalAmount) < 0.01;
+  }, [showSplitPayment, paymentSplits, itemTotals.totalAmount]);
+
+  const isElectronic = useMemo(() => {
+    if (!ecfType) return false;
+    const type = typesData?.find((t: any) => t.ecf_type === ecfType);
+    if (!type) return false;
+    return type.code.startsWith("E") || type.ecf_type >= 31;
+  }, [ecfType, typesData]);
+
+  const previewNcf = useMemo(() => {
+    if (!ecfType) return "NCF PENDIENTE";
+    const type = typesData?.find((t: any) => t.ecf_type === ecfType);
+    if (!type) return "NCF PENDIENTE";
+    const code = type.code; // e.g. "E31" or "B01"
+    const prefix = code[0] || "B";
+    const typeStr = code.slice(1); // "31" or "01"
+    const nextSeq = (type.sequence_current ?? 0) + 1;
+    const seqLength = prefix === "E" ? 10 : 8;
+    const seqStr = nextSeq.toString().padStart(seqLength, "0");
+    return `${prefix}${typeStr}${seqStr}`;
+  }, [ecfType, typesData]);
+
+  const emitButtonLabel = isCorrectEcfFlow
+    ? "Corregir y emitir NC"
+    : isReemitFlow
+    ? "Re-emitir factura"
+    : isDraftContinuation
+    ? "Actualizar y emitir"
+    : "Emitir y timbrar factura";
+
   const canEmit = useMemo(() => {
     if (ecfType === null) return false;
     if (items.length === 0) return false;
@@ -164,8 +308,9 @@ export function DetailedInvoiceWizard({ onSuccess }: DetailedInvoiceWizardProps)
     if (showBuyerSection && !customer.name.trim()) return false;
     if (showBuyerSection && !customer.rnc.replace(/[^0-9]/g, "")?.length) return false;
     if (needsReference && !referenceEcf.trim()) return false;
+    if (showSplitPayment && !isSplitTotalValid) return false;
     return true;
-  }, [ecfType, items, showBuyerSection, customer, needsReference, referenceEcf]);
+  }, [ecfType, items, showBuyerSection, customer, needsReference, referenceEcf, showSplitPayment, isSplitTotalValid]);
 
   const emitMutation = useMutation({
     mutationFn: (data: Parameters<typeof billingApi.emitInvoice>[0]) =>
@@ -246,6 +391,8 @@ export function DetailedInvoiceWizard({ onSuccess }: DetailedInvoiceWizardProps)
           good_service_indicator: item.good_service_indicator ?? 1,
         })),
         notes: notes.trim() || undefined,
+        invoice_id: sourceInvoiceId ?? undefined,
+        is_correction: isCorrectEcfFlow,
       };
 
       if (showBuyerSection) {
@@ -272,8 +419,47 @@ export function DetailedInvoiceWizard({ onSuccess }: DetailedInvoiceWizardProps)
       ecfType, incomeType, paymentType, paymentMethod, paymentSplits,
       showSplitPayment, items, notes, showBuyerSection, customer,
       needsReference, referenceEcf, referenceDate, modificationCode, emitMutation,
+      isDraftContinuation, sourceInvoiceId, isCorrectEcfFlow,
     ]
   );
+
+  const handleSaveDraft = async () => {
+    try {
+      const cleanRnc = customer.rnc.replace(/[^0-9]/g, "");
+      const billingPayload = {
+        client_id: customer.id || undefined,
+        ecf_type: ecfType || 31,
+        payment_type: paymentType,
+        payment_method: paymentMethod || 1,
+        notes: notes.trim() || undefined,
+        reference_ecf: needsReference && referenceEcf ? referenceEcf.trim() : undefined,
+        reference_date: needsReference && referenceDate ? referenceDate : undefined,
+        mode: "detailed" as const,
+        items: items.filter(i => i.description.trim()).map((item) => ({
+          product_id: (item as any).product_id,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          discount_rate: item.discount_rate ?? 0,
+        })),
+        buyer_name: showBuyerSection ? customer.name.trim() : undefined,
+        buyer_rnc: showBuyerSection ? cleanRnc : undefined,
+        buyer_address: showBuyerSection ? customer.address?.trim() : undefined,
+      };
+
+      let invoice;
+      if (sourceInvoiceId && isDraftContinuation) {
+        invoice = await billingApi.updateInvoice(sourceInvoiceId, billingPayload);
+      } else {
+        invoice = await billingApi.createInvoice(billingPayload);
+        const url = new URL(window.location.href);
+        url.searchParams.set("draftId", invoice.id);
+        window.history.replaceState(null, "", url.toString());
+      }
+      toast.success("Borrador guardado correctamente.");
+    } catch (err: any) {
+      toast.error("Error al guardar borrador: " + (err.message || "Error desconocido"));
+    }
+  };
 
   const handleConfirmEmit = () => {
     const cleanRnc = customer.rnc.replace(/[^0-9]/g, "");
@@ -314,22 +500,47 @@ export function DetailedInvoiceWizard({ onSuccess }: DetailedInvoiceWizardProps)
   };
 
   return (
-    <div className="h-full flex flex-col lg:flex-row gap-0 lg:gap-6">
-      {/* ── Form Column ── */}
-      <div className="flex-1 min-h-0 overflow-y-auto space-y-5 pb-6 pr-0 lg:pr-2">
-        {/* Section: Tipo de comprobante */}
-        <Section icon={FileText} title="Tipo de comprobante">
-          <NcfSelector value={ecfType} onChange={setEcfType} />
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Condición de pago">
-              <Select value={paymentType.toString()} onValueChange={(v) => setPaymentType(parseInt(v))}>
-                <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1">Contado</SelectItem>
-                  <SelectItem value="2">Crédito</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
+    <div className="h-full flex flex-col gap-0">
+      {/* Mobile Tab Switcher */}
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as "form" | "preview")}
+        className="w-full lg:hidden shrink-0 mb-4"
+      >
+        <TabsList className="w-full grid grid-cols-2 h-10">
+          <TabsTrigger
+            value="form"
+            className="text-sm data-[state=active]:bg-emerald-600 data-[state=active]:text-white font-medium"
+          >
+            Formulario
+          </TabsTrigger>
+          <TabsTrigger
+            value="preview"
+            className="text-sm data-[state=active]:bg-emerald-600 data-[state=active]:text-white font-medium"
+          >
+            Vista Previa (A4)
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-0 lg:gap-6">
+        {/* ── Form Column ── */}
+        <div className={cn(
+          "flex-1 min-h-0 overflow-y-auto space-y-5 pb-6 pr-0 lg:pr-2",
+          activeTab !== "form" && "hidden lg:block"
+        )}>
+          {isCorrectionFlow && isSourceLoading && (
+            <div className="space-y-5 animate-pulse mb-5">
+              <div className="h-10 bg-muted rounded-lg w-48" />
+              <div className="h-[180px] bg-muted rounded-lg" />
+              <div className="h-[180px] bg-muted rounded-lg" />
+              <div className="h-[100px] bg-muted rounded-lg" />
+              <div className="h-[100px] bg-muted rounded-lg" />
+            </div>
+          )}
+          {/* Section: Tipo de comprobante */}
+          <Section icon={FileText} title="Tipo de comprobante">
+            <NcfSelector value={ecfType} onChange={setEcfType} />
             <Field label="Tipo de ingreso">
               <Select value={incomeType} onValueChange={setIncomeType}>
                 <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
@@ -340,254 +551,326 @@ export function DetailedInvoiceWizard({ onSuccess }: DetailedInvoiceWizardProps)
                 </SelectContent>
               </Select>
             </Field>
-          </div>
-        </Section>
-
-        {/* Section: Comprador */}
-        {showBuyerSection && (
-          <Section icon={User} title={isConsumerFinal ? "Comprador (opcional)" : "Comprador"}>
-            <CustomerSearch value={customer} onChange={setCustomer} />
-            {customer.name && !customer.id && (
-              <p className="text-xs text-muted-foreground">
-                El comprador se registrará automáticamente al emitir la factura.
-              </p>
-            )}
           </Section>
-        )}
 
-        {/* Section: Productos / Servicios */}
-        <Section icon={ShoppingCart} title="Productos / Servicios">
-          <div className="flex items-center gap-2">
-            <div className="flex-1 min-w-0">
-              <ProductSearch onSelect={addItemFromProduct} />
-            </div>
-            <Button variant="outline" size="sm" onClick={addItem} className="h-8 text-xs shrink-0">
-              <Plus className="size-3 mr-1" /> Item manual
-            </Button>
-          </div>
-          <div className="border rounded-lg p-3">
-            <LineItemTable items={items} onChange={setItems} ecfType={ecfType} />
-          </div>
-          <Field label="Notas (opcional)">
-            <Input
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Notas internas para esta factura"
-              className="h-9 text-sm"
-            />
-          </Field>
-        </Section>
+          {/* Section: Comprador */}
+          {showBuyerSection && (
+            <Section icon={User} title={isConsumerFinal ? "Comprador (opcional)" : "Comprador"}>
+              <CustomerSearch value={customer} onChange={setCustomer} />
+              {customer.name && !customer.id && (
+                <p className="text-xs text-muted-foreground">
+                  El comprador se registrará automáticamente al emitir la factura.
+                </p>
+              )}
+            </Section>
+          )}
 
-        {/* Section: Pago */}
-        <Section icon={CreditCard} title="Pago">
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Condición de pago">
-              <Select value={paymentType.toString()} onValueChange={(v) => setPaymentType(parseInt(v))}>
-                <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1">Contado</SelectItem>
-                  <SelectItem value="2">Crédito</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Método de pago">
-              <Select
-                value={!showSplitPayment ? (paymentMethod?.toString() ?? "") : "__split__"}
-                onValueChange={(v) => {
-                  if (v === "__split__") {
-                    setShowSplitPayment(true);
-                    if (paymentSplits.length === 0) {
-                      setPaymentSplits([{ payment_method: 1, payment_amount: itemTotals.totalAmount }]);
-                    }
-                  } else {
-                    setShowSplitPayment(false);
-                    setPaymentMethod(v ? parseInt(v) : undefined);
-                  }
-                }}
+          {/* Section: Productos / Servicios */}
+          <Section icon={ShoppingCart} title="Productos / Servicios">
+            <div className="flex items-center gap-2">
+              <div className="flex-1 min-w-0">
+                <ProductSearch onSelect={addItemFromProduct} />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={addItem}
+                className="h-8 text-xs shrink-0 border-emerald-600/30 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-600"
               >
-                <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Seleccionar" /></SelectTrigger>
-                <SelectContent>
-                  {PAYMENT_METHODS.map((pm) => (
-                    <SelectItem key={pm.value} value={pm.value.toString()}>{pm.label}</SelectItem>
-                  ))}
-                  <SelectItem value="__split__">Pago dividido (varios métodos)</SelectItem>
-                </SelectContent>
-              </Select>
+                <Plus className="size-3 mr-1" /> Item manual
+              </Button>
+            </div>
+            <div className="border rounded-lg p-3">
+              <LineItemTable items={items} onChange={setItems} ecfType={ecfType} />
+            </div>
+            <Field label="Notas (opcional)">
+              <Input
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Notas internas para esta factura"
+                className="h-9 text-sm"
+              />
             </Field>
-          </div>
+          </Section>
 
-          {showSplitPayment && (
-            <div className="border rounded-lg p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">División de pago</span>
-                {paymentSplits.length < 5 && (
-                  <Button variant="ghost" size="icon-xs" onClick={addSplitPayment} className="size-6">
-                    <Plus className="size-3" />
-                  </Button>
+          {/* Section: Pago */}
+          <Section icon={CreditCard} title="Pago">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Condición de pago">
+                <Select value={paymentType.toString()} onValueChange={(v) => setPaymentType(parseInt(v))}>
+                  <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">Contado</SelectItem>
+                    <SelectItem value="2">Crédito</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Método de pago">
+                <Select
+                  value={!showSplitPayment ? (paymentMethod?.toString() ?? "") : "__split__"}
+                  onValueChange={(v) => {
+                    if (v === "__split__") {
+                      setShowSplitPayment(true);
+                      if (paymentSplits.length === 0) {
+                        setPaymentSplits([{ payment_method: 1, payment_amount: itemTotals.totalAmount }]);
+                      }
+                    } else {
+                      setShowSplitPayment(false);
+                      setPaymentMethod(v ? parseInt(v) : undefined);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Seleccionar" /></SelectTrigger>
+                  <SelectContent>
+                    {PAYMENT_METHODS.map((pm) => (
+                      <SelectItem key={pm.value} value={pm.value.toString()}>{pm.label}</SelectItem>
+                    ))}
+                    <SelectItem value="__split__">Pago dividido (varios métodos)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
+
+            {showSplitPayment && (
+              <div className="border rounded-lg p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-muted-foreground">División de pago</span>
+                  {paymentSplits.length < 5 && (
+                    <Button variant="ghost" size="icon-xs" onClick={addSplitPayment} className="size-6 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700">
+                      <Plus className="size-3" />
+                    </Button>
+                  )}
+                </div>
+                {paymentSplits.map((split, idx) => (
+                  <div key={idx} className="grid grid-cols-[1fr_120px_28px] gap-2 items-center">
+                    <Select
+                      value={split.payment_method.toString()}
+                      onValueChange={(v) => updateSplitPayment(idx, "payment_method", parseInt(v))}
+                    >
+                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {PAYMENT_METHODS.slice(0, 5).map((pm) => (
+                          <SelectItem key={pm.value} value={pm.value.toString()}>{pm.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type="number"
+                      value={split.payment_amount || ""}
+                      onChange={(e) => updateSplitPayment(idx, "payment_amount", parseFloat(e.target.value) || 0)}
+                      min={0}
+                      step={0.01}
+                      className="h-8 text-xs text-right"
+                      placeholder="0.00"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => removeSplitPayment(idx)}
+                      className="text-destructive size-7 hover:bg-destructive/10"
+                    >
+                      <X className="size-3" />
+                    </Button>
+                  </div>
+                ))}
+                <div className="flex justify-between text-xs text-muted-foreground pt-1 border-t border-border">
+                  <span>Total asignado</span>
+                  <span className={cn(
+                    "tabular-nums font-medium",
+                    !isSplitTotalValid
+                      ? "text-amber-600 font-semibold"
+                      : "text-emerald-600 font-semibold"
+                  )}>
+                    RD$ {fmt(paymentSplits.reduce((s, p) => s + p.payment_amount, 0))}
+                  </span>
+                </div>
+                {!isSplitTotalValid && (
+                  <div className="border border-destructive/30 bg-destructive/5 rounded-lg p-2.5 text-xs text-destructive">
+                    La suma de los pagos divididos (RD$ {fmt(paymentSplits.reduce((s, p) => s + p.payment_amount, 0))}) debe ser exactamente igual al total de la factura (RD$ {fmt(itemTotals.totalAmount)}).
+                  </div>
                 )}
               </div>
-              {paymentSplits.map((split, idx) => (
-                <div key={idx} className="grid grid-cols-[1fr_120px_28px] gap-2 items-center">
-                  <Select
-                    value={split.payment_method.toString()}
-                    onValueChange={(v) => updateSplitPayment(idx, "payment_method", parseInt(v))}
-                  >
-                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {PAYMENT_METHODS.slice(0, 5).map((pm) => (
-                        <SelectItem key={pm.value} value={pm.value.toString()}>{pm.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+            )}
+          </Section>
+
+          {/* Section: Referencia (E33/E34) */}
+          {needsReference && (
+            <Section icon={RefreshCw} title="Comprobante original">
+              <p className="text-xs text-muted-foreground mb-2">
+                Indique el comprobante electrónico original que está modificando.
+              </p>
+              <div className="grid grid-cols-[1fr_1fr] gap-3">
+                <Field label="ENCF del comprobante original">
                   <Input
-                    type="number"
-                    value={split.payment_amount || ""}
-                    onChange={(e) => updateSplitPayment(idx, "payment_amount", parseFloat(e.target.value) || 0)}
-                    min={0}
-                    step={0.01}
-                    className="h-8 text-xs text-right"
-                    placeholder="0.00"
+                    value={referenceEcf}
+                    onChange={(e) => setReferenceEcf(e.target.value.toUpperCase())}
+                    placeholder="E310000000001"
+                    className="h-9 text-sm font-mono"
+                    maxLength={13}
                   />
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={() => removeSplitPayment(idx)}
-                    className="text-destructive size-7"
-                  >
-                    <Loader2 className="size-3 rotate-45" />
-                  </Button>
-                </div>
-              ))}
-              <div className="flex justify-between text-xs text-muted-foreground pt-1 border-t border-border">
-                <span>Total asignado</span>
-                <span className={cn(
-                  "tabular-nums font-medium",
-                  Math.abs(paymentSplits.reduce((s, p) => s + p.payment_amount, 0) - itemTotals.totalAmount) > 0.01
-                    ? "text-amber-600"
-                    : "text-emerald-600"
-                )}>
-                  RD$ {fmt(paymentSplits.reduce((s, p) => s + p.payment_amount, 0))}
-                </span>
+                </Field>
+                <Field label="Fecha del comprobante original">
+                  <DateInput
+                    value={referenceDate}
+                    onChange={setReferenceDate}
+                  />
+                </Field>
               </div>
+              <Field label="Motivo de modificación">
+                <Select
+                  value={modificationCode?.toString() ?? "3"}
+                  onValueChange={(v) => setModificationCode(parseInt(v))}
+                >
+                  <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {MODIFICATION_CODES.map((mc) => (
+                      <SelectItem key={mc.value} value={mc.value.toString()}>{mc.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            </Section>
+          )}
+
+          {/* Mobile emit button (visible < lg) */}
+          <div className="lg:hidden">
+            <div className="border rounded-lg p-4 bg-muted/20 space-y-3">
+              <TotalsDisplay totals={itemTotals} fmt={fmt} isExemptType={isExemptType} />
+              {itemTotals.totalAmount >= 250_000 && (
+                <p className="text-xs text-amber-600 flex items-center gap-1">
+                  <Calculator className="size-3 shrink-0" />
+                  Monto ≥ RD$250,000 — procesamiento asíncrono por la DGII
+                </p>
+              )}
+              {showSplitPayment && !isSplitTotalValid && (
+                <div className="border border-destructive/30 bg-destructive/5 rounded-lg p-3 text-xs text-destructive">
+                  No se puede emitir la factura: El total asignado en los pagos mixtos no coincide con el total general.
+                </div>
+              )}
+
+              {isCorrectEcfFlow && (
+                <div className="border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800/30 rounded-lg p-3 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
+                  <AlertCircle className="size-4 shrink-0 mt-0.5" />
+                  <span>
+                    Al guardar, se emitirá una <strong>Nota de Crédito (E34)</strong> que anulará la factura original,
+                    y luego se creará una nueva factura corregida.
+                  </span>
+                </div>
+              )}
+
+              {isReemitFlow && (
+                <div className="border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800/30 rounded-lg p-3 text-xs text-blue-800 dark:text-blue-300 flex items-start gap-2">
+                  <RefreshCw className="size-4 shrink-0 mt-0.5" />
+                  <span>Se re-emitirá el comprobante físico con los datos actualizados.</span>
+                </div>
+              )}
+
+              <Button
+                className="w-full h-10 text-sm gap-2 bg-emerald-600 hover:bg-emerald-500 text-white focus-visible:ring-emerald-500"
+                disabled={!canEmit || emitMutation.isPending}
+                onClick={handleEmitClick}
+              >
+                {emitMutation.isPending ? (
+                  <><Loader2 className="size-4 animate-spin" /> Emitiendo...</>
+                ) : (
+                  <><Send className="size-4" /> {emitButtonLabel}</>
+                )}
+              </Button>
+
+              <Button
+                variant="outline"
+                className="w-full h-9 text-xs gap-1.5 mt-1 border-emerald-600/30 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-600"
+                disabled={items.length === 0}
+                onClick={handleSaveDraft}
+              >
+                <Save className="size-3.5" />
+                Guardar Borrador
+              </Button>
+            </div>
+          </div>
+
+          {emitMutation.data?.status === "error" && emitMutation.data.error_message && (
+            <div className="border border-destructive/30 bg-destructive/5 rounded-lg p-3 text-xs text-destructive">
+              {emitMutation.data.error_message}
             </div>
           )}
-        </Section>
+        </div>
 
-        {/* Section: Referencia (E33/E34) */}
-        {needsReference && (
-          <Section icon={RefreshCw} title="Comprobante original">
-            <p className="text-xs text-muted-foreground mb-2">
-              Indique el comprobante electrónico original que está modificando.
-            </p>
-            <div className="grid grid-cols-[1fr_1fr] gap-3">
-              <Field label="ENCF del comprobante original">
-                <Input
-                  value={referenceEcf}
-                  onChange={(e) => setReferenceEcf(e.target.value.toUpperCase())}
-                  placeholder="E310000000001"
-                  className="h-9 text-sm font-mono"
-                  maxLength={13}
-                />
-              </Field>
-              <Field label="Fecha del comprobante original">
-                <DateInput
-                  value={referenceDate}
-                  onChange={setReferenceDate}
-                />
-              </Field>
-            </div>
-            <Field label="Motivo de modificación">
-              <Select
-                value={modificationCode?.toString() ?? "3"}
-                onValueChange={(v) => setModificationCode(parseInt(v))}
-              >
-                <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {MODIFICATION_CODES.map((mc) => (
-                    <SelectItem key={mc.value} value={mc.value.toString()}>{mc.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          </Section>
-        )}
+        {/* ── Preview Column (desktop/mobile toggle) ── */}
+        <div className={cn(
+          "w-full lg:w-[480px] xl:w-[550px] shrink-0 flex flex-col gap-4 min-h-0",
+          activeTab !== "preview" && "hidden lg:flex"
+        )}>
+          {/* Scrollable A4 sheet container */}
+          <div className="flex-1 min-h-0 overflow-y-auto pr-0 lg:pr-2">
+            <DetailedInvoicePreview
+              organization={organization}
+              ecfType={ecfType}
+              customer={customer}
+              items={items}
+              notes={notes}
+              totals={itemTotals}
+              previewNcf={previewNcf}
+              isElectronic={isElectronic}
+            />
+          </div>
 
-        {/* Mobile emit button (visible < lg) */}
-        <div className="lg:hidden">
-          <div className="border rounded-lg p-4 bg-muted/20 space-y-3">
-            <TotalsDisplay totals={itemTotals} fmt={fmt} isExemptType={isExemptType} />
+          {/* Sidebar Actions & Info */}
+          <div className="space-y-3 pt-2">
             {itemTotals.totalAmount >= 250_000 && (
-              <p className="text-xs text-amber-600 flex items-center gap-1">
-                <Calculator className="size-3 shrink-0" />
-                Monto ≥ RD$250,000 — procesamiento asíncrono por la DGII
-              </p>
+              <div className="border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800/30 rounded-lg p-3 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
+                <Calculator className="size-4 shrink-0 mt-0.5" />
+                <span>
+                  Monto ≥ RD$250,000 — este comprobante será procesado de forma asíncrona por la DGII.
+                </span>
+              </div>
             )}
+
+            {showSplitPayment && !isSplitTotalValid && (
+              <div className="border border-destructive/30 bg-destructive/5 dark:bg-destructive/10 rounded-lg p-3 text-xs text-destructive">
+                No se puede emitir la factura: El total asignado en los pagos mixtos no coincide con el total general.
+              </div>
+            )}
+
+            {isCorrectEcfFlow && (
+              <div className="border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800/30 rounded-lg p-3 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
+                <AlertCircle className="size-4 shrink-0 mt-0.5" />
+                <span>
+                  Al guardar, se emitirá una <strong>Nota de Crédito (E34)</strong> que anulará la factura original,
+                  y luego se creará una nueva factura corregida.
+                </span>
+              </div>
+            )}
+
+            {isReemitFlow && (
+              <div className="border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800/30 rounded-lg p-3 text-xs text-blue-800 dark:text-blue-300 flex items-start gap-2">
+                <RefreshCw className="size-4 shrink-0 mt-0.5" />
+                <span>Se re-emitirá el comprobante físico con los datos actualizados.</span>
+              </div>
+            )}
+
             <Button
-              className="w-full h-10 text-sm gap-2"
+              className="w-full h-10 text-sm gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
               disabled={!canEmit || emitMutation.isPending}
               onClick={handleEmitClick}
             >
               {emitMutation.isPending ? (
                 <><Loader2 className="size-4 animate-spin" /> Emitiendo...</>
               ) : (
-                <><Send className="size-4" /> Emitir y timbrar factura</>
+                <><Send className="size-4" /> {emitButtonLabel}</>
               )}
             </Button>
-          </div>
-        </div>
 
-        {emitMutation.data?.status === "error" && emitMutation.data.error_message && (
-          <div className="border border-destructive/30 bg-destructive/5 rounded-lg p-3 text-xs text-destructive">
-            {emitMutation.data.error_message}
+            <Button
+              variant="outline"
+              className="w-full h-9 text-xs gap-1.5 mt-1 border-emerald-600/30 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-600"
+              disabled={items.length === 0}
+              onClick={handleSaveDraft}
+            >
+              <Save className="size-3.5" />
+              Guardar Borrador
+            </Button>
           </div>
-        )}
-      </div>
-
-      {/* ── Summary Sidebar (desktop) ── */}
-      <div className="hidden lg:block w-[340px] shrink-0">
-        <div className="sticky top-0 space-y-4">
-          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-            <ReceiptText className="size-4" />
-            Resumen de factura
-          </div>
-          <div className="border rounded-lg divide-y divide-border">
-            {ecfType && (
-              <SummaryRow label="Tipo" value={<Badge variant="outline" className="font-normal text-xs">e-CF {ecfType}</Badge>} />
-            )}
-            <SummaryRow label="Comprador" value={
-              showBuyerSection && customer.name
-                ? `${customer.name} (${customer.rnc})`
-                : isConsumerFinal ? "Consumidor Final" : "—"
-            } />
-            <SummaryRow label="Condición" value={paymentType === 1 ? "Contado" : "Crédito"} />
-            <SummaryRow label="Items" value={`${items.filter((i) => i.description.trim()).length} producto(s)`} />
-            <SummaryRow label="Ingreso" value={INCOME_TYPES.find((it) => it.value === incomeType)?.label ?? incomeType} />
-          </div>
-
-          <div className="border rounded-lg p-4 space-y-2">
-            <TotalsDisplay totals={itemTotals} fmt={fmt} isExemptType={isExemptType} />
-          </div>
-
-          {itemTotals.totalAmount >= 250_000 && (
-            <div className="border border-amber-200 bg-amber-50 rounded-lg p-3 text-xs text-amber-800 flex items-start gap-2">
-              <Calculator className="size-4 shrink-0 mt-0.5" />
-              <span>
-                Monto ≥ RD$250,000 — este comprobante será procesado de forma asíncrona por la DGII.
-              </span>
-            </div>
-          )}
-
-          <Button
-            className="w-full h-10 text-sm gap-2"
-            disabled={!canEmit || emitMutation.isPending}
-            onClick={handleEmitClick}
-          >
-            {emitMutation.isPending ? (
-              <><Loader2 className="size-4 animate-spin" /> Emitiendo...</>
-            ) : (
-              <><Send className="size-4" /> Emitir y timbrar factura</>
-            )}
-          </Button>
         </div>
       </div>
 

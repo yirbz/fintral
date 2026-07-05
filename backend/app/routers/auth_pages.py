@@ -13,6 +13,7 @@ from app.config import ADMIN_EMAIL, ADMIN_PASSWORD, REMEMBER_ME_EXPIRE_DAYS, SUP
 from app.dependencies.auth import resolve_user_from_token
 from app.core.auth import create_access_token, verify_password
 from app.core.container import openai_processor
+from app.core.redis import get_redis_client
 from app.database import get_db
 from app.dependencies.tenant import TenantContext, optional_tenant, require_tenant
 from app.services.audit_logger import record as audit_record
@@ -55,14 +56,17 @@ async def login_for_access_token(
             if not user:
                 raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
             _assert_not_deleted(user)
-            # Use the verified Supabase access token directly
-            token = result["access_token"]
+            # Generate a local session JWT to respect the remember-me / persistence settings,
+            # since Supabase's native access token expires after 1 hour.
+            expire = timedelta(days=REMEMBER_ME_EXPIRE_DAYS) if remember else timedelta(minutes=_SESSION_EXPIRE_MINUTES)
+            local_token = create_access_token(data={"sub": form_data.username}, expires_delta=expire)
             audit_record(
                 db, tenant_id=user.tenant_id, organization_id=user.tenant_id,
                 actor_id=str(user.id), actor_name=user.full_name, actor_email=user.email,
                 action="user.login", summary=f"Inicio de sesión (Supabase): {user.email}",
             )
-            return _create_token_response(token, persist=remember)
+            hostname = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+            return _create_token_response(local_token, persist=remember, hostname=hostname)
         # fall through to local verification if Supabase fails
 
     # 2) Legacy password verification (PROD fallback + DEVELOPMENT primary)
@@ -79,7 +83,8 @@ async def login_for_access_token(
                 actor_id=str(user.id), actor_name=user.full_name, actor_email=user.email,
                 action="user.login", summary=f"Inicio de sesión: {user.email}",
             )
-            return _create_token_response(token, persist=remember)
+            hostname = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+            return _create_token_response(token, persist=remember, hostname=hostname)
     except OperationalError:
         pass
 
@@ -97,7 +102,8 @@ async def login_for_access_token(
                 )
         except Exception:
             pass
-        return _create_token_response(token, persist=remember)
+        hostname = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+        return _create_token_response(token, persist=remember, hostname=hostname)
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -233,6 +239,17 @@ async def resend_code(
     if not email:
         raise HTTPException(status_code=400, detail="Email requerido")
 
+    # ── Rate limit: 30s cooldown per email ──
+    r = get_redis_client()
+    cooldown_key = f"cooldown:resend_code:{email}"
+    if r:
+        ttl = r.ttl(cooldown_key)
+        if ttl > 0:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Debes esperar {ttl} segundos antes de solicitar otro código.",
+            )
+
     user = db.query(User).filter(User.email == email).first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
@@ -246,6 +263,10 @@ async def resend_code(
     user.verification_code = get_password_hash(code)
     db.commit()
 
+    # ── Set cooldown after successful resend ──
+    if r:
+        r.setex(cooldown_key, 30, "1")
+
     send_verification_email(email, user.full_name or "", code)
     return {"message": "Código reenviado."}
 
@@ -258,6 +279,17 @@ async def forgot_password(
     if not body.email:
         raise HTTPException(status_code=400, detail="Email requerido")
 
+    # ── Rate limit: 30s cooldown per email ──
+    r = get_redis_client()
+    cooldown_key = f"cooldown:forgot_password:{body.email}"
+    if r:
+        ttl = r.ttl(cooldown_key)
+        if ttl > 0:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Debes esperar {ttl} segundos antes de solicitar otro código.",
+            )
+
     user = db.query(User).filter(User.email == body.email).first()
     if not user:
         return {"message": "Si el email existe, recibirás un código de restablecimiento."}
@@ -268,6 +300,9 @@ async def forgot_password(
     code = _generate_verification_code()
     user.verification_code = get_password_hash(code)
     db.commit()
+
+    if r:
+        r.setex(cooldown_key, 30, "1")
 
     send_reset_password_email(body.email, user.full_name or "", code)
     return {"message": "Si el email existe, recibirás un código de restablecimiento."}
@@ -321,11 +356,34 @@ def _assert_not_deleted(user: User) -> None:
         raise HTTPException(status_code=401, detail="No disponible")
 
 
-def _create_token_response(token: str, *, persist: bool = False):
+def _get_cookie_domain(hostname: str) -> str | None:
+    """Extract parent domain for cookie sharing across subdomains.
+
+    - factura.localhost:3000 → None (host-only cookie for local dev)
+    - factura.fintral.app   → .fintral.app
+    - localhost:3000        → None
+    - fintral.app           → .fintral.app
+    """
+    hostname = hostname.split(":")[0].lower()
+    if hostname == "localhost" or hostname.endswith(".localhost") or hostname == "127.0.0.1":
+        return None
+    
+    import re
+    if re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", hostname):
+        return None
+
+    parts = hostname.split(".")
+    if len(parts) >= 2:
+        return "." + ".".join(parts[-2:])
+    return None
+
+
+def _create_token_response(token: str, *, persist: bool = False, hostname: str | None = None):
     """Build a JSONResponse that sets the access_token cookie.
 
     persist=True  → 30-day max_age ("remember me")
     persist=False → session cookie — browser deletes it on close
+    hostname     → if provided, sets domain for subdomain-wide cookie
     """
     response = JSONResponse({"access_token": token, "token_type": "bearer"})
     cookie_kwargs: dict = dict(
@@ -338,12 +396,17 @@ def _create_token_response(token: str, *, persist: bool = False):
     if persist:
         cookie_kwargs["max_age"] = _REMEMBER_MAX_AGE
     # No max_age for session cookies → browser lifetime only
+    if hostname:
+        domain = _get_cookie_domain(hostname)
+        if domain:
+            cookie_kwargs["domain"] = domain
     response.set_cookie(**cookie_kwargs)
     return response
 
 
 @router.get("/logout")
 async def logout(
+    request: Request,
     ctx: Optional[TenantContext] = Depends(optional_tenant),
     db: Session = Depends(get_db),
 ):
@@ -355,7 +418,12 @@ async def logout(
             organization_name=ctx.organization.name if ctx.organization else None,
         )
     response = RedirectResponse(url="/login")
-    response.delete_cookie("access_token")
+    hostname = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+    domain = _get_cookie_domain(hostname)
+    kwargs = {"key": "access_token"}
+    if domain:
+        kwargs["domain"] = domain
+    response.delete_cookie(**kwargs)
     return response
 
 
@@ -395,6 +463,94 @@ async def get_current_session(ctx: TenantContext = Depends(require_tenant)):
         "role": ctx.role,
         **get_company_context(ctx.organization),
         "company_plan": ctx.tenant.plan if ctx.tenant else "free",
+    }
+
+
+@router.get("/api/me/subscription")
+async def get_user_subscription(ctx: TenantContext = Depends(require_tenant)):
+    """Return the current user's Fintral Hub subscription status."""
+    from app.models.user_subscription import UserSubscription
+
+    sub = (
+        ctx.db.query(UserSubscription)
+        .filter(UserSubscription.user_id == ctx.user.id)
+        .order_by(UserSubscription.created_at.desc())
+        .first()
+    )
+    if not sub:
+        return {"subscription": None, "plan": None, "has_active_subscription": False}
+
+    trial_remaining = 0
+    if sub.trial_ends_at:
+        from datetime import timezone
+        remaining = (sub.trial_ends_at - sub.trial_ends_at.now(timezone.utc)).days
+        trial_remaining = max(0, remaining)
+
+    card_info = None
+
+    grace_hours = None
+    if sub.status == "past_due":
+        from datetime import timezone, timedelta
+        from app.utils.dates import utc_now
+        grace_period = timedelta(days=3)
+        time_since_failed = utc_now() - sub.updated_at
+        if time_since_failed <= grace_period:
+            grace_hours = max(0, int((grace_period - time_since_failed).total_seconds() / 3600))
+
+    plan = sub.plan
+
+    # Check org-level subscription grace period
+    in_grace_period = False
+    if ctx.org_id:
+        from app.utils.dates import utc_now
+        from app.models.organization_subscription import OrganizationSubscription
+        org_sub = (
+            ctx.db.query(OrganizationSubscription)
+            .filter(
+                OrganizationSubscription.organization_id == ctx.org_id,
+                OrganizationSubscription.status.in_(["active", "trialing"]),
+                OrganizationSubscription.billing_cycle_end < utc_now(),
+            )
+            .order_by(OrganizationSubscription.created_at.desc())
+            .first()
+        )
+        if org_sub:
+            in_grace_period = True
+
+    return {
+        "in_grace_period": in_grace_period,
+        "subscription": {
+            "id": str(sub.id),
+            "status": sub.status,
+            "plan_code": sub.lago_plan_code,
+            "plan_name": plan.display_name if plan else None,
+            "payment_method": sub.payment_method,
+            "auto_renew": sub.auto_renew,
+            "trial_ends_at": sub.trial_ends_at.isoformat() if sub.trial_ends_at else None,
+            "trial_remaining_days": trial_remaining,
+            "billing_cycle_start": sub.billing_cycle_start.isoformat() if sub.billing_cycle_start else None,
+            "billing_cycle_end": sub.billing_cycle_end.isoformat() if sub.billing_cycle_end else None,
+            "canceled_at": sub.canceled_at.isoformat() if sub.canceled_at else None,
+            "lago_subscription_id": sub.lago_subscription_id,
+            "lago_customer_id": sub.lago_customer_id,
+            "created_at": sub.created_at.isoformat() if sub.created_at else None,
+            "card_info": card_info,
+            "grace_hours": grace_hours,
+        },
+        "plan": {
+            "id": str(plan.id),
+            "name": plan.name,
+            "display_name": plan.display_name,
+            "description": plan.description,
+            "price_monthly": round(plan.price_monthly_cents / 100, 2),
+            "price_usd": float(plan.price_usd) if plan.price_usd is not None else None,
+            "limits": plan.to_dict().get("limits", {}),
+            "features": plan.to_dict().get("features", {}),
+            "is_enterprise": plan.is_enterprise,
+            "sort_order": plan.sort_order,
+            "soft_limit_enabled": plan.soft_limit_enabled,
+        } if plan else None,
+        "has_active_subscription": sub.status in ("active", "trialing", "past_due"),
     }
 
 

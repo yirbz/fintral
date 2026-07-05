@@ -22,6 +22,14 @@ export default function LoginPage() {
   useEffect(() => {
     getMe()
       .then(() => {
+        if (typeof window !== "undefined") {
+          const searchParams = new URLSearchParams(window.location.search);
+          const redirectUrl = searchParams.get("redirect");
+          if (redirectUrl && (redirectUrl.startsWith("http:") || redirectUrl.startsWith("https:"))) {
+            window.location.href = redirectUrl;
+            return;
+          }
+        }
         const isBillingSubdomain = typeof window !== "undefined" && window.location.hostname.startsWith("factura.");
         window.location.href = isBillingSubdomain ? "/" : "/dashboard";
       })

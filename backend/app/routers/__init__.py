@@ -1,4 +1,4 @@
-from . import admin, alanube_sync, auth_pages, dgii, evolution, history, invoices, integrations, invitations, mio, notifications, odoo_integration, organizations, pending_uploads, quickbooks_integration, reports, settings, statistics, websocket, webhooks, xero_integration, bank_accounts, billing, support_chat
+from . import admin, alanube_sync, auth_pages, dgii, evolution, history, invoices, integrations, invitations, notifications, odoo_integration, organizations, pending_uploads, quickbooks_integration, reports, settings, statistics, websocket, webhooks, xero_integration, bank_accounts, billing, support_chat
 
 __all__ = [
     "admin",
@@ -10,7 +10,6 @@ __all__ = [
     "invoices",
     "integrations",
     "invitations",
-    "mio",
     "notifications",
     "odoo_integration",
     "organizations",

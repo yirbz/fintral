@@ -35,7 +35,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
 
   // Preload products/clients/sequences for offline emission when online and authenticated
   useEffect(() => {
-    if (isOnline && session?.tenant?.id && activeOrgId) {
+    if (isOnline && session?.tenant?.id) {
       preloadOfflineData(session.tenant.id, activeOrgId);
     }
   }, [isOnline, session?.tenant?.id, activeOrgId]);

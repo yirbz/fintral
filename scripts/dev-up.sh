@@ -41,7 +41,7 @@ echo ""
 # ---------------------------------------------------------------------------
 # Step 0: Dependency check
 # ---------------------------------------------------------------------------
-echo -e "${YELLOW}[0/4] Checking dependencies...${NC}"
+echo -e "${YELLOW}[0/3] Checking dependencies...${NC}"
 
 if ! command -v docker &>/dev/null; then
   echo -e "${RED}✖ Docker not found. Install: https://docs.docker.com/engine/install/${NC}"
@@ -79,7 +79,7 @@ echo ""
 # ---------------------------------------------------------------------------
 # Step 1: Supabase local
 # ---------------------------------------------------------------------------
-echo -e "${YELLOW}[1/4] Initializing Supabase (if needed)...${NC}"
+echo -e "${YELLOW}[1/3] Initializing Supabase (if needed)...${NC}"
 cd "$ROOT_DIR/supabase"
 
 if [ ! -f config.toml ]; then
@@ -87,7 +87,7 @@ if [ ! -f config.toml ]; then
   npx -y supabase init
 fi
 
-echo -e "${YELLOW}[2/4] Starting Supabase containers...${NC}"
+echo -e "${YELLOW}[2/3] Starting Supabase containers...${NC}"
 npx -y supabase start
 echo -e "  ${GREEN}✓${NC} Supabase running"
 echo -e "  ${BLUE}  API:     ${NC}http://localhost:54321"
@@ -101,13 +101,15 @@ cd "$ROOT_DIR"
 # ---------------------------------------------------------------------------
 # Step 3: Docker Compose (via Doppler)
 # ---------------------------------------------------------------------------
-echo -e "${YELLOW}[3/4] Launching app containers (backend + frontend + nginx + Redis)...${NC}"
+echo -e "${YELLOW}[3/3] Launching app containers (backend + frontend + nginx + Redis + Lago)...${NC}"
 echo -e "  ${BLUE}→${NC} Injecting secrets with Doppler..."
 
 doppler run --project fintral --config dev -- \
   docker compose -f docker-compose.dev.yml up -d --build
 
 echo ""
+# Lago infrastructure (API key validation, bootstrap, plan seeding) is handled
+# automatically in Phase 5/6 of the backend startup — no separate script needed.
 echo -e "${GREEN}╔══════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║  Fintral — Development environment READY     ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"

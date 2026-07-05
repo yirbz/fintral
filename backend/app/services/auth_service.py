@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from supabase import create_client, Client
 
 from app.config import IS_DEVELOPMENT, ORG_COUNTRY, ORG_NAME, ORG_TAX_ID, REMEMBER_ME_EXPIRE_DAYS, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+from app.utils.dates import utc_now
 from app.core.auth import create_access_token, decode_access_token, get_password_hash, verify_password
 from app.dependencies.tenancy import slugify
 from app.models import Organization, Tenant, User, UserOrganization
@@ -121,6 +122,7 @@ def verify_email_code(email: str, code: str, db: Session) -> User | None:
     db.commit()
     db.refresh(user)
     logger.info("User verified via code: %s", email)
+    _try_setup_lago_trial(user, db)
     return user
 
 
@@ -141,6 +143,27 @@ def _generate_verify_token(email: str) -> str:
         data={"sub": email, "purpose": "verify_email"},
         expires_delta=timedelta(hours=VERIFY_TOKEN_EXPIRE_HOURS),
     )
+
+
+def _try_setup_lago_trial(user: User, db: Session) -> None:
+    """Try to create Lago trial for user. Fails silently — local trial suffices."""
+    import asyncio
+    from app.models.user_subscription import UserSubscription
+
+    existing = (
+        db.query(UserSubscription)
+        .filter(UserSubscription.user_id == user.id, UserSubscription.lago_customer_id.isnot(None))
+        .first()
+    )
+    if existing:
+        return
+
+    try:
+        email = user.email or ""
+        name = user.full_name or email
+        asyncio.run(setup_user_lago_trial(db, str(user.id), email, name))
+    except Exception as e:
+        logger.warning(f"Lago trial setup skipped for {user.email}: {e}")
 
 
 def verify_user(token: str, db: Session) -> User | None:
@@ -168,6 +191,7 @@ def verify_user(token: str, db: Session) -> User | None:
     db.commit()
     db.refresh(user)
     logger.info("User verified and activated: %s", email)
+    _try_setup_lago_trial(user, db)
     return user
 
 
@@ -220,9 +244,89 @@ def _provision_local_user(db: Session, email: str, full_name: str, phone: str, c
         role="owner",
     )
     db.add(user_org)
+
+    # Create free trial UserSubscription for Fintral Hub
+    from app.models.subscription_plan import SubscriptionPlan
+    from app.models.user_subscription import UserSubscription
+    from datetime import timedelta
+
+    trial_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "inicial").first()
+    if not trial_plan:
+        trial_plan = db.query(SubscriptionPlan).first()
+    if trial_plan:
+        trial_ends = utc_now() + timedelta(days=7)
+        user_sub = UserSubscription(
+            user_id=user.id,
+            plan_id=trial_plan.id,
+            status="trialing",
+            trial_ends_at=trial_ends,
+            billing_cycle_start=utc_now(),
+            billing_cycle_end=utc_now() + timedelta(days=30),
+            lago_plan_code=trial_plan.lago_plan_code or "inicial",
+        )
+        db.add(user_sub)
+
     db.commit()
     db.refresh(user)
     logger.info("Local user provisioned: email=%s, user_id=%s, tenant=%s, org=%s", email, user.id, tenant.id, org.id)
+
+
+async def setup_user_lago_trial(db: Session, user_id: str, email: str, full_name: str) -> dict | None:
+    """Create a Lago customer + trial subscription for a newly verified user.
+
+    Returns the created UserSubscription ID or None on failure.
+    Fails gracefully — user still gets a local trial if Lago is unreachable.
+    """
+    from app.models.subscription_plan import SubscriptionPlan
+    from app.models.user_subscription import UserSubscription
+    from app.services.lago_service import LagoService
+
+    existing = (
+        db.query(UserSubscription)
+        .filter(UserSubscription.user_id == user_id, UserSubscription.lago_customer_id.isnot(None))
+        .first()
+    )
+    if existing:
+        return {"user_subscription_id": str(existing.id)}
+
+    try:
+        lago = LagoService()
+        lago_customer = await lago.create_or_update_customer(
+            external_id=user_id,
+            name=full_name or email,
+            email=email,
+        )
+        lago_customer_id = lago_customer.get("customer", {}).get("lago_id")
+
+        trial_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "inicial").first()
+        if not trial_plan:
+            trial_plan = db.query(SubscriptionPlan).first()
+        plan_code = trial_plan.lago_plan_code or "inicial" if trial_plan else "inicial"
+
+        sub_external_id = f"user_sub_{user_id[:8]}_trial"
+        await lago.create_subscription(
+            customer_external_id=user_id,
+            plan_code=plan_code,
+            external_id=sub_external_id,
+        )
+
+        user_sub = (
+            db.query(UserSubscription)
+            .filter(UserSubscription.user_id == user_id)
+            .order_by(UserSubscription.created_at.desc())
+            .first()
+        )
+        if user_sub:
+            user_sub.lago_customer_id = lago_customer_id
+            user_sub.lago_subscription_id = sub_external_id
+            db.commit()
+            logger.info(f"Lago trial created for user {user_id}: customer={lago_customer_id}, sub={sub_external_id}")
+            return {"user_subscription_id": str(user_sub.id)}
+
+    except Exception as e:
+        logger.warning(f"Failed to create Lago trial for user {user_id}: {e}")
+
+    return None
 
 
 def create_admin_user(email: str, password: str) -> dict | None:

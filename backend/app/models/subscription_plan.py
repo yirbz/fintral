@@ -1,6 +1,6 @@
 """SubscriptionPlan — defines available tier plans for Fintral."""
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Integer, Numeric, String, Text
 from uuid_utils import uuid7
 
 from app.database import Base, GUID
@@ -19,6 +19,10 @@ class SubscriptionPlan(Base):
     # ── Pricing ──────────────────────────────────────────────────────
     price_monthly_cents = Column(Integer, nullable=False)       # 2900 = $29.00
     currency = Column(String(3), default="USD")
+    price_usd = Column(Numeric(10, 2), nullable=True)           # USD price for reference
+    price_dop = Column(Numeric(10, 2), nullable=True)           # DOP price for MIO/Lago checkout
+    lago_plan_code = Column(String(100), nullable=True)         # Lago plan identifier
+
     extra_entity_price_cents = Column(Integer, default=0)       # DEPRECATED — always 0
     extra_billing_entity_price_cents = Column(Integer, default=0)  # DEPRECATED — always 0
     entity_slot_price_cents = Column(Integer, default=0)        # RD$600 / extra entity slot beyond plan limit
@@ -29,13 +33,15 @@ class SubscriptionPlan(Base):
     addon_ai_block_price_cents = Column(Integer, default=1000)  # $10.00
     addon_storage_block_mb = Column(Integer, default=10240)     # 10GB
     addon_storage_block_price_cents = Column(Integer, default=500)
+    addon_ocr_block_size = Column(Integer, default=100)          # docs per add-on block
+    addon_ocr_block_price_cents = Column(Integer, default=50000)  # RD$ 500
 
     # ── Resource limits ──────────────────────────────────────────────
     max_users = Column(Integer, nullable=False, default=1)
     max_entities = Column(Integer, nullable=False, default=1)
+    max_products = Column(Integer, nullable=False, default=0)  # 0 = unlimited
 
     # Monthly hard caps
-    max_products = Column(Integer, nullable=False, default=0)
     max_ecf_monthly = Column(Integer, nullable=False, default=0)
     max_ai_queries_monthly = Column(Integer, nullable=False, default=0)
     max_ocr_docs_monthly = Column(Integer, nullable=False, default=0)
@@ -71,6 +77,17 @@ class SubscriptionPlan(Base):
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     def to_dict(self) -> dict:
+        usd_val = None
+        if self.price_usd is not None:
+            usd_val = float(self.price_usd)
+        else:
+            fallbacks = {
+                "inicial": 16.49,
+                "profesional": 47.99,
+                "despacho": 127.99,
+            }
+            usd_val = fallbacks.get(self.name.lower())
+
         return {
             "id": str(self.id),
             "name": self.name,
@@ -78,6 +95,9 @@ class SubscriptionPlan(Base):
             "description": self.description,
             "price_monthly": round(self.price_monthly_cents / 100, 2),
             "price_monthly_cents": self.price_monthly_cents,
+            "price_usd": usd_val,
+            "price_dop": float(self.price_dop) if self.price_dop is not None else None,
+            "lago_plan_code": self.lago_plan_code,
             "currency": self.currency,
             "extra_entity_price": 0,  # DEPRECATED — always 0
             "extra_billing_entity_price": 0,  # DEPRECATED — always 0
@@ -88,6 +108,8 @@ class SubscriptionPlan(Base):
             "addon_ecf_block_price": round(self.addon_ecf_block_price_cents / 100, 2),
             "addon_ai_block_size": self.addon_ai_block_size,
             "addon_ai_block_price": round(self.addon_ai_block_price_cents / 100, 2),
+            "addon_ocr_block_size": self.addon_ocr_block_size,
+            "addon_ocr_block_price": round(self.addon_ocr_block_price_cents / 100, 2),
             "limits": {
                 "max_products": self.max_products,
                 "max_users": self.max_users,

@@ -239,16 +239,6 @@ export const adminApi = {
 
   getMrr: () => apiFetch<AdminMrrResponse>("/api/admin/finance/mrr"),
 
-  getPayments: (params?: { status?: string; organization_id?: string; limit?: number; offset?: number }) => {
-    const query = new URLSearchParams();
-    if (params?.status) query.set("status", params.status);
-    if (params?.organization_id) query.set("organization_id", params.organization_id);
-    if (params?.limit) query.set("limit", String(params.limit));
-    if (params?.offset) query.set("offset", String(params.offset));
-    const qs = query.toString();
-    return apiFetch<AdminPaymentsResponse>(`/api/admin/finance/payments${qs ? `?${qs}` : ""}`);
-  },
-
   getChurn: () => apiFetch<AdminChurnResponse>("/api/admin/finance/churn"),
 
   getSubDistribution: () => apiFetch<AdminSubDistributionResponse>("/api/admin/finance/subscription-distribution"),
@@ -341,37 +331,6 @@ export interface AdminMrrResponse {
   addon_mrr: number;
   active_subscriptions_count: number;
 }
-
-export interface AdminPayment {
-  id: string;
-  tenant_id: string;
-  organization_id: string;
-  invoice_id: string | null;
-  mio_order_uuid: string;
-  checkout_url: string | null;
-  status: string;
-  currency: string;
-  amount: number;
-  items: any;
-  payment_id: string | null;
-  authorization_code: string | null;
-  reference_number: string | null;
-  expires_at: string | null;
-  created_at: string;
-  updated_at: string;
-  organization_name: string | null;
-  invoice_number: string | null;
-  invoice_date: string | null;
-  invoice_total: number;
-}
-
-export interface AdminPaymentsResponse {
-  payments: AdminPayment[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-
 export interface LostSubscription {
   subscription_id: string;
   organization_id: string;
@@ -473,6 +432,8 @@ export interface AdminPaymentProof {
   plan_name: string;
   amount: number;
   currency: string;
+  exchange_rate?: number | null;
+  usd_amount?: number | null;
   addons: string | null;
   items: AdminCartItem[] | null;
   status: string;
@@ -488,7 +449,7 @@ export const adminPaymentProofsApi = {
     const qs = statusFilter ? `?status_filter=${statusFilter}` : "";
     return apiFetch<AdminPaymentProof[]>(`/api/admin/payment-proofs${qs}`);
   },
-  verify: (proofId: string, action: "verified" | "rejected", adminNotes?: string) =>
+  verify: (proofId: string, action: "verified" | "rejected" | "revoked", adminNotes?: string) =>
     apiFetch<AdminPaymentProof>(`/api/admin/payment-proofs/${proofId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },

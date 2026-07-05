@@ -29,6 +29,7 @@ IS_DEVELOPMENT: bool = ENVIRONMENT == "DEVELOPMENT"
 # ===========================================================================
 # TCP port the backend HTTP server binds to (uvicorn)
 BACKEND_PORT: int = int(os.getenv("PORT", os.getenv("BACKEND_PORT", "8000")))
+PROXY_PORT: str = os.getenv("PROXY_PORT", "8080")
 
 APP_JWT_SECRET_KEY: str = os.getenv("APP_JWT_SECRET_KEY", "")
 
@@ -170,6 +171,36 @@ XERO_REDIRECT_URI: str = os.getenv(
 # Alanube (DGII electronic invoicing — Dominican Republic)
 ALANUBE_API_URL: str = os.getenv("ALANUBE_API_URL", "https://sandbox-api.alanube.co/dom/v1")
 ALANUBE_JWT: str = os.getenv("ALANUBE_JWT", "")
+
+# Banco Popular (BPD Exchange Rate API)
+BANCO_POPULAR_API_URL: str = os.getenv(
+    "BANCO_POPULAR_API_URL",
+    "https://api.us-east-a.apiconnect.ibmappdomain.cloud/apiportalpopular/bpdsandbox/consultatasa",
+)
+BANCO_POPULAR_API_KEY: str = os.getenv("BANCO_POPULAR_API_KEY", "")
+BANCO_POPULAR_SECRET_KEY: str = os.getenv("BANCO_POPULAR_SECRET_KEY", "")
+BANCO_POPULAR_FALLBACK_RATE: float = float(os.getenv("BANCO_POPULAR_FALLBACK_RATE", "59.0"))
+
+# ===========================================================================
+# Lago Billing Engine (self-hosted subscription management)
+# ===========================================================================
+LAGO_API_URL: str = os.getenv("LAGO_API_URL", "http://lago-api:3000")
+LAGO_API_KEY: str = os.getenv("LAGO_API_KEY", "fintral-lago-key-dev")
+LAGO_WEBHOOK_SECRET: str = os.getenv("LAGO_WEBHOOK_SECRET", "fintral-lago-webhook-secret-dev")
+LAGO_DATABASE_URL: str = os.getenv("LAGO_DATABASE_URL", "")
+
+# ===========================================================================
+# MIO Payment Gateway (Dominican Republic card processing)
+# ===========================================================================
+MIO_CLIENT_ID: str = os.getenv("MIO_CLIENT_ID", "")
+MIO_CLIENT_SECRET: str = os.getenv("MIO_CLIENT_SECRET", "")
+MIO_WEBHOOK_SECRET: str = os.getenv("MIO_WEBHOOK_SECRET", "")
+MIO_ENVIRONMENT: str = os.getenv("MIO_ENVIRONMENT", "staging")  # staging | production
+MIO_API_BASE_URL: str = os.getenv("MIO_API_BASE_URL", "https://api-mpos-mio.stg.geopagos.io")
+MIO_AUTH_URL: str = os.getenv("MIO_AUTH_URL", "https://auth.stg.geopagos.io")
+MIO_WEBHOOK_URL: str = os.getenv("MIO_WEBHOOK_URL", "")
+MIO_SUCCESS_REDIRECT: str = os.getenv("MIO_SUCCESS_REDIRECT", "")
+MIO_FAILED_REDIRECT: str = os.getenv("MIO_FAILED_REDIRECT", "")
 
 # ===========================================================================
 # Telegram Bot (admin notifications)

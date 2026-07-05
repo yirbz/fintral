@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowRight,
   Calculator,
@@ -18,6 +19,7 @@ import {
   User,
   Wallet,
   X,
+  Save,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -46,6 +48,7 @@ import {
   type Product,
   type BillingInvoice,
 } from "@/lib/api/billing";
+import { getEcfBalance } from "@/lib/api/plans";
 import { ProductSearch } from "@/features/billing/emit/product-search";
 import { NcfSelector } from "@/features/billing/emit/ncf-selector";
 import { CustomerSearch } from "@/features/billing/emit/customer-search";
@@ -216,6 +219,17 @@ function TotalRow({
 
 export default function QuickBillingPage() {
   const [view, setView] = useState<ViewState>({ type: "form" });
+  const searchParams = useSearchParams();
+  const draftId = searchParams.get("draftId");
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(draftId);
+
+  const { data: draftInvoice } = useQuery({
+    queryKey: ["invoice-draft", draftId],
+    queryFn: () => billingApi.getInvoice(draftId!),
+    enabled: !!draftId,
+  });
+
+  const [draftInitialized, setDraftInitialized] = useState(false);
 
   // Restore draft from sessionStorage
   const savedDraft = useMemo(() => {
@@ -236,6 +250,58 @@ export default function QuickBillingPage() {
 
   // Cart
   const [cart, setCart] = useState<CartItem[]>(savedDraft?.cart ?? []);
+
+  useEffect(() => {
+    if (!draftInvoice || draftInitialized) return;
+    setDraftInitialized(true);
+
+    if (draftInvoice.ecf_type) {
+      setEcfType(parseInt(draftInvoice.ecf_type));
+    }
+    if (draftInvoice.payment_condition) {
+      setPaymentType(draftInvoice.payment_condition === "credito" ? 2 : 1);
+    }
+    
+    const rawData = draftInvoice.raw_extracted_data
+      ? JSON.parse(draftInvoice.raw_extracted_data)
+      : null;
+
+    if (rawData) {
+      if (rawData.payment_method !== undefined) setPaymentMethod(rawData.payment_method);
+      if (rawData.notes) setNotes(rawData.notes);
+      
+      const buyerName = rawData.buyer_name || draftInvoice.client?.name || "";
+      const buyerRnc = rawData.buyer_rnc || draftInvoice.client?.tax_id || "";
+      const buyerAddress = rawData.buyer_address || draftInvoice.client?.address || "";
+      setBuyer({
+        id: rawData.client_id || draftInvoice.client?.id || undefined,
+        name: buyerName,
+        rnc: buyerRnc,
+        address: buyerAddress || undefined,
+      });
+    }
+
+    if (draftInvoice.line_items && draftInvoice.line_items.length > 0) {
+      setCart(
+        draftInvoice.line_items.map((li: any) => ({
+          product: {
+            id: li.product_id || "",
+            name: li.name,
+            price: li.unit_price,
+            tax_rate: li.tax_rate ?? 18,
+            code: "",
+            description: "",
+            status: "active",
+            is_active: true,
+            created_at: new Date().toISOString(),
+          } as any,
+          quantity: li.quantity,
+          price: li.unit_price,
+          discount: li.discount_rate ?? 0,
+        }))
+      );
+    }
+  }, [draftInvoice, draftInitialized]);
 
   // Confirmation dialog
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -334,8 +400,18 @@ export default function QuickBillingPage() {
         toast.error(result.error_message || "Error al emitir la factura");
       }
     },
-    onError: (err: Error) => {
-      toast.error(err.message || "Error de conexión con el servidor");
+    onError: (err: any) => {
+      if (err?.status === 402 || err?.message?.includes("límite")) {
+        toast.error("Límite de e-CF alcanzado", {
+          description: err.message || "Has alcanzado el límite mensual de comprobantes electrónicos (e-CF).",
+          action: {
+            label: "Comprar en tienda",
+            onClick: () => { window.location.href = "/dashboard/tienda"; }
+          }
+        });
+      } else {
+        toast.error(err.message || "Error de conexión con el servidor");
+      }
     },
   });
 
@@ -343,7 +419,7 @@ export default function QuickBillingPage() {
   const physicalMutation = useMutation({
     mutationFn: async () => {
       const { name, rnc } = resolveBuyer();
-      const invoice = await billingApi.createInvoice({
+      const payload = {
         client_id: buyer.id || undefined,
         ecf_type: ecfType!,
         payment_type: paymentType,
@@ -354,7 +430,12 @@ export default function QuickBillingPage() {
           unit_price: item.price,
           discount_rate: item.discount,
         })),
-      });
+      };
+
+      const invoice = activeDraftId
+        ? await billingApi.updateInvoice(activeDraftId, payload)
+        : await billingApi.createInvoice(payload);
+
       const result = await billingApi.transmitInvoice(invoice.id);
       return result.invoice;
     },
@@ -367,8 +448,18 @@ export default function QuickBillingPage() {
       }
       resetForm();
     },
-    onError: (err: Error) => {
-      toast.error(err.message || "Error al emitir la factura física");
+    onError: (err: any) => {
+      if (err?.status === 402 || err?.message?.includes("límite")) {
+        toast.error("Límite de e-CF alcanzado", {
+          description: err.message || "Has alcanzado el límite mensual de comprobantes electrónicos (e-CF).",
+          action: {
+            label: "Comprar en tienda",
+            onClick: () => { window.location.href = "/dashboard/tienda"; }
+          }
+        });
+      } else {
+        toast.error(err.message || "Error al emitir la factura física");
+      }
     },
   });
 
@@ -436,7 +527,31 @@ export default function QuickBillingPage() {
     doEmit(name, rnc);
   }
 
-  function doEmit(buyerName: string, buyerRnc: string) {
+  async function doEmit(buyerName: string, buyerRnc: string) {
+    if (paymentMethod === undefined) {
+      toast.error("Falta seleccionar un método de pago para la factura.");
+      return;
+    }
+
+    const orgId = typeof window !== "undefined" ? localStorage.getItem("fintral_active_org") : null;
+    if (orgId) {
+      try {
+        const balanceRes = await getEcfBalance(orgId);
+        if (balanceRes.balance < 1) {
+          toast.error("Límite de e-CF alcanzado", {
+            description: "Has alcanzado el límite mensual de comprobantes electrónicos (e-CF) de tu plan o tu balance de e-CF es insuficiente. Por favor, adquiere un paquete adicional.",
+            action: {
+              label: "Comprar en tienda",
+              onClick: () => { window.location.href = "/dashboard/tienda"; }
+            }
+          });
+          return;
+        }
+      } catch (err) {
+        console.error("Error checking balance", err);
+      }
+    }
+
     setConfirmOpen(false);
 
     if (isElectronic) {
@@ -456,11 +571,49 @@ export default function QuickBillingPage() {
           tax_rate: item.product.tax_rate,
         })),
         notes: notes.trim() || undefined,
+        invoice_id: activeDraftId || undefined,
       });
     } else {
       physicalMutation.mutate();
     }
   }
+
+  const handleSaveDraft = async () => {
+    try {
+      const { name, rnc } = resolveBuyer();
+      const payload = {
+        mode: "quick" as const,
+        client_id: buyer.id || undefined,
+        ecf_type: ecfType || 32,
+        payment_type: paymentType,
+        payment_method: paymentMethod || 1,
+        items: cart.map((item) => ({
+          product_id: item.product.id,
+          quantity: item.quantity,
+          unit_price: item.price,
+          discount_rate: item.discount,
+        })),
+        notes: notes.trim() || undefined,
+        buyer_name: isConsumidorFinal ? undefined : name || undefined,
+        buyer_rnc: isConsumidorFinal ? undefined : rnc || undefined,
+        buyer_address: isConsumidorFinal ? undefined : buyer.address || undefined,
+      };
+
+      let invoice;
+      if (activeDraftId) {
+        invoice = await billingApi.updateInvoice(activeDraftId, payload);
+      } else {
+        invoice = await billingApi.createInvoice(payload);
+        setActiveDraftId(invoice.id);
+        const url = new URL(window.location.href);
+        url.searchParams.set("draftId", invoice.id);
+        window.history.replaceState(null, "", url.toString());
+      }
+      toast.success("Borrador guardado correctamente.");
+    } catch (err: any) {
+      toast.error("Error al guardar borrador: " + (err.message || "Error desconocido"));
+    }
+  };
 
   // ── Pending state ──
   if (view.type === "pending") {
@@ -648,6 +801,16 @@ export default function QuickBillingPage() {
             )}
           </Button>
 
+          <Button
+            variant="outline"
+            className="w-full h-10 text-xs gap-1.5 mt-2"
+            disabled={cart.length === 0}
+            onClick={handleSaveDraft}
+          >
+            <Save className="size-3.5" />
+            Guardar Borrador
+          </Button>
+
           {isElectronic && totals.total >= 250_000 && (
             <p className="text-xs text-amber-600 flex items-center gap-1">
               <Calculator className="size-3" />
@@ -797,6 +960,19 @@ export default function QuickBillingPage() {
                       : "Emitir comprobante físico"}
                 </>
               )}
+            </Button>
+
+            <Button
+              variant="outline"
+              className="w-full h-10 text-xs gap-1.5 mt-2"
+              disabled={cart.length === 0}
+              onClick={() => {
+                handleSaveDraft();
+                setSidebarOpen(false);
+              }}
+            >
+              <Save className="size-3.5" />
+              Guardar Borrador
             </Button>
 
             {isElectronic && totals.total >= 250_000 && (

@@ -37,11 +37,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
 
 const STATUS_MAP: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
   pending: { label: "Pendiente", variant: "secondary" },
   verified: { label: "Verificado", variant: "default" },
   rejected: { label: "Rechazado", variant: "destructive" },
+  revoked: { label: "Revocado", variant: "destructive" },
 };
 
 function formatDate(dateStr: string | null) {
@@ -88,16 +90,36 @@ export function AdminPaymentProofsPage() {
       )
     : proofs;
 
-  const handleVerify = async (action: "verified" | "rejected") => {
+  const handleVerify = async (action: "verified" | "rejected" | "revoked") => {
     if (!selectedProof) return;
     setActionLoading(true);
     try {
       await adminPaymentProofsApi.verify(selectedProof.id, action, adminNotes);
+
+      if (action === "verified") {
+        toast.success("Pago verificado", {
+          description: "Se ha enviado un correo de confirmación al usuario.",
+        });
+      } else if (action === "rejected") {
+        toast.error("Pago rechazado", {
+          description: adminNotes
+            ? `Motivo: ${adminNotes}`
+            : "Se ha notificado al usuario.",
+        });
+      } else if (action === "revoked") {
+        toast.error("Pago revocado", {
+          description: "Se ha revertido el plan y notificado al usuario.",
+        });
+      }
+
       setSelectedProof(null);
       setAdminNotes("");
       load(statusFilter);
     } catch (e) {
       console.error("Error updating proof", e);
+      toast.error("Error al procesar", {
+        description: "No se pudo actualizar el comprobante.",
+      });
     } finally {
       setActionLoading(false);
     }
@@ -181,11 +203,18 @@ export function AdminPaymentProofsPage() {
                     )}
                   </TableCell>
                   <TableCell>{proof.plan_name}</TableCell>
-                  <TableCell>
-                    {proof.amount.toLocaleString("es-DO", {
-                      style: "currency",
-                      currency: proof.currency || "DOP",
-                    })}
+                  <TableCell className="tabular-nums">
+                    <div>
+                      {proof.amount.toLocaleString("es-DO", {
+                        style: "currency",
+                        currency: proof.currency || "DOP",
+                      })}
+                    </div>
+                    {proof.usd_amount && (
+                      <div className="text-[10px] text-muted-foreground">
+                        (${proof.usd_amount.toFixed(2)} USD @ {proof.exchange_rate?.toFixed(4)})
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Badge variant={STATUS_MAP[proof.status]?.variant || "outline"}>
@@ -241,19 +270,40 @@ export function AdminPaymentProofsPage() {
                   <p className="font-medium">{selectedProof.plan_name}</p>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">Monto:</span>
-                  <p className="font-medium">
+                  <span className="text-muted-foreground">Monto Transferido (DOP):</span>
+                  <p className="font-medium tabular-nums">
                     {selectedProof.amount.toLocaleString("es-DO", {
                       style: "currency",
                       currency: selectedProof.currency || "DOP",
                     })}
                   </p>
                 </div>
+                {selectedProof.usd_amount && selectedProof.exchange_rate && (
+                  <>
+                    <div>
+                      <span className="text-muted-foreground">Monto Original (USD):</span>
+                      <p className="font-medium tabular-nums">
+                        {selectedProof.usd_amount.toLocaleString("en-US", {
+                          style: "currency",
+                          currency: "USD",
+                        })}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Tasa de Cambio (BPD):</span>
+                      <p className="font-medium tabular-nums">
+                        {selectedProof.exchange_rate.toFixed(4)}
+                      </p>
+                    </div>
+                  </>
+                )}
                 <div>
                   <span className="text-muted-foreground">Estado:</span>
-                  <Badge variant={STATUS_MAP[selectedProof.status]?.variant || "outline"}>
-                    {STATUS_MAP[selectedProof.status]?.label || selectedProof.status}
-                  </Badge>
+                  <div className="mt-0.5">
+                    <Badge variant={STATUS_MAP[selectedProof.status]?.variant || "outline"}>
+                      {STATUS_MAP[selectedProof.status]?.label || selectedProof.status}
+                    </Badge>
+                  </div>
                 </div>
               </div>
 
@@ -390,6 +440,20 @@ export function AdminPaymentProofsPage() {
                   Verificar
                 </Button>
               </>
+            )}
+            {selectedProof?.status === "verified" && (
+              <Button
+                variant="destructive"
+                onClick={() => handleVerify("revoked")}
+                disabled={actionLoading}
+              >
+                {actionLoading ? (
+                  <Loader2 className="size-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <XCircle className="size-3.5 mr-1.5" />
+                )}
+                Revocar / Reembolsar
+              </Button>
             )}
           </DialogFooter>
         </DialogContent>
