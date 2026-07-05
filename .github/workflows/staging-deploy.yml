@@ -66,8 +66,8 @@ jobs:
       - name: Deploy (preview only)
         id: deploy
         run: |
-          url=$(npx vercel deploy --prebuilt --stdout)
-          echo "url=$url" >> $GITHUB_OUTPUT
+          url=$(npx vercel deploy --prebuilt 2>&1 | tail -1)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: team_EFfddjRHIl9rcFwJJP105uZ8
