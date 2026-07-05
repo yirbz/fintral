@@ -62,6 +62,28 @@ def init_database() -> None:
         script = ScriptDirectory.from_config(alembic_cfg)
         head_rev = script.get_current_head()
         logger.info("alembic_version=%s head=%s match=%s", row, head_rev, row == head_rev)
+
+        # Verify alembic version actually matches reality — if a known
+        # column (users.deleted_at) is missing despite being at head,
+        # the previous run likely stamped head without applying all
+        # migrations (e.g. due to rollback). Reset and re-run.
+        if row == head_rev and head_rev != script.get_base():
+            with engine.connect() as conn:
+                col_check = conn.execute(text(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_name='users' AND column_name='deleted_at'"
+                )).scalar()
+            if not col_check:
+                base_rev = script.get_base()
+                logger.warning(
+                    "alembic_version=%s but users.deleted_at is missing — "
+                    "schema is stale. Resetting to base (%s).", row, base_rev,
+                )
+                with engine.connect() as conn:
+                    conn.execute(text("UPDATE alembic_version SET version_num = :base"), {"base": base_rev})
+                    conn.commit()
+                row = base_rev
+
         if row == head_rev:
             logger.info("Already at head revision — skipping alembic upgrade")
             return

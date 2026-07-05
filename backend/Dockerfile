@@ -49,7 +49,7 @@ USER appuser
 EXPOSE ${BACKEND_PORT}
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=15s --retries=2 \
-    CMD python -c "import urllib.request, os; urllib.request.urlopen('http://localhost:' + os.environ.get('PORT', os.environ.get('BACKEND_PORT', '8000')) + '/', timeout=5)" || exit 1
+    CMD python -c "import urllib.request, os; urllib.request.urlopen('http://localhost:' + os.environ.get('PORT', os.environ.get('BACKEND_PORT', '8000')) + '/health', timeout=5)" || exit 1
 
 ENTRYPOINT ["tini", "--"]
 CMD sh -c 'exec gunicorn main:app \
