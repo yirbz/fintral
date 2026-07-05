@@ -72,6 +72,14 @@ jobs:
           VERCEL_ORG_ID: team_EFfddjRHIl9rcFwJJP105uZ8
           VERCEL_PROJECT_ID: prj_YxDVjxE1yDXMh7O3LKCEoDAxghEf
 
+      - name: Alias to stg.fintral.app (push only)
+        if: github.event_name == 'push'
+        run: npx vercel alias set "${{ steps.deploy.outputs.url }}" stg.fintral.app
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: team_EFfddjRHIl9rcFwJJP105uZ8
+          VERCEL_PROJECT_ID: prj_YxDVjxE1yDXMh7O3LKCEoDAxghEf
+
   backend:
     name: ${{ (github.event_name == 'push' && 'Deploy' || 'Preview') }} backend → Railway
     runs-on: ubuntu-latest
