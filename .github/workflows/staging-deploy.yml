@@ -65,7 +65,7 @@ jobs:
       - name: Deploy (preview only)
         id: deploy
         run: |
-          url=$(npx vercel deploy --prebuilt 2>&1 | tail -1 | xargs)
+          url=$(npx vercel deploy --prebuilt 2>&1 | grep -oE 'https://[a-zA-Z0-9.-]+\.vercel\.app' | head -1)
           echo "url=$url" >> "$GITHUB_OUTPUT"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
