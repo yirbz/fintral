@@ -65,11 +65,11 @@ jobs:
       - name: Deploy and alias to stg.fintral.app
         id: deploy
         run: |
-          json=$(npx vercel deploy --prebuilt --json 2>&1)
-          url=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['url'])")
+          npx vercel deploy --prebuilt 2>/tmp/vercel_stderr | tee /tmp/vercel_stdout || true
+          url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.vercel\.app' /tmp/vercel_stdout /tmp/vercel_stderr 2>/dev/null | head -1 || true)
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Deployed at: $url"
-          if [ '${{ github.event_name }}' = 'push' ]; then
+          if [ '${{ github.event_name }}' = 'push' ] && [ -n "$url" ]; then
             npx vercel alias set "$url" stg.fintral.app
           fi
         env:
