@@ -18,65 +18,6 @@ env:
   RAILWAY_SERVICE: 398877f8-5452-4c4c-833a-cd53aaeb66a7
 
 jobs:
-  frontend:
-    name: Frontend → Vercel (preview)
-    runs-on: ubuntu-latest
-    outputs:
-      url: ${{ steps.deploy.outputs.url }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.29.3
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: "pnpm"
-          cache-dependency-path: frontend/pnpm-lock.yaml
-
-      - uses: dopplerhq/secrets-fetch-action@v1.3.1
-        id: doppler
-        with:
-          doppler-token: ${{ secrets.DOPPLER_TOKEN_STG }}
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-        working-directory: frontend
-
-      - name: Pull Vercel Project Info
-        run: npx vercel pull --yes --environment=preview
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: team_EFfddjRHIl9rcFwJJP105uZ8
-          VERCEL_PROJECT_ID: prj_YxDVjxE1yDXMh7O3LKCEoDAxghEf
-
-      - name: Build
-        run: npx vercel build
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: team_EFfddjRHIl9rcFwJJP105uZ8
-          VERCEL_PROJECT_ID: prj_YxDVjxE1yDXMh7O3LKCEoDAxghEf
-          NEXT_PUBLIC_ENVIRONMENT: STAGING
-          NEXT_PUBLIC_APP_URL: ${{ steps.doppler.outputs.NEXT_PUBLIC_APP_URL }}
-          BACKEND_URL: ${{ steps.doppler.outputs.BACKEND_URL }}
-
-      - name: Deploy and alias to stg.fintral.app
-        id: deploy
-        run: |
-          npx vercel deploy --prebuilt 2>/tmp/vercel_stderr | tee /tmp/vercel_stdout || true
-          url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.vercel\.app' /tmp/vercel_stdout /tmp/vercel_stderr 2>/dev/null | head -1 || true)
-          echo "url=$url" >> "$GITHUB_OUTPUT"
-          echo "Deployed at: $url"
-          if [ '${{ github.event_name }}' = 'push' ] && [ -n "$url" ]; then
-            npx vercel alias set "$url" stg.fintral.app
-          fi
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: team_EFfddjRHIl9rcFwJJP105uZ8
-          VERCEL_PROJECT_ID: prj_YxDVjxE1yDXMh7O3LKCEoDAxghEf
-
   backend:
     name: ${{ (github.event_name == 'push' && 'Deploy' || 'Preview') }} backend → Railway
     runs-on: ubuntu-latest
@@ -95,7 +36,7 @@ jobs:
 
   comment:
     name: ${{ (github.event_name == 'push' && 'Notify commit' || 'Comment PR') }}
-    needs: [frontend, backend]
+    needs: [backend]
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -105,7 +46,6 @@ jobs:
         with:
           script: |
             const isMerge = '${{ github.event_name }}' === 'push';
-            const frontendUrl = '${{ needs.frontend.outputs.url }}';
             const deployStatus = '${{ needs.backend.result }}';
 
             if (isMerge) {
@@ -113,13 +53,13 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 commit_sha: context.sha,
-                body: `## ✅ Staging actualizado\n\nMerge a \`staging\` completado.\n\n| Servicio | URL |\n|----------|-----|\n| Frontend | ${frontendUrl || 'stg.fintral.app'} |\n| Backend  | stg-api.fintral.app |\n\n> Railway desplegó la última versión de \`staging\`.`
+                body: `## ✅ Staging actualizado\n\nMerge a \`staging\` completado.\n\n| Servicio | URL |\n|----------|-----|\n| Frontend | stg.fintral.app |\n| Backend  | stg-api.fintral.app |\n\n> Railway desplegó la última versión de \`staging\`.`
               });
             } else {
               await github.rest.issues.createComment({
                 issue_number: context.issue.number,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                body: `## 🚀 Preview lista — PR #${{ github.event.number }}\n\n| Servicio | URL | Estado |\n|----------|-----|--------|\n| Frontend | ${frontendUrl || 'stg.fintral.app'} | ✅ Deployed |\n| Backend  | stg-api.fintral.app (Railway \`staging\`) | ${deployStatus === 'success' ? '✅ Deploy triggered' : '❌ Failed'} |\n\nMergea esta PR a \`staging\` para promover los cambios a estable.`
+                body: `## 🚀 Preview lista — PR #${{ github.event.number }}\n\n| Servicio | URL | Estado |\n|----------|-----|--------|\n| Frontend | stg.fintral.app (Vercel auto) | ✅ Auto-deployed |\n| Backend  | stg-api.fintral.app (Railway \`staging\`) | ${deployStatus === 'success' ? '✅ Deploy triggered' : '❌ Failed'} |\n\nMergea esta PR a \`staging\` para promover los cambios a estable.`
               });
             }
