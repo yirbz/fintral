@@ -88,8 +88,13 @@ def init_database() -> None:
             command.upgrade(alembic_cfg, "head")
             logger.info("Alembic migrations applied (%.2fs)", time.time() - t1)
         except Exception as e:
-            logger.error("Alembic upgrade failed (%s) after %.2fs: %s", type(e).__name__, time.time() - t1, e)
-            raise
+            if "already exists" in str(e):
+                logger.warning("Migration failed because table already exists — stamping head revision")
+                command.stamp(alembic_cfg, "head")
+                logger.info("Stamped head after migration conflict (%.2fs)", time.time() - t1)
+            else:
+                logger.error("Alembic upgrade failed (%s) after %.2fs: %s", type(e).__name__, time.time() - t1, e)
+                raise
         return
 
     if has_data_tables:
