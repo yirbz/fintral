@@ -24,10 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       url: ${{ steps.deploy.outputs.url }}
-    defaults:
-      run:
-        working-directory: frontend
-
     steps:
       - uses: actions/checkout@v4
 
@@ -48,16 +44,17 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+        working-directory: frontend
 
       - name: Pull Vercel Project Info
-        run: npx vercel pull --yes --environment=preview
+        run: npx vercel pull --cwd frontend --yes --environment=preview
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: team_EFfddjRHIl9rcFwJJP105uZ8
           VERCEL_PROJECT_ID: prj_YxDVjxE1yDXMh7O3LKCEoDAxghEf
 
       - name: Build
-        run: npx vercel build
+        run: npx vercel build --cwd frontend
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: team_EFfddjRHIl9rcFwJJP105uZ8
@@ -69,7 +66,7 @@ jobs:
       - name: Deploy (preview only)
         id: deploy
         run: |
-          url=$(npx vercel deploy --prebuilt --stdout)
+          url=$(npx vercel deploy --cwd frontend --prebuilt --stdout)
           echo "url=$url" >> $GITHUB_OUTPUT
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
