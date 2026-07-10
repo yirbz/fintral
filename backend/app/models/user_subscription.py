@@ -49,3 +49,79 @@ class UserSubscription(Base):
 
     user = relationship("User", backref="user_subscriptions", lazy="select")
     plan = relationship("SubscriptionPlan", lazy="select")
+
+    # Compatibility properties for org-level subscription interface
+    @property
+    def auto_renew_addons(self) -> bool:
+        return False
+
+    @property
+    def addon_ecf_blocks(self) -> int:
+        return 0
+
+    @property
+    def addon_ai_blocks(self) -> int:
+        return 0
+
+    @property
+    def addon_storage_blocks(self) -> int:
+        return 0
+
+    @property
+    def addon_ocr_blocks(self) -> int:
+        return 0
+
+    @property
+    def addon_user_slots(self) -> int:
+        return 0
+
+    def effective_limits(self) -> dict:
+        """Return the actual limits combining plan base + addons."""
+        if not self.plan:
+            return {}
+
+        plan = self.plan
+        return {
+            "max_users": plan.max_users,
+            "max_entities": plan.max_entities + (self.addon_entity_slots or 0),
+            "max_products": plan.max_products,
+            "max_ecf_monthly": plan.max_ecf_monthly,
+            "max_ai_queries_monthly": plan.max_ai_queries_monthly,
+            "max_ocr_docs_monthly": plan.max_ocr_docs_monthly,
+            "max_storage_mb": plan.max_storage_mb,
+            "max_api_calls_monthly": plan.max_api_calls_monthly,
+            "max_ai_rate_per_minute": plan.max_ai_rate_per_minute,
+            "max_api_rate_per_minute": plan.max_api_rate_per_minute,
+            "max_ocr_rate_per_minute": plan.max_ocr_rate_per_minute,
+        }
+
+    def to_dict(self) -> dict:
+        limits = self.effective_limits()
+        return {
+            "id": str(self.id),
+            "user_id": str(self.user_id),
+            "plan_id": str(self.plan_id),
+            "plan_name": self.plan.display_name if self.plan else None,
+            "status": self.status,
+            "lago_subscription_id": self.lago_subscription_id,
+            "lago_customer_id": self.lago_customer_id,
+            "lago_plan_code": self.lago_plan_code,
+            "payment_method": self.payment_method,
+            "billing_cycle_start": self.billing_cycle_start.isoformat() if self.billing_cycle_start else None,
+            "billing_cycle_end": self.billing_cycle_end.isoformat() if self.billing_cycle_end else None,
+            "trial_ends_at": self.trial_ends_at.isoformat() if self.trial_ends_at else None,
+            "canceled_at": self.canceled_at.isoformat() if self.canceled_at else None,
+            "addons": {
+                "ecf_blocks": 0,
+                "ai_blocks": 0,
+                "storage_blocks": 0,
+                "extra_entities": 0,
+                "billing_entities": 0,
+                "entity_slots": self.addon_entity_slots,
+                "user_slots": 0,
+                "ocr_blocks": 0,
+            },
+            "auto_renew_addons": self.auto_renew_addons,
+            "limits": limits,
+            "is_trialing": self.status == "trialing",
+        }

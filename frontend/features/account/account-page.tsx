@@ -229,7 +229,7 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
 
   // Queries
   const { usage, isLoading: isSubLoading } = useSubscription();
-  const { subscription: userSub, plan: userPlan, isLoading: isUserSubLoading } = useUserSubscription();
+  const { subscription: userSub, plan: userPlan, isLoading: isUserSubLoading, isTrialing } = useUserSubscription();
   const { data: proofs, isLoading: isProofsLoading } = useQuery<PaymentProof[]>({
     queryKey: ["payment-proofs-my", orgId],
     queryFn: getPaymentProofs,
@@ -434,12 +434,20 @@ export function AccountPage({ initialTab }: { initialTab: "plan" | "payments" | 
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <h3 className="text-lg font-medium text-brand-ink dark:text-white">
-                          Uso del período de cobro
+                          {isTrialing ? "Uso del período de prueba" : "Uso del período de cobro"}
                         </h3>
-                        {userSub.billing_cycle_end && (
-                          <span className="text-xs text-brand-ink-mute dark:text-slate-400">
-                            Se reinicia el {formatDate(userSub.billing_cycle_end)}
-                          </span>
+                        {isTrialing ? (
+                          userSub.trial_ends_at && (
+                            <span className="text-xs text-sky-600 dark:text-sky-400 font-medium">
+                              Finaliza el {formatDate(userSub.trial_ends_at)}
+                            </span>
+                          )
+                        ) : (
+                          userSub.billing_cycle_end && (
+                            <span className="text-xs text-brand-ink-mute dark:text-slate-400">
+                              Se reinicia el {formatDate(userSub.billing_cycle_end)}
+                            </span>
+                          )
                         )}
                       </div>
                       <UsageMeters usage={usage} />
