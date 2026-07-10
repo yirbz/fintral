@@ -13,6 +13,7 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Optional
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -613,9 +614,9 @@ class PlanService:
             # Also search user's other orgs for active or expired subs
             if not plan and user_id:
                 user_org_ids = (
-                    self.db.query(UserOrganization.organization_id)
-                    .filter(UserOrganization.user_id == user_id)
-                    .subquery()
+                    select(UserOrganization.organization_id)
+                    .where(UserOrganization.user_id == user_id)
+                    .scalar_subquery()
                 )
                 for status_group in [["active", "trialing"], ["canceled"]]:
                     for status_filter in [
