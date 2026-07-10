@@ -34,6 +34,7 @@ export function SubscriptionBadge({
 
   switch (normalizedStatus) {
     case "trial":
+    case "trialing":
       label = "Plan de prueba";
       bgClass = "bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400 border border-sky-100 dark:border-sky-900/40";
       dotClass = "bg-sky-500 animate-pulse";
@@ -64,6 +65,7 @@ export function SubscriptionBadge({
       break;
 
     case "cancelled":
+    case "canceled":
       label = "Plan inactivo";
       bgClass = "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700/60";
       dotClass = "bg-slate-400";
