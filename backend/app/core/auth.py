@@ -90,7 +90,8 @@ def verify_supabase_token(token: str) -> dict | None:
             break
 
     if not signing_key:
-        logger.warning("No matching JWK found for kid: %s", kid)
+        if kid:  # Log only if a kid was present (unexpected mismatch)
+            logger.warning("No matching JWK found for kid: %s", kid)
         return None
 
     try:
