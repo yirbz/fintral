@@ -561,3 +561,46 @@ def test_cancel_addon_user_level(db_session, plans, fresh_org):
     # Error: quantity greater than active
     with pytest.raises(ValueError, match="No puedes cancelar 4"):
         svc.cancel_addon(fresh_org.id, "entity_slot", quantity=4, user_id=user_id)
+
+
+def test_fallback_to_user_subscription(db_session, plans, fresh_org):
+    from app.models.user_organization import UserOrganization
+    from app.models.user_subscription import UserSubscription
+    from app.models.user import User
+    import uuid
+
+    # Create a user
+    user = User(
+        id=uuid.uuid4(),
+        tenant_id=fresh_org.tenant_id,
+        email="testfallback@fintral.com",
+        hashed_password="...",
+        full_name="Fallback Test User",
+    )
+    db_session.add(user)
+    db_session.flush()
+
+    # Link user to fresh_org as owner
+    user_org = UserOrganization(
+        user_id=user.id,
+        organization_id=fresh_org.id,
+        role="owner",
+    )
+    db_session.add(user_org)
+
+    # Create UserSubscription
+    user_sub = UserSubscription(
+        user_id=user.id,
+        plan_id=plans["inicial"].id,
+        status="trialing",
+    )
+    db_session.add(user_sub)
+    db_session.commit()
+
+    svc = PlanService(db_session)
+    sub, plan = svc.get_plan_for_org(fresh_org.id)
+
+    assert sub is not None
+    assert plan is not None
+    assert sub.id == user_sub.id
+    assert plan.name == "inicial"

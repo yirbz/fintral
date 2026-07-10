@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useUserSubscription } from "@/hooks/use-user-subscription";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,7 +22,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 export function SubscriptionCard() {
-  const { subscription: userSub, plan: userPlan, isLoading, refetch: refetchUserSub } = useUserSubscription();
+  const { subscription: userSub, plan: userPlan, isLoading, refetch: refetchUserSub, isTrialing } = useUserSubscription();
   const [isTogglingAutoRenew, setIsTogglingAutoRenew] = useState(false);
   const [isCanceling, setIsCanceling] = useState(false);
 
@@ -102,7 +103,13 @@ export function SubscriptionCard() {
               Plan Actual
             </span>
             <h3 className="text-2xl font-light text-brand-ink dark:text-white">
-              {userPlan.display_name}
+              {isTrialing ? (
+                <>
+                  {userPlan.display_name} <span className="text-base font-normal text-sky-600 dark:text-sky-400">(Prueba Gratuita)</span>
+                </>
+              ) : (
+                userPlan.display_name
+              )}
             </h3>
           </div>
           <div>
@@ -114,13 +121,31 @@ export function SubscriptionCard() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2 border-t border-brand-hairline dark:border-slate-800/60">
           <div>
             <span className="text-xs text-brand-ink-mute dark:text-slate-400 block mb-1">
-              Precio del plan
+              {isTrialing ? "Costo de la prueba" : "Precio del plan"}
             </span>
-            <PriceDisplay
-              amountDop={userPlan.price_monthly}
-              period="mes"
-              size="lg"
-            />
+            {isTrialing ? (
+              <div className="space-y-1">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-3xl font-light text-emerald-600 dark:text-emerald-400">Gratis</span>
+                  <span className="text-xs text-brand-ink-mute dark:text-slate-400">sin costo</span>
+                </div>
+                <div className="text-xs text-brand-ink-mute dark:text-slate-400 flex items-center gap-1 mt-1">
+                  <span>Luego de la prueba:</span>
+                  <PriceDisplay
+                    amountDop={userPlan.price_monthly}
+                    period="mes"
+                    size="sm"
+                    className="font-medium text-brand-ink-secondary dark:text-slate-350"
+                  />
+                </div>
+              </div>
+            ) : (
+              <PriceDisplay
+                amountDop={userPlan.price_monthly}
+                period="mes"
+                size="lg"
+              />
+            )}
           </div>
 
           <div className="space-y-4">
@@ -131,10 +156,13 @@ export function SubscriptionCard() {
               </div>
               <div>
                 <span className="text-xs text-brand-ink-mute dark:text-slate-400 block leading-none mb-1">
-                  Próximo cobro
+                  {isTrialing ? "Fin de la prueba" : "Próximo cobro"}
                 </span>
-                <span className="text-sm font-medium text-brand-ink-secondary dark:text-slate-200">
-                  {formatDate(nextBillingDate)}
+                <span className={cn(
+                  "text-sm font-medium",
+                  isTrialing ? "text-sky-600 dark:text-sky-400 font-semibold" : "text-brand-ink-secondary dark:text-slate-200"
+                )}>
+                  {formatDate(isTrialing ? userSub.trial_ends_at : nextBillingDate)}
                 </span>
               </div>
             </div>
@@ -149,9 +177,13 @@ export function SubscriptionCard() {
                   Método de pago
                 </span>
                 <span className="text-sm font-medium text-brand-ink-secondary dark:text-slate-200">
-                  {userSub?.payment_method === "card"
-                    ? `Tarjeta ${userSub.card_info?.brand || "Visa"} •••• ${userSub.card_info?.last4 || "4242"}`
-                    : "Transferencia bancaria (Manual)"}
+                  {isTrialing ? (
+                    "No requerido durante la prueba"
+                  ) : userSub?.payment_method === "card" ? (
+                    `Tarjeta ${userSub.card_info?.brand || "Visa"} •••• ${userSub.card_info?.last4 || "4242"}`
+                  ) : (
+                    "Transferencia bancaria (Manual)"
+                  )}
                 </span>
               </div>
             </div>
@@ -159,7 +191,7 @@ export function SubscriptionCard() {
         </div>
 
         {/* Recurring Billing Toggle */}
-        {userSub && userSub.status !== "canceled" && (
+        {userSub && userSub.status !== "canceled" && !isTrialing && (
           <div className="flex items-center justify-between p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800/80">
             <div className="space-y-1 pr-4">
               <h4 className="text-sm font-medium text-brand-ink dark:text-slate-200">
@@ -215,20 +247,31 @@ export function SubscriptionCard() {
           >
             <Link href="/dashboard/tienda">
               <ArrowRightLeft className="size-4 mr-2" />
-              <span>Cambiar plan</span>
+              <span>{isTrialing ? "Ver planes" : "Cambiar plan"}</span>
             </Link>
           </Button>
 
-          <Button
-            asChild
-            className="w-full sm:w-auto h-11 py-3 px-7 min-w-[120px] rounded-xl text-sm font-semibold bg-brand-primary text-white hover:bg-brand-primary-deep active:scale-[0.98] transition-all duration-100"
-          >
-            <Link href="/dashboard/cuenta/estado">
-              <span>Pagar estado de cuenta</span>
-            </Link>
-          </Button>
+          {isTrialing ? (
+            <Button
+              asChild
+              className="w-full sm:w-auto h-11 py-3 px-7 min-w-[120px] rounded-xl text-sm font-semibold bg-brand-primary text-white hover:bg-brand-primary-deep active:scale-[0.98] transition-all duration-100"
+            >
+              <Link href="/dashboard/tienda">
+                <span>Activar plan de pago</span>
+              </Link>
+            </Button>
+          ) : (
+            <Button
+              asChild
+              className="w-full sm:w-auto h-11 py-3 px-7 min-w-[120px] rounded-xl text-sm font-semibold bg-brand-primary text-white hover:bg-brand-primary-deep active:scale-[0.98] transition-all duration-100"
+            >
+              <Link href="/dashboard/cuenta/estado">
+                <span>Pagar estado de cuenta</span>
+              </Link>
+            </Button>
+          )}
 
-          {userSub && userSub.status !== "canceled" && (
+          {userSub && userSub.status !== "canceled" && !isTrialing && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button

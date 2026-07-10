@@ -105,6 +105,35 @@ class PlanService:
         if sub:
             return sub, sub.plan
 
+        # Fallback to UserSubscription of the owner/members of the organization
+        from app.models.user_organization import UserOrganization
+        from app.models.user_subscription import UserSubscription
+
+        user_org = (
+            self.db.query(UserOrganization)
+            .filter(UserOrganization.organization_id == org_id, UserOrganization.role == "owner")
+            .first()
+        )
+        if not user_org:
+            user_org = (
+                self.db.query(UserOrganization)
+                .filter(UserOrganization.organization_id == org_id)
+                .first()
+            )
+
+        if user_org:
+            user_sub = (
+                self.db.query(UserSubscription)
+                .filter(
+                    UserSubscription.user_id == user_org.user_id,
+                    UserSubscription.status.in_(["active", "trialing"]),
+                )
+                .order_by(UserSubscription.created_at.desc())
+                .first()
+            )
+            if user_sub:
+                return user_sub, user_sub.plan
+
         return None, None
 
     def effective_limits(self, org_id) -> dict:
