@@ -663,6 +663,10 @@ class PlanService:
             )
             user_plan = user_sub.plan if user_sub else None
 
+        # Fall back to user-level subscription (Hub plan) when no org-level sub exists
+        if not plan and user_plan:
+            plan = user_plan
+
         if not plan:
             return {"error": "No active plan"}
 
@@ -807,10 +811,11 @@ class PlanService:
         # ── Grace period detection ──
         # If the current date is past the billing_cycle_end, the user is in
         # the grace period and owes the base plan + active addons for the new cycle.
-        if sub and sub.billing_cycle_end and plan:
+        billing_sub = sub or user_sub
+        if billing_sub and billing_sub.billing_cycle_end and plan:
             from app.utils.dates import utc_now
             now = utc_now()
-            if now > sub.billing_cycle_end:
+            if now > billing_sub.billing_cycle_end:
                 in_grace_period = True
 
                 # Reconcile persisted charges against current subscription state
