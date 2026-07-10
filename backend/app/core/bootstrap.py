@@ -17,6 +17,35 @@ from app.services.seed_plans import seed_plans
 logger = setup_logging()
 
 
+def _detect_schema_drift(inspector, engine) -> list[str]:
+    """Compare ALL ORM model columns against the database schema.
+
+    Returns a list of "table.column" strings for any column that exists
+    in the ORM model but is missing from the actual database.  An empty
+    list means the schema is up-to-date.
+    """
+    from app.database import Base
+
+    missing: list[str] = []
+
+    # Collect every (table_name, column_name) declared in the ORM
+    orm_columns: dict[str, set[str]] = {}
+    for table in Base.metadata.sorted_tables:
+        orm_columns[table.name] = {col.name for col in table.columns}
+
+    # Compare against the real database
+    for table_name, expected_cols in orm_columns.items():
+        try:
+            db_cols = {col["name"] for col in inspector.get_columns(table_name)}
+        except Exception:
+            # Table doesn't exist yet — that's fine, migrations will create it
+            continue
+        for col_name in sorted(expected_cols - db_cols):
+            missing.append(f"{table_name}.{col_name}")
+
+    return missing
+
+
 def init_database() -> None:
     import time
 
@@ -63,32 +92,17 @@ def init_database() -> None:
         head_rev = script.get_current_head()
         logger.info("alembic_version=%s head=%s match=%s", row, head_rev, row == head_rev)
 
-        # Verify alembic version actually matches reality — if a column
-        # from a mid-chain migration is missing despite being at head,
-        # the previous run likely stamped head after one step failed and
-        # the whole transaction was rolled back. Reset and re-run.
+        # Verify alembic version actually matches reality — compare ALL
+        # ORM model columns against the database. If any column is missing,
+        # the previous migration likely failed silently. Reset and re-run.
         if row == head_rev and head_rev != script.get_base():
-            with engine.connect() as conn:
-                has_deleted_at = conn.execute(text(
-                    "SELECT 1 FROM information_schema.columns "
-                    "WHERE table_name='users' AND column_name='deleted_at'"
-                )).scalar()
-                has_ecf_balance = conn.execute(text(
-                    "SELECT 1 FROM information_schema.columns "
-                    "WHERE table_name='organizations' AND column_name='e_cf_balance'"
-                )).scalar()
-                has_ledger_currency = conn.execute(text(
-                    "SELECT 1 FROM information_schema.columns "
-                    "WHERE table_name='ledger_entries' AND column_name='currency'"
-                )).scalar()
-            if not (has_deleted_at and has_ecf_balance and has_ledger_currency):
+            drift = _detect_schema_drift(inspector, engine)
+            if drift:
                 base_rev = script.get_base()
                 logger.warning(
-                    "alembic_version=%s but schema columns are missing "
-                    "(deleted_at=%s e_cf_balance=%s ledger_currency=%s) — "
-                    "resetting to base (%s).",
-                    row, bool(has_deleted_at), bool(has_ecf_balance), bool(has_ledger_currency),
-                    base_rev,
+                    "alembic_version=%s but schema drift detected — "
+                    "missing %d column(s): %s. Resetting to base (%s).",
+                    row, len(drift), drift, base_rev,
                 )
                 with engine.connect() as conn:
                     conn.execute(text("UPDATE alembic_version SET version_num = :base"), {"base": base_rev})
@@ -178,6 +192,18 @@ def init_database() -> None:
                 "Skipped %d non-idempotent migration(s): %s",
                 len(skipped_revs), ", ".join(skipped_revs),
             )
+
+        # Verify schema is now correct after migrations
+        post_drift = _detect_schema_drift(inspector, engine)
+        if post_drift:
+            logger.error(
+                "Schema still has drift after migrations: %s — "
+                "manual intervention required.",
+                post_drift,
+            )
+            raise RuntimeError(f"Schema drift persists after migrations: {post_drift}")
+        else:
+            logger.info("Schema verified — all ORM columns present in database")
 
         logger.info("Alembic migrations applied (%.2fs)", time.time() - t1)
         return
