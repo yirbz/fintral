@@ -63,13 +63,17 @@ const nextConfig = {
       { source: "/auth/google", destination: `${backend}/auth/google` },
       { source: "/upload", destination: `${backend}/upload` },
       { source: "/process/:path*", destination: `${backend}/process/:path*` },
+      { source: "/invoices", destination: `${backend}/invoices` },
       { source: "/invoices/:path*", destination: `${backend}/invoices/:path*` },
       { source: "/invoice/:path*", destination: `${backend}/invoice/:path*` },
       { source: "/statistics", destination: `${backend}/statistics` },
       { source: "/categories", destination: `${backend}/categories` },
       { source: "/export/:path*", destination: `${backend}/export/:path*` },
+      { source: "/evolution", destination: `${backend}/evolution` },
       { source: "/evolution/:path*", destination: `${backend}/evolution/:path*` },
+      { source: "/websocket", destination: `${backend}/websocket` },
       { source: "/websocket/:path*", destination: `${backend}/websocket/:path*` },
+      { source: "/pending-uploads", destination: `${backend}/pending-uploads` },
       { source: "/pending-uploads/:path*", destination: `${backend}/pending-uploads/:path*` },
       { source: "/ws", destination: `${backend}/ws` }
     ];
