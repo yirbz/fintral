@@ -135,7 +135,7 @@ class TestProvisionLocalUser:
         assert org_sub is None
 
     @patch("app.services.auth_service.get_supabase_admin")
-    def test_user_subscription_has_7_day_trial(self, mock_supabase, db_session, seeded_plan):
+    def test_user_subscription_has_15_day_trial(self, mock_supabase, db_session, seeded_plan):
         from app.services.auth_service import _provision_local_user
 
         mock_supabase.return_value = None
@@ -157,7 +157,7 @@ class TestProvisionLocalUser:
 
         assert user_sub.trial_ends_at is not None
         remaining = (user_sub.trial_ends_at - naive_now()).days
-        assert remaining == 6  # ~7 days minus fractional day
+        assert remaining == 14  # ~15 days minus fractional day
 
     @patch("app.services.auth_service.get_supabase_admin")
     def test_user_subscription_has_lago_plan_code(self, mock_supabase, db_session, seeded_plan):
