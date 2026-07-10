@@ -132,6 +132,7 @@ class PlanService:
                 .first()
             )
             if user_sub:
+                user_sub._temp_organization_id = org_id
                 return user_sub, user_sub.plan
 
         return None, None

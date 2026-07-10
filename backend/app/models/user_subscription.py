@@ -95,10 +95,19 @@ class UserSubscription(Base):
             "max_ocr_rate_per_minute": plan.max_ocr_rate_per_minute,
         }
 
+    @property
+    def organization_id(self) -> str:
+        if hasattr(self, "_temp_organization_id") and self._temp_organization_id:
+            return str(self._temp_organization_id)
+        if self.user and self.user.user_organizations:
+            return str(self.user.user_organizations[0].organization_id)
+        return ""
+
     def to_dict(self) -> dict:
         limits = self.effective_limits()
         return {
             "id": str(self.id),
+            "organization_id": self.organization_id,
             "user_id": str(self.user_id),
             "plan_id": str(self.plan_id),
             "plan_name": self.plan.display_name if self.plan else None,
