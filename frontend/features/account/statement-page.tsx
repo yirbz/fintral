@@ -13,6 +13,7 @@ import {
   setStatementPlanChange,
   getPublicPlans,
 } from "@/lib/api/plans";
+import { TrialRemainingBadge } from "@/components/trial-remaining-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -858,6 +859,8 @@ export function StatementTabContent() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
+      <TrialRemainingBadge variant="card" />
+
       {/* Cycle summary banner */}
       <div className="bg-white dark:bg-slate-900 border border-brand-hairline dark:border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-wrap gap-4 items-center justify-between">
         <div className="flex items-center gap-3">
