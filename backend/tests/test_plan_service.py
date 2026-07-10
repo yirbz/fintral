@@ -604,3 +604,4 @@ def test_fallback_to_user_subscription(db_session, plans, fresh_org):
     assert plan is not None
     assert sub.id == user_sub.id
     assert plan.name == "inicial"
+    assert sub.to_dict()["organization_id"] == str(fresh_org.id)
