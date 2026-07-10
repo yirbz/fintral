@@ -842,7 +842,7 @@ export function StatementTabContent() {
     );
   }
 
-  if (isError || !data) {
+  if (isError || !data || ('error' in data)) {
     return (
       <div className="p-5 border border-red-500/20 bg-red-500/5 text-red-500 rounded-2xl text-center text-xs">
         Ocurrió un error al obtener la información de tu estado de cuenta. Por favor, reintenta más tarde.
