@@ -216,6 +216,7 @@ async def verify_code(
 
 @router.post("/api/auth/verify-and-login")
 async def verify_code_and_login(
+    request: Request,
     body: VerifyCodeRequest,
     db: Session = Depends(get_db),
 ):
@@ -226,7 +227,8 @@ async def verify_code_and_login(
     if not token:
         raise HTTPException(status_code=400, detail="Código inválido o expirado")
 
-    response = _create_token_response(token, persist=True)
+    hostname = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+    response = _create_token_response(token, persist=True, hostname=hostname)
     return response
 
 
@@ -420,10 +422,12 @@ async def logout(
     response = RedirectResponse(url="/login")
     hostname = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
     domain = _get_cookie_domain(hostname)
-    kwargs = {"key": "access_token"}
+
+    # Delete host-only cookie first (no Domain — matches verify-and-login / OAuth flows)
+    response.delete_cookie(key="access_token", path="/")
+    # Then delete domain-scoped cookie (with Domain — matches regular login flow)
     if domain:
-        kwargs["domain"] = domain
-    response.delete_cookie(**kwargs)
+        response.delete_cookie(key="access_token", path="/", domain=domain)
     return response
 
 
@@ -604,6 +608,7 @@ async def auth_google():
 
 @router.post("/api/auth/session")
 async def create_session_from_token(
+    request: Request,
     body: dict,
     db: Session = Depends(get_db),
 ):
@@ -640,4 +645,5 @@ async def create_session_from_token(
         action="user.login", summary=f"Inicio de sesión vía OAuth/Token: {user.email}",
     )
     
-    return _create_token_response(token, persist=True)
+    hostname = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+    return _create_token_response(token, persist=True, hostname=hostname)
