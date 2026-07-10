@@ -254,7 +254,7 @@ def _provision_local_user(db: Session, email: str, full_name: str, phone: str, c
     if not trial_plan:
         trial_plan = db.query(SubscriptionPlan).first()
     if trial_plan:
-        trial_ends = utc_now() + timedelta(days=7)
+        trial_ends = utc_now() + timedelta(days=15)
         user_sub = UserSubscription(
             user_id=user.id,
             plan_id=trial_plan.id,
