@@ -957,6 +957,8 @@ async def update_invoice(
                 status_code=422,
                 detail=f"La cuenta bancaria {invoice.bank_account_id} no pertenece a esta organización o no existe.",
             )
+        from decimal import Decimal
+        current_balance = bank_acct.balance if bank_acct.balance is not None else Decimal("0.00")
         total_amount = invoice.total_amount or 0.0
         if invoice.transaction_type == "income":
             net = total_amount
@@ -972,9 +974,9 @@ async def update_invoice(
                 itbis_perc = raw_data.get("total_itbis_percepcion") or 0
                 isr_perc = raw_data.get("total_isr_percepcion") or 0
                 net = net - float(itbis_ret) - float(isr_ret) + float(itbis_perc) + float(isr_perc)
-            bank_acct.balance = (bank_acct.balance or 0.0) + net
+            bank_acct.balance = current_balance + Decimal(str(net))
         else:
-            bank_acct.balance = (bank_acct.balance or 0.0) - total_amount
+            bank_acct.balance = current_balance - Decimal(str(total_amount))
 
     invoice.updated_at = datetime.utcnow()
     ctx.db.commit()
@@ -2957,11 +2959,13 @@ async def mark_invoice_as_paid(
             .first()
         )
         if bank_acc:
-            amount = invoice.total_amount or 0.0
+            from decimal import Decimal
+            current_balance = bank_acc.balance if bank_acc.balance is not None else Decimal("0.00")
+            amount_dec = Decimal(str(invoice.total_amount or 0.0))
             if invoice.transaction_type == "expense":
-                bank_acc.balance = float(bank_acc.balance) - amount
+                bank_acc.balance = current_balance - amount_dec
             elif invoice.transaction_type == "income":
-                bank_acc.balance = float(bank_acc.balance) + amount
+                bank_acc.balance = current_balance + amount_dec
             ctx.db.add(bank_acc)
 
     ctx.db.commit()
