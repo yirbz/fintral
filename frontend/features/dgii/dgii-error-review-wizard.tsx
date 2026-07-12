@@ -7,6 +7,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Eye,
+  FileText,
   Loader2,
   Save,
   ShieldAlert,
@@ -14,6 +16,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { InvoiceImageViewer } from "@/features/upload/invoice-image-viewer";
 import {
   Dialog,
   DialogContent,
@@ -79,6 +82,7 @@ export function DgiiErrorReviewWizard({
   const [editFields, setEditFields] = useState<Record<string, string>>({});
   const [excludeReason, setExcludeReason] = useState("");
   const [actionTab, setActionTab] = useState<"fix" | "defer" | "exclude">("fix");
+  const [leftTab, setLeftTab] = useState<"details" | "file">("details");
   const [submitting, setSubmitting] = useState(false);
 
   const fetchConflicts = useCallback(async () => {
@@ -119,6 +123,7 @@ export function DgiiErrorReviewWizard({
       }
       setEditFields(initialFields);
       setExcludeReason("");
+      setLeftTab("details");
       // Choose best tab based on suggested actions
       if (activeInvoice.suggested_actions.includes("edit")) {
         setActionTab("fix");
@@ -211,7 +216,7 @@ export function DgiiErrorReviewWizard({
         if (!o) onClose(resolvedAny);
       }}
     >
-      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto bg-card/95 backdrop-blur-md border-border/80 shadow-2xl p-0">
+      <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto bg-card/95 backdrop-blur-md border-border/80 shadow-2xl p-0">
         <DialogHeader className="p-6 pb-4 border-b border-border/40 bg-muted/20">
           <div className="flex items-center justify-between">
             <div className="space-y-1">
@@ -270,78 +275,126 @@ export function DgiiErrorReviewWizard({
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2">
             {/* Left side: Invoice details & errors */}
-            <div className="p-6 border-r border-border/40 bg-muted/10 space-y-4">
-              <div className="space-y-2">
-                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  Detalles de la factura
-                </span>
-                <Card className="border-border/50 bg-background/50 backdrop-blur-xs">
-                  <CardContent className="p-4 space-y-3">
-                    <div className="space-y-0.5">
-                      <h4 className="text-xs font-semibold text-muted-foreground">Proveedor</h4>
-                      <p className="text-sm font-bold truncate">
-                        {activeInvoice.vendor_name || "Sin nombre"}
+            <div className="p-6 border-r border-border/40 bg-muted/10 flex flex-col gap-4">
+              {/* Left tabs switcher */}
+              <div className="grid grid-cols-2 gap-1 bg-muted p-1 rounded-md text-xs">
+                <button
+                  onClick={() => setLeftTab("details")}
+                  className={cn(
+                    "py-1 px-2 rounded-sm font-medium transition-all text-center flex items-center justify-center gap-1",
+                    leftTab === "details"
+                      ? "bg-background text-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <FileText className="size-3.5" />
+                  Detalles y Errores
+                </button>
+                <button
+                  onClick={() => setLeftTab("file")}
+                  className={cn(
+                    "py-1 px-2 rounded-sm font-medium transition-all text-center flex items-center justify-center gap-1",
+                    leftTab === "file"
+                      ? "bg-background text-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Eye className="size-3.5" />
+                  Ver Factura
+                </button>
+              </div>
+
+              {leftTab === "details" ? (
+                <div className="space-y-4 flex-1">
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                      Detalles de la factura
+                    </span>
+                    <Card className="border-border/50 bg-background/50 backdrop-blur-xs">
+                      <CardContent className="p-4 space-y-3">
+                        <div className="space-y-0.5">
+                          <h4 className="text-xs font-semibold text-muted-foreground">Proveedor</h4>
+                          <p className="text-sm font-bold truncate">
+                            {activeInvoice.vendor_name || "Sin nombre"}
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <h4 className="text-[10px] font-semibold text-muted-foreground">RNC / Cédula</h4>
+                            <p className="text-xs font-mono font-medium">
+                              {activeInvoice.vendor_tax_id || "—"}
+                            </p>
+                          </div>
+                          <div>
+                            <h4 className="text-[10px] font-semibold text-muted-foreground">NCF</h4>
+                            <p className="text-xs font-mono font-medium">
+                              {activeInvoice.invoice_number || "—"}
+                            </p>
+                          </div>
+                          <div>
+                            <h4 className="text-[10px] font-semibold text-muted-foreground">Fecha</h4>
+                            <p className="text-xs font-medium">
+                              {activeInvoice.invoice_date?.slice(0, 10) || "—"}
+                            </p>
+                          </div>
+                          <div>
+                            <h4 className="text-[10px] font-semibold text-muted-foreground">Monto Total</h4>
+                            <p className="text-xs font-bold text-foreground">
+                              {fmtCurrency(activeInvoice.total_amount)}
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Validation errors */}
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-semibold text-red-500 uppercase tracking-wider">
+                      Errores detectados ({activeInvoice.problems.length})
+                    </span>
+                    <div className="space-y-2">
+                      {activeInvoice.problems.map((prob, idx) => (
+                        <div
+                          key={idx}
+                          className={cn(
+                            "flex items-start gap-2.5 p-3 rounded-lg border text-xs",
+                            prob.severity === "error"
+                              ? "bg-red-500/[0.04] border-red-500/20 text-red-700 dark:text-red-400"
+                              : "bg-amber-500/[0.04] border-amber-500/20 text-amber-700 dark:text-amber-400"
+                          )}
+                        >
+                          {prob.severity === "error" ? (
+                            <XCircle className="size-4 shrink-0 mt-0.5 text-red-500" />
+                          ) : (
+                            <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-500" />
+                          )}
+                          <div>
+                            <p className="font-semibold leading-tight">{prob.message}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex-1 min-h-[350px] relative flex flex-col">
+                  {activeInvoice.file_path ? (
+                    <InvoiceImageViewer
+                      invoiceId={activeInvoice.id}
+                      filename={activeInvoice.filename || activeInvoice.file_path.split("/").pop()}
+                      className="flex-1 w-full min-h-[320px]"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center p-8 text-center border border-dashed rounded-xl flex-1 bg-background/30">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        No hay archivo adjunto para esta factura
                       </p>
                     </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <h4 className="text-[10px] font-semibold text-muted-foreground">RNC / Cédula</h4>
-                        <p className="text-xs font-mono font-medium">
-                          {activeInvoice.vendor_tax_id || "—"}
-                        </p>
-                      </div>
-                      <div>
-                        <h4 className="text-[10px] font-semibold text-muted-foreground">NCF</h4>
-                        <p className="text-xs font-mono font-medium">
-                          {activeInvoice.invoice_number || "—"}
-                        </p>
-                      </div>
-                      <div>
-                        <h4 className="text-[10px] font-semibold text-muted-foreground">Fecha</h4>
-                        <p className="text-xs font-medium">
-                          {activeInvoice.invoice_date?.slice(0, 10) || "—"}
-                        </p>
-                      </div>
-                      <div>
-                        <h4 className="text-[10px] font-semibold text-muted-foreground">Monto Total</h4>
-                        <p className="text-xs font-bold text-foreground">
-                          {fmtCurrency(activeInvoice.total_amount)}
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Validation errors */}
-              <div className="space-y-2">
-                <span className="text-[10px] font-semibold text-red-500 uppercase tracking-wider">
-                  Errores detectados ({activeInvoice.problems.length})
-                </span>
-                <div className="space-y-2">
-                  {activeInvoice.problems.map((prob, idx) => (
-                    <div
-                      key={idx}
-                      className={cn(
-                        "flex items-start gap-2.5 p-3 rounded-lg border text-xs",
-                        prob.severity === "error"
-                          ? "bg-red-500/[0.04] border-red-500/20 text-red-700 dark:text-red-400"
-                          : "bg-amber-500/[0.04] border-amber-500/20 text-amber-700 dark:text-amber-400"
-                      )}
-                    >
-                      {prob.severity === "error" ? (
-                        <XCircle className="size-4 shrink-0 mt-0.5 text-red-500" />
-                      ) : (
-                        <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-500" />
-                      )}
-                      <div>
-                        <p className="font-semibold leading-tight">{prob.message}</p>
-                      </div>
-                    </div>
-                  ))}
+                  )}
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Right side: Actions */}
