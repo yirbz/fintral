@@ -2459,7 +2459,23 @@ async def dgii_conciliate(
             problems.append({"code": "CLASSIFICATION", "message": r, "severity": severity})
 
         preview = _invoice_preview(inv, fmt, {}, report_rnc=report_rnc)
+
+        has_errors = False
+        if preview.get("macro_status") != "OK":
+            has_errors = True
+            macro_errs = preview.get("macro_status", "").replace("ERROR: ", "").split("; ")
+            for me in macro_errs:
+                if me and not any(p["message"] == me for p in problems):
+                    problems.append({"code": "MACRO", "message": me, "severity": "error"})
+
+        for ve in preview.get("validation_errors", []):
+            has_errors = True
+            if not any(p["message"] == ve for p in problems):
+                problems.append({"code": "VALIDATION", "message": ve, "severity": "error"})
+
         suggested = _suggested_actions(status)
+        if has_errors and "edit" not in suggested:
+            suggested.append("edit")
 
         entry = {
             "id": str(inv.id),
@@ -2477,9 +2493,9 @@ async def dgii_conciliate(
             **preview,
         }
 
-        if status in ("invalid", "pending_review"):
+        if status in ("invalid", "pending_review") or has_errors:
             conflicts.append(entry)
-        elif status == "valid":
+        else:
             ready.append(entry)
 
     # ── Summary ──
