@@ -172,7 +172,7 @@ async def require_tenant(
 
     grace_hours = None
 
-    if not is_bypass_path:
+    if not is_bypass_path and not user.is_superuser:
         from app.models.user_subscription import UserSubscription
         from app.utils.dates import utc_now
 
