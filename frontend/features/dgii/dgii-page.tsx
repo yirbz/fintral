@@ -35,6 +35,7 @@ import {
 } from "@/lib/api/dgii";
 import { DgiiSpreadsheetView } from "@/features/dgii/dgii-spreadsheet-view";
 import { DgiiValidationBadge } from "@/components/dgii-validation-badge";
+import { DgiiErrorReviewWizard } from "@/features/dgii/dgii-error-review-wizard";
 import {
   useDgiiReferenceOptions,
   type DgiiReferenceOptions,
@@ -376,6 +377,7 @@ export function DgiiPage() {
   const [editingFields, setEditingFields] = useState<Record<string, unknown>>({});
   const [savingField, setSavingField] = useState(false);
   const [spreadsheetOpen, setSpreadsheetOpen] = useState(false);
+  const [errorReviewOpen, setErrorReviewOpen] = useState(false);
   const [validatingIds, setValidatingIds] = useState<Record<string, boolean>>({});
 
   // Submission tracking
@@ -1121,6 +1123,15 @@ export function DgiiPage() {
                       <WandSparkles className="size-3 mr-1" />Asignar tipo B/S
                     </Button>
                   )}
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="h-7 text-[10px] bg-red-600 hover:bg-red-700 text-white gap-1"
+                    onClick={() => setErrorReviewOpen(true)}
+                  >
+                    <AlertTriangle className="size-3" />
+                    Revisar facturas con errores
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -1659,6 +1670,21 @@ export function DgiiPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── Error Review Wizard Dialog ── */}
+      <DgiiErrorReviewWizard
+        open={errorReviewOpen}
+        onClose={async (resolvedAny) => {
+          setErrorReviewOpen(false);
+          if (resolvedAny) {
+            await runPreview();
+            const summary = await getDgiiPendingSummary();
+            setPendingSummary(summary);
+          }
+        }}
+        format={selectedFormat}
+        period={period}
+      />
     </div>
   );
 }
