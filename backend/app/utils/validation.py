@@ -79,3 +79,10 @@ def validate_password(password: str, field: str = "Contraseña") -> Optional[str
         if not re.search(pattern, password):
             return f"{field} {msg}"
     return None
+
+
+def rnc_calc_check_digit(number: str) -> str:
+    """Calcula dígito de control RNC (algoritmo de python-stdnum/stdnum/do/rnc.py)."""
+    weights = (7, 9, 8, 6, 5, 4, 3, 2)
+    check = sum(w * int(n) for w, n in zip(weights, number)) % 11
+    return str((10 - check) % 9 + 1)
