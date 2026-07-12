@@ -13,6 +13,7 @@ import {
   Save,
   ShieldAlert,
   Sparkles,
+  Trash2,
   XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,7 @@ import {
   type DgiiConciliateInvoice,
   type DgiiFormat,
 } from "@/lib/api/dgii";
+import { deleteInvoice } from "@/lib/api/invoices";
 import { cn } from "@/lib/utils";
 
 interface DgiiErrorReviewWizardProps {
@@ -81,7 +83,7 @@ export function DgiiErrorReviewWizard({
   // Form edit fields
   const [editFields, setEditFields] = useState<Record<string, string>>({});
   const [excludeReason, setExcludeReason] = useState("");
-  const [actionTab, setActionTab] = useState<"fix" | "defer" | "exclude">("fix");
+  const [actionTab, setActionTab] = useState<"fix" | "defer" | "archive">("fix");
   const [leftTab, setLeftTab] = useState<"details" | "file">("details");
   const [submitting, setSubmitting] = useState(false);
 
@@ -130,7 +132,7 @@ export function DgiiErrorReviewWizard({
       } else if (activeInvoice.suggested_actions.includes("defer")) {
         setActionTab("defer");
       } else {
-        setActionTab("exclude");
+        setActionTab("archive");
       }
     }
   }, [activeInvoice]);
@@ -193,15 +195,14 @@ export function DgiiErrorReviewWizard({
     }
   };
 
-  const handleExclude = async () => {
+  const handleArchive = async () => {
     if (!activeInvoice) return;
-    const reason = excludeReason.trim() || "Descartada por el usuario";
     setSubmitting(true);
     try {
-      await dgiiConciliateExclude(activeInvoice.id, { reason });
-      advanceOrComplete("Factura excluida permanentemente como no deducible.");
+      await deleteInvoice(activeInvoice.id);
+      advanceOrComplete("Factura archivada y movida a la papelera con éxito.");
     } catch (e: any) {
-      toast.error("Error al excluir la factura", {
+      toast.error("Error al archivar la factura", {
         description: e.message || "Inténtalo de nuevo",
       });
     } finally {
@@ -429,15 +430,15 @@ export function DgiiErrorReviewWizard({
                     Diferir
                   </button>
                   <button
-                    onClick={() => setActionTab("exclude")}
+                    onClick={() => setActionTab("archive")}
                     className={cn(
                       "py-1.5 px-2 rounded-sm font-medium transition-all text-center",
-                      actionTab === "exclude"
+                      actionTab === "archive"
                         ? "bg-background text-foreground shadow-xs"
                         : "text-muted-foreground hover:text-foreground"
                     )}
                   >
-                    Excluir
+                    Archivar
                   </button>
                 </div>
 
@@ -508,43 +509,31 @@ export function DgiiErrorReviewWizard({
                     </div>
                   )}
 
-                  {actionTab === "exclude" && (
+                  {actionTab === "archive" && (
                     <div className="space-y-3">
                       <div className="flex gap-2.5 p-3 rounded-lg border border-red-500/20 bg-red-500/[0.03] text-red-700 dark:text-red-400 text-xs">
-                        <ShieldAlert className="size-4 shrink-0 mt-0.5 text-red-500" />
+                        <Trash2 className="size-4 shrink-0 mt-0.5 text-red-500" />
                         <div>
-                          <h4 className="font-semibold mb-0.5">Marcar como no deducible</h4>
+                          <h4 className="font-semibold mb-0.5">Archivar Factura (Soft Delete)</h4>
                           <p className="text-[11px] leading-normal text-red-700/80 dark:text-red-400/80">
-                            Excluye permanentemente la factura del reporte de compras/ventas. Útil para gastos personales o comprobantes inválidos.
+                            Mueve la factura a la papelera. Se conservará de forma segura y legal para fines fiscales e históricos, pero se omitirá de la contabilidad y los reportes de DGII.
                           </p>
                         </div>
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                          Motivo de exclusión
-                        </Label>
-                        <Input
-                          value={excludeReason}
-                          onChange={(e) => setExcludeReason(e.target.value)}
-                          placeholder="Ej: Gasto personal, comprobante dañado, no deducible"
-                          className="h-8 text-xs"
-                        />
                       </div>
 
                       <Button
                         size="sm"
                         variant="destructive"
-                        onClick={handleExclude}
+                        onClick={handleArchive}
                         disabled={submitting}
-                        className="w-full text-xs h-8 gap-1.5 mt-2"
+                        className="w-full text-xs h-8 gap-1.5 mt-4"
                       >
                         {submitting ? (
                           <Loader2 className="size-3.5 animate-spin" />
                         ) : (
-                          <XCircle className="size-3.5" />
+                          <Trash2 className="size-3.5" />
                         )}
-                        {submitting ? "Excluyendo..." : "Excluir Definitivamente"}
+                        {submitting ? "Archivando..." : "Archivar (Mover a Papelera)"}
                       </Button>
                     </div>
                   )}
