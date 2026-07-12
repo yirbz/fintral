@@ -3038,22 +3038,28 @@ async def get_cxp_summary(
     ctx: TenantContext = Depends(require_tenant),
 ):
     from app.utils.dates import utc_now
+    from sqlalchemy import or_
 
     now = utc_now()
     start_of_today = datetime.combine(now.date(), datetime.min.time())
     one_week_from_now = start_of_today + timedelta(days=7)
 
     # Get outstanding (payment_status in ('pending', 'overdue') or due_date < now)
-    # Filter by transaction_type == 'expense' and payment_condition == 'credito'
     outstanding_invoices = (
         ctx.db.query(Invoice)
         .filter(
             Invoice.tenant_id == ctx.tenant_id,
             Invoice.organization_id == ctx.org_id,
             Invoice.transaction_type == "expense",
-            Invoice.payment_condition == "credito",
-            Invoice.payment_status != "paid",
             Invoice.is_deleted.is_(False),
+            or_(
+                Invoice.payment_status.in_(["pending", "overdue"]),
+                Invoice.payment_condition == "credito"
+            ),
+            or_(
+                Invoice.payment_status != "paid",
+                Invoice.payment_status.is_(None)
+            )
         )
         .all()
     )
@@ -3088,22 +3094,28 @@ async def get_cxc_summary(
     ctx: TenantContext = Depends(require_tenant),
 ):
     from app.utils.dates import utc_now
+    from sqlalchemy import or_
 
     now = utc_now()
     start_of_today = datetime.combine(now.date(), datetime.min.time())
     one_week_from_now = start_of_today + timedelta(days=7)
 
     # Get outstanding (payment_status in ('pending', 'overdue') or due_date < now)
-    # Filter by transaction_type == 'income' and payment_condition == 'credito'
     outstanding_invoices = (
         ctx.db.query(Invoice)
         .filter(
             Invoice.tenant_id == ctx.tenant_id,
             Invoice.organization_id == ctx.org_id,
             Invoice.transaction_type == "income",
-            Invoice.payment_condition == "credito",
-            Invoice.payment_status != "paid",
             Invoice.is_deleted.is_(False),
+            or_(
+                Invoice.payment_status.in_(["pending", "overdue"]),
+                Invoice.payment_condition == "credito"
+            ),
+            or_(
+                Invoice.payment_status != "paid",
+                Invoice.payment_status.is_(None)
+            )
         )
         .all()
     )
