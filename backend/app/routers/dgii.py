@@ -2411,17 +2411,14 @@ async def dgii_conciliate(
     date_from, date_to = _period_to_range(period)
 
     # ── Query all invoices for this period ──
-    query = ctx.db.query(Invoice).filter(
-        Invoice.tenant_id == ctx.tenant_id,
-        Invoice.organization_id == ctx.org_id,
-        Invoice.is_deleted.is_(False),
-        Invoice.invoice_date >= date_from,
-        Invoice.invoice_date <= date_to,
+    invoices = invoice_repo.list_for_dgii_export(
+        db=ctx.db,
+        tenant_id=ctx.tenant_id,
+        org_id=ctx.org_id,
+        transaction_type=transaction_type,
+        date_from=date_from,
+        date_to=date_to,
     )
-    if transaction_type:
-        query = query.filter(Invoice.transaction_type == transaction_type)
-
-    invoices = query.order_by(Invoice.invoice_date.asc()).all()
 
     # ── Also fetch deferred invoices from previous periods targeting this one ──
     deferred_in = ctx.db.query(Invoice).filter(
