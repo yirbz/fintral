@@ -942,41 +942,86 @@ async def update_invoice(
     invoice.audit_flags = json.dumps(warnings, ensure_ascii=False)
 
     # ACID: bank balance mutation lives in the same transaction as the invoice state
-    was_unpaid = before.get("payment_status") != "paid"
-    if was_unpaid and invoice.payment_status == "paid" and invoice.bank_account_id:
-        bank_acct = (
+    from decimal import Decimal
+
+    was_paid = before.get("payment_status") == "paid"
+    is_paid = invoice.payment_status == "paid"
+    old_bank_id = before.get("bank_account_id")
+    new_bank_id = invoice.bank_account_id
+
+    # 1. Revert old transaction if it was paid
+    if was_paid and old_bank_id:
+        old_bank_acct = (
             ctx.db.query(BankAccount)
             .filter(
-                BankAccount.id == invoice.bank_account_id,
+                BankAccount.id == old_bank_id,
                 BankAccount.organization_id == ctx.org_id,
             )
             .first()
         )
-        if not bank_acct:
+        if old_bank_acct:
+            old_amount = before.get("total_amount") or 0.0
+            old_net = old_amount
+            if invoice.transaction_type == "income":
+                old_raw_data = None
+                old_raw_extracted = before.get("raw_extracted_data")
+                if old_raw_extracted:
+                    try:
+                        old_raw_data = json.loads(old_raw_extracted)
+                    except Exception:
+                        pass
+                if old_raw_data:
+                    itbis_ret = old_raw_data.get("total_itbis_retenido") or 0
+                    isr_ret = old_raw_data.get("total_isr_retencion") or 0
+                    itbis_perc = old_raw_data.get("total_itbis_percepcion") or 0
+                    isr_perc = old_raw_data.get("total_isr_percepcion") or 0
+                    old_net = old_net - float(itbis_ret) - float(isr_ret) + float(itbis_perc) + float(isr_perc)
+            
+            # Revert balance
+            current_balance = old_bank_acct.balance if old_bank_acct.balance is not None else Decimal("0.00")
+            if invoice.transaction_type == "income":
+                old_bank_acct.balance = current_balance - Decimal(str(old_net))
+            else:
+                old_bank_acct.balance = current_balance + Decimal(str(old_amount))
+            ctx.db.add(old_bank_acct)
+
+    # 2. Apply new transaction if it is paid
+    if is_paid and new_bank_id:
+        new_bank_acct = (
+            ctx.db.query(BankAccount)
+            .filter(
+                BankAccount.id == new_bank_id,
+                BankAccount.organization_id == ctx.org_id,
+            )
+            .first()
+        )
+        if not new_bank_acct:
             raise HTTPException(
                 status_code=422,
-                detail=f"La cuenta bancaria {invoice.bank_account_id} no pertenece a esta organización o no existe.",
+                detail=f"La cuenta bancaria {new_bank_id} no pertenece a esta organización o no existe.",
             )
-        from decimal import Decimal
-        current_balance = bank_acct.balance if bank_acct.balance is not None else Decimal("0.00")
-        total_amount = invoice.total_amount or 0.0
+        
+        new_amount = invoice.total_amount or 0.0
+        new_net = new_amount
+        new_raw_data = None
+        if invoice.raw_extracted_data:
+            try:
+                new_raw_data = json.loads(invoice.raw_extracted_data)
+            except Exception:
+                pass
+        if new_raw_data:
+            itbis_ret = new_raw_data.get("total_itbis_retenido") or 0
+            isr_ret = new_raw_data.get("total_isr_retencion") or 0
+            itbis_perc = new_raw_data.get("total_itbis_percepcion") or 0
+            isr_perc = new_raw_data.get("total_isr_percepcion") or 0
+            new_net = new_net - float(itbis_ret) - float(isr_ret) + float(itbis_perc) + float(isr_perc)
+            
+        current_balance = new_bank_acct.balance if new_bank_acct.balance is not None else Decimal("0.00")
         if invoice.transaction_type == "income":
-            net = total_amount
-            raw_data = None
-            if invoice.raw_extracted_data:
-                try:
-                    raw_data = json.loads(invoice.raw_extracted_data)
-                except Exception:
-                    pass
-            if raw_data:
-                itbis_ret = raw_data.get("total_itbis_retenido") or 0
-                isr_ret = raw_data.get("total_isr_retencion") or 0
-                itbis_perc = raw_data.get("total_itbis_percepcion") or 0
-                isr_perc = raw_data.get("total_isr_percepcion") or 0
-                net = net - float(itbis_ret) - float(isr_ret) + float(itbis_perc) + float(isr_perc)
-            bank_acct.balance = current_balance + Decimal(str(net))
+            new_bank_acct.balance = current_balance + Decimal(str(new_net))
         else:
-            bank_acct.balance = current_balance - Decimal(str(total_amount))
+            new_bank_acct.balance = current_balance - Decimal(str(new_amount))
+        ctx.db.add(new_bank_acct)
 
     invoice.updated_at = datetime.utcnow()
     ctx.db.commit()
