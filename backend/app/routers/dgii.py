@@ -3156,6 +3156,7 @@ def _invoice_preview(
         "source_type": inv.source_type or "",
         "file_path": inv.file_path or "",
         "file_url": file_url,
+        "filename": inv.filename or "",
         "validation_status": v["status"],
         "validation_errors": v["errors"],
         "validation_warnings": v["warnings"],
