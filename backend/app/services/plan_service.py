@@ -373,7 +373,16 @@ class PlanService:
         if not plan:
             raise ValueError(f"Plan '{plan_name}' not found or inactive")
 
-        sub, _ = self.get_plan_for_org(org_id)
+        # Get the actual OrganizationSubscription directly to avoid fallback to UserSubscription
+        sub = (
+            self.db.query(OrganizationSubscription)
+            .filter(
+                OrganizationSubscription.organization_id == org_id,
+                OrganizationSubscription.status.in_(["active", "trialing"]),
+            )
+            .order_by(OrganizationSubscription.created_at.desc())
+            .first()
+        )
         if sub:
             sub.plan_id = plan.id
             sub.status = "active"
@@ -399,7 +408,16 @@ class PlanService:
 
     def cancel_subscription(self, org_id):
         """Cancel at end of billing cycle."""
-        sub, _ = self.get_plan_for_org(org_id)
+        # Query OrganizationSubscription directly
+        sub = (
+            self.db.query(OrganizationSubscription)
+            .filter(
+                OrganizationSubscription.organization_id == org_id,
+                OrganizationSubscription.status.in_(["active", "trialing"]),
+            )
+            .order_by(OrganizationSubscription.created_at.desc())
+            .first()
+        )
         if sub:
             sub.status = "canceled"
             sub.canceled_at = datetime.utcnow()
@@ -674,7 +692,7 @@ class PlanService:
 
         # Resolve pending plan change set from statement page
         pending_plan = None
-        if sub and sub.pending_plan_change_id:
+        if sub and hasattr(sub, "pending_plan_change_id") and sub.pending_plan_change_id:
             pending_plan = (
                 self.db.query(SubscriptionPlan)
                 .filter(SubscriptionPlan.id == sub.pending_plan_change_id)
@@ -1251,7 +1269,7 @@ class PlanService:
         sub, plan = self.get_plan_for_org(org_id)
 
         # Apply any pending plan change before creating renewal charges
-        if sub and sub.pending_plan_change_id:
+        if sub and hasattr(sub, "pending_plan_change_id") and sub.pending_plan_change_id:
             pending_plan = (
                 self.db.query(SubscriptionPlan)
                 .filter(SubscriptionPlan.id == sub.pending_plan_change_id)
