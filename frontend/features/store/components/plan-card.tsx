@@ -11,6 +11,7 @@ import { discountedPrice } from "./duration-selector";
 interface PlanCardProps {
   plan: PlanSummary;
   currentPlan?: PlanSummary | null;
+  isTrial?: boolean;
   onAddToCart: () => void;
   inCart: boolean;
   commitMonths: number;
@@ -19,11 +20,12 @@ interface PlanCardProps {
 export function PlanCard({
   plan,
   currentPlan,
+  isTrial = false,
   onAddToCart,
   inCart,
   commitMonths,
 }: PlanCardProps) {
-  const isCurrent = currentPlan?.id === plan.id;
+  const isCurrent = currentPlan?.id === plan.id && !isTrial;
   const isFeatured = plan.name.toLowerCase() === "profesional";
   
   const FEATURE_LABELS: Record<string, string> = {
@@ -87,6 +89,8 @@ export function PlanCard({
     ctaText = "Tu plan actual";
   } else if (inCart) {
     ctaText = "En el carrito";
+  } else if (currentPlan?.id === plan.id && isTrial) {
+    ctaText = "Comprar plan";
   } else if (isUpgrade) {
     ctaText = "Mejorar plan";
   } else if (currentPlan) {
@@ -110,20 +114,25 @@ export function PlanCard({
         </span>
       )}
 
-      {/* Current Plan Indicator */}
+      {/* Current Plan Indicator / Trial Indicator */}
+      {currentPlan?.id === plan.id && isTrial && (
+        <span className="absolute top-4 right-4 text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full">
+          Prueba activa
+        </span>
+      )}
       {isCurrent && (
         <span className="absolute top-4 right-4 text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full">
           Tu plan actual ✓
         </span>
       )}
 
-      {/* Upgrade/Downgrade badges with proration info */}
-      {isUpgrade && currentPlanName && (
+      {/* Upgrade/Downgrade badges */}
+      {isUpgrade && currentPlanName && !isCurrent && !isTrial && (
         <span className="absolute top-4 right-4 text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full">
           Mejorar
         </span>
       )}
-      {isDowngrade && currentPlanName && (
+      {isDowngrade && currentPlanName && !isCurrent && !isTrial && (
         <span className="absolute top-4 right-4 text-[10px] font-semibold bg-sky-500/10 text-sky-600 dark:text-sky-400 px-2 py-0.5 rounded-full">
           Cambiar
         </span>
@@ -164,7 +173,7 @@ export function PlanCard({
         </div>
 
         {/* Proration info between pricing and features */}
-        {isUpgrade && currentPlanName && (
+        {isUpgrade && currentPlanName && !isTrial && (
           <div className="mt-2 space-y-1 rounded-lg bg-amber-50 dark:bg-amber-950/20 p-2 text-center">
             <p className="text-[10px] font-medium text-amber-800 dark:text-amber-300">Actualizar plan</p>
             <p className="text-[10px] text-amber-700 dark:text-amber-400">
@@ -172,7 +181,7 @@ export function PlanCard({
             </p>
           </div>
         )}
-        {isDowngrade && currentPlanName && (
+        {isDowngrade && currentPlanName && !isTrial && (
           <div className="mt-2 space-y-1 rounded-lg bg-sky-50 dark:bg-sky-950/20 p-2 text-center">
             <p className="text-[10px] font-medium text-sky-800 dark:text-sky-300">Cambiar a este plan</p>
             <p className="text-[10px] text-sky-700 dark:text-sky-400">
