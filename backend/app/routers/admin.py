@@ -1578,6 +1578,12 @@ class SubscriptionUpdate(BaseModel):
     custom_price_cents: Optional[int] = None
     custom_limits_json: Optional[Dict[str, Any]] = None
     billing_cycle_end: Optional[datetime] = None
+    addon_ecf_blocks: Optional[int] = None
+    addon_ai_blocks: Optional[int] = None
+    addon_storage_blocks: Optional[int] = None
+    addon_ocr_blocks: Optional[int] = None
+    addon_entity_slots: Optional[int] = None
+    addon_user_slots: Optional[int] = None
 
 
 @router.patch("/subscriptions/{sub_id}")
@@ -1626,6 +1632,36 @@ async def update_admin_subscription(
             dt = pytz.UTC.localize(dt)
         sub.billing_cycle_end = dt
         new_values["billing_cycle_end"] = dt.isoformat()
+
+    if body.addon_ecf_blocks is not None:
+        old_values["addon_ecf_blocks"] = sub.addon_ecf_blocks
+        sub.addon_ecf_blocks = body.addon_ecf_blocks
+        new_values["addon_ecf_blocks"] = body.addon_ecf_blocks
+
+    if body.addon_ai_blocks is not None:
+        old_values["addon_ai_blocks"] = sub.addon_ai_blocks
+        sub.addon_ai_blocks = body.addon_ai_blocks
+        new_values["addon_ai_blocks"] = body.addon_ai_blocks
+
+    if body.addon_storage_blocks is not None:
+        old_values["addon_storage_blocks"] = sub.addon_storage_blocks
+        sub.addon_storage_blocks = body.addon_storage_blocks
+        new_values["addon_storage_blocks"] = body.addon_storage_blocks
+
+    if body.addon_ocr_blocks is not None:
+        old_values["addon_ocr_blocks"] = sub.addon_ocr_blocks
+        sub.addon_ocr_blocks = body.addon_ocr_blocks
+        new_values["addon_ocr_blocks"] = body.addon_ocr_blocks
+
+    if body.addon_entity_slots is not None:
+        old_values["addon_entity_slots"] = sub.addon_entity_slots
+        sub.addon_entity_slots = body.addon_entity_slots
+        new_values["addon_entity_slots"] = body.addon_entity_slots
+
+    if body.addon_user_slots is not None:
+        old_values["addon_user_slots"] = sub.addon_user_slots
+        sub.addon_user_slots = body.addon_user_slots
+        new_values["addon_user_slots"] = body.addon_user_slots
 
     sub.updated_at = utc_now()
     db.commit()

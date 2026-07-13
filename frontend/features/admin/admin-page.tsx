@@ -2307,6 +2307,14 @@ function SuscripcionesTab() {
   const [customPrice, setCustomPrice] = useState<string>("");
   const [customLimits, setCustomLimits] = useState<string>("");
 
+  // Addon states
+  const [addonEcf, setAddonEcf] = useState<number>(0);
+  const [addonAi, setAddonAi] = useState<number>(0);
+  const [addonStorage, setAddonStorage] = useState<number>(0);
+  const [addonOcr, setAddonOcr] = useState<number>(0);
+  const [addonEntity, setAddonEntity] = useState<number>(0);
+  const [addonUser, setAddonUser] = useState<number>(0);
+
   const creditMutation = useMutation({
     mutationFn: ({ subId, days, reason }: { subId: string; days: number; reason: string }) =>
       adminApi.creditSubscription(subId, { days, reason }),
@@ -2342,7 +2350,15 @@ function SuscripcionesTab() {
     setSubStatus(sub.status);
     setCustomPrice(sub.limits?.custom_price_cents ? String(sub.limits.custom_price_cents / 100) : "");
     // Extract overrides only
-    setCustomLimits(sub.limits ? JSON.stringify(sub.limits, null, 2) : "{}");
+    setCustomLimits(sub.custom_limits_json ? JSON.stringify(sub.custom_limits_json, null, 2) : "{}");
+    
+    // Load current addons
+    setAddonEcf(sub.addons?.ecf_blocks || 0);
+    setAddonAi(sub.addons?.ai_blocks || 0);
+    setAddonStorage(sub.addons?.storage_blocks || 0);
+    setAddonOcr(sub.addons?.ocr_blocks || 0);
+    setAddonEntity(sub.addons?.entity_slots || 0);
+    setAddonUser(sub.addons?.user_slots || 0);
   };
 
   const handleApplyOverride = () => {
@@ -2365,6 +2381,12 @@ function SuscripcionesTab() {
         status: subStatus,
         custom_price_cents: priceCents,
         custom_limits_json: parsedLimits,
+        addon_ecf_blocks: addonEcf,
+        addon_ai_blocks: addonAi,
+        addon_storage_blocks: addonStorage,
+        addon_ocr_blocks: addonOcr,
+        addon_entity_slots: addonEntity,
+        addon_user_slots: addonUser,
       },
     });
   };
@@ -2600,6 +2622,73 @@ function SuscripcionesTab() {
                   onChange={(e) => setCustomPrice(e.target.value)}
                   className="h-8 text-[11px]"
                 />
+              </div>
+
+              {/* Addons Grid */}
+              <div className="border border-muted-foreground/15 rounded-md p-3 space-y-3 bg-muted/20">
+                <h4 className="font-semibold text-[10px] text-muted-foreground uppercase tracking-wider">Addons / Goods Adicionales</h4>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-medium">Bloques e-CF (+100)</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={addonEcf}
+                      onChange={(e) => setAddonEcf(parseInt(e.target.value) || 0)}
+                      className="h-8 text-[11px]"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-medium">Bloques IA (+500)</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={addonAi}
+                      onChange={(e) => setAddonAi(parseInt(e.target.value) || 0)}
+                      className="h-8 text-[11px]"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-medium">Bloques OCR (+100)</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={addonOcr}
+                      onChange={(e) => setAddonOcr(parseInt(e.target.value) || 0)}
+                      className="h-8 text-[11px]"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-medium">Almacenamiento (+10GB)</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={addonStorage}
+                      onChange={(e) => setAddonStorage(parseInt(e.target.value) || 0)}
+                      className="h-8 text-[11px]"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-medium">Slots Entidades</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={addonEntity}
+                      onChange={(e) => setAddonEntity(parseInt(e.target.value) || 0)}
+                      className="h-8 text-[11px]"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-medium">Slots Usuarios</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={addonUser}
+                      onChange={(e) => setAddonUser(parseInt(e.target.value) || 0)}
+                      className="h-8 text-[11px]"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="flex flex-col gap-1.5">
