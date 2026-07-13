@@ -307,14 +307,17 @@ class BillingCheckoutService:
 
         # 1. Register/Update customer in Lago
         logger.info(f"Upserting customer in Lago for user: {user.email} ({user.id})")
-        lago_customer = await self.lago.create_or_update_customer(
-            external_id=str(user.id),
-            name=user.full_name or user.email,
-            email=user.email,
-            rnc=None,
-        )
-
-        lago_customer_id = lago_customer.get("customer", {}).get("lago_id")
+        lago_customer_id = None
+        try:
+            lago_customer = await self.lago.create_or_update_customer(
+                external_id=str(user.id),
+                name=user.full_name or user.email,
+                email=user.email,
+                rnc=None,
+            )
+            lago_customer_id = lago_customer.get("customer", {}).get("lago_id")
+        except Exception as exc:
+            logger.warning(f"Lago customer upsert failed: {exc}. Proceeding with local DB provisioning.")
 
         # 2. Cancel any previous active subscriptions to avoid overlap
         existing_subs = (
@@ -338,9 +341,8 @@ class BillingCheckoutService:
                 plan_code=plan.lago_plan_code or plan_name,
                 external_id=sub_id,
             )
-        except LagoAPIError as exc:
-            logger.error(f"Lago subscription creation failed: {exc.response_body}")
-            raise ValueError(f"Error al crear suscripción en Lago: {exc}")
+        except Exception as exc:
+            logger.warning(f"Lago subscription creation failed: {exc}. Proceeding with local DB provisioning.")
 
         # 4. Create UserSubscription record in Fintral DB
         from datetime import timedelta

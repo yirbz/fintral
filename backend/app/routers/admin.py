@@ -2263,6 +2263,13 @@ async def admin_verify_payment(
 
             if user_sub:
                 user_sub.status = "active"
+                if plan_name:
+                    p_slug = plan_name.strip().lower()
+                    from app.models.subscription_plan import SubscriptionPlan
+                    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == p_slug).first()
+                    if plan:
+                        user_sub.plan_id = plan.id
+                        logger.info("Updated plan_id for UserSubscription %s to %s", user_sub.id, plan.id)
                 if not user_sub.billing_cycle_end or user_sub.billing_cycle_end < utc_now():
                     user_sub.billing_cycle_start = utc_now()
                     user_sub.billing_cycle_end = utc_now() + timedelta(days=30 * months)
