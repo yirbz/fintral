@@ -158,7 +158,7 @@ export function SectionCards({
         <Card className="transition-shadow duration-200 hover:shadow-md group-hover:border-indigo-500/40 group-hover:bg-indigo-500/5 transition-all duration-200">
           <CardHeader className="pb-2">
             <CardDescription className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground group-hover:text-indigo-600 transition-colors">
-              Extracciones OCR
+              Extracciones OCR/IA
             </CardDescription>
             <div className="flex items-start justify-between">
               {isLoadingUsage ? (
