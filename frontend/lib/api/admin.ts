@@ -258,6 +258,12 @@ export const adminApi = {
     custom_price_cents: number;
     custom_limits_json: Record<string, any>;
     billing_cycle_end: string;
+    addon_ecf_blocks?: number;
+    addon_ai_blocks?: number;
+    addon_storage_blocks?: number;
+    addon_ocr_blocks?: number;
+    addon_entity_slots?: number;
+    addon_user_slots?: number;
   }>) => apiFetch<AdminSubscription>(`/api/admin/subscriptions/${subId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -377,9 +383,13 @@ export interface AdminSubscription {
     ai_blocks: number;
     storage_blocks: number;
     extra_entities: number;
+    ocr_blocks?: number;
+    entity_slots?: number;
+    user_slots?: number;
   };
   auto_renew_addons: boolean;
   limits: Record<string, any>;
+  custom_limits_json: Record<string, any> | null;
   is_trialing: boolean;
   organization_name: string | null;
 }

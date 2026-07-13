@@ -75,6 +75,7 @@ class OrganizationSubscription(Base):
     pending_plan_change = relationship("SubscriptionPlan", foreign_keys=[pending_plan_change_id], lazy="select")
 
     def to_dict(self) -> dict:
+        import json
         limits = self.effective_limits()
         return {
             "id": str(self.id),
@@ -104,6 +105,7 @@ class OrganizationSubscription(Base):
             },
             "auto_renew_addons": self.auto_renew_addons,
             "limits": limits,
+            "custom_limits_json": json.loads(self.custom_limits_json) if self.custom_limits_json else None,
             "is_trialing": self.status == "trialing",
         }
 
