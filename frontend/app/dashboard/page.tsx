@@ -16,6 +16,7 @@ import Link from "next/link"
 import { getStatistics } from "@/lib/api/statistics"
 import { listInvoices } from "@/lib/api/invoices"
 import { useRealtime } from "@/hooks/use-realtime"
+import { useSubscription } from "@/hooks/use-subscription"
 import { ChartAreaInteractive } from "@/components/chart-area-interactive"
 import { SectionCards } from "@/components/section-cards"
 import { DgiiDashboardWidget } from "@/features/dgii/dgii-dashboard-widget"
@@ -27,7 +28,7 @@ import type { StatisticsPayload } from "@/lib/types"
 
 /* ────────────────────────────────────────────
    Currency formatter (Dominican peso / USD)
-──────────────────────────────────────────── */
+   ──────────────────────────────────────────── */
 function formatAmount(amount: number | null, currency = "DOP") {
   if (amount === null) return "—"
   return new Intl.NumberFormat("es-DO", {
@@ -40,10 +41,11 @@ function formatAmount(amount: number | null, currency = "DOP") {
 
 /* ────────────────────────────────────────────
    Page
-──────────────────────────────────────────── */
+   ──────────────────────────────────────────── */
 export default function Page() {
   const {data: stats_data, isFetching: stats_isFetching, isLoading: stats_isLoading} = useQuery({ queryKey: ["statistics", "30d"], queryFn: () => getStatistics("30d") })
   const {data: invoices_data, isLoading: invoices_isLoading} = useQuery({ queryKey: ["invoices", "dashboard"], queryFn: () => listInvoices() })
+  const { usage, isLoading: sub_isLoading } = useSubscription()
   const { events, connected } = useRealtime()
   const loading = stats_isLoading || stats_isFetching
   const data: StatisticsPayload | undefined = stats_data
@@ -74,7 +76,7 @@ export default function Page() {
       </div>
 
       {/* ── Stat cards ── */}
-      {loading ? <SectionCardsSkeleton /> : <SectionCards stats={data} />}
+      {loading ? <SectionCardsSkeleton /> : <SectionCards stats={data} usage={usage} isLoadingUsage={sub_isLoading} />}
 
       {/* ── Volume chart (real data) ── */}
       <ChartAreaInteractive volumeHistory={data?.charts?.volume_history ?? []} />
