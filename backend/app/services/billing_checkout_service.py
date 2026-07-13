@@ -480,9 +480,15 @@ class BillingCheckoutService:
                 s.status = "canceled"
                 s.canceled_at = utc_now()
 
-            # Build subscription dates
-            cycle_start = utc_now()
-            cycle_end = cycle_start + timedelta(days=30 * commitment_months)
+            # For mid-cycle upgrades, keep the existing billing cycle end date
+            # The user pays only the prorated difference for the remaining days
+            now = utc_now()
+            if current_sub and current_sub.billing_cycle_end and now < current_sub.billing_cycle_end:
+                cycle_start = current_sub.billing_cycle_start
+                cycle_end = current_sub.billing_cycle_end
+            else:
+                cycle_start = now
+                cycle_end = cycle_start + timedelta(days=30 * commitment_months)
 
             sub_id = f"sub_{str(org.id)[:8]}_{plan_name}"
             sub_obj = OrganizationSubscription(
@@ -645,6 +651,15 @@ class BillingCheckoutService:
                             "Plan upgrade proration: %d cents new plan, %d cents credit for %d/%d days left -> %d cents net",
                             new_price_cents, credit_cents, days_remaining, total_cycle_days, item_unit_cents
                         )
+                        # Save proration details to item dict for payment proof
+                        i["prorated"] = True
+                        i["days_remaining"] = days_remaining
+                        i["cycle_days"] = total_cycle_days
+                        i["original_price_cents"] = new_price_cents
+                        i["credit_cents"] = credit_cents
+                        i["old_plan_name"] = current_sub.plan.name if current_sub.plan else None
+                        i["old_plan_price_cents"] = old_plan_price_cents
+                        i["price_cents"] = item_unit_cents
                     else:
                         item_unit_cents = new_price_cents
                 else:

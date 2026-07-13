@@ -475,6 +475,14 @@ export interface AdminCartItem {
   months?: number;
   price_cents: number;
   label?: string;
+  // Proration fields (present when prorated === true)
+  prorated?: boolean;
+  days_remaining?: number;
+  cycle_days?: number;
+  original_price_cents?: number;
+  credit_cents?: number;
+  old_plan_name?: string;
+  old_plan_price_cents?: number;
 }
 
 export interface AdminPaymentProof {
