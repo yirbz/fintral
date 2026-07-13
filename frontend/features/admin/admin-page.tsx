@@ -2274,7 +2274,9 @@ function FinanzasTab() {
 
 // ----- Suscripciones -----
 function SuscripcionesTab() {
+  const [subTab, setSubTab] = useState<"organizations" | "users">("organizations");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [userSearch, setUserSearch] = useState<string>("");
   const [offset, setOffset] = useState(0);
   const limit = 15;
 
@@ -2286,6 +2288,19 @@ function SuscripcionesTab() {
         limit,
         offset,
       }),
+    enabled: subTab === "organizations",
+  });
+
+  const { data: userSubsData, isLoading: loadingUserSubs, refetch: refetchUserSubs } = useQuery({
+    queryKey: ["admin-user-subscriptions", statusFilter, userSearch, offset],
+    queryFn: () =>
+      adminApi.listUserSubscriptions({
+        status: statusFilter === "all" ? undefined : statusFilter,
+        search: userSearch || undefined,
+        limit,
+        offset,
+      }),
+    enabled: subTab === "users",
   });
 
   const { data: plans } = useQuery({
@@ -2296,12 +2311,12 @@ function SuscripcionesTab() {
   const queryClient = useQueryClient();
 
   // Dialog State for Credit (Grace days)
-  const [creditSub, setCreditSub] = useState<AdminSubscription | null>(null);
+  const [creditSub, setCreditSub] = useState<any>(null);
   const [creditDays, setCreditDays] = useState<number>(30);
   const [creditReason, setCreditReason] = useState<string>("");
 
   // Dialog State for Custom Overrides / Plan change
-  const [overrideSub, setOverrideSub] = useState<AdminSubscription | null>(null);
+  const [overrideSub, setOverrideSub] = useState<any>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string>("");
   const [subStatus, setSubStatus] = useState<string>("");
   const [customPrice, setCustomPrice] = useState<string>("");
@@ -2317,12 +2332,15 @@ function SuscripcionesTab() {
 
   const creditMutation = useMutation({
     mutationFn: ({ subId, days, reason }: { subId: string; days: number; reason: string }) =>
-      adminApi.creditSubscription(subId, { days, reason }),
+      subTab === "organizations"
+        ? adminApi.creditSubscription(subId, { days, reason })
+        : adminApi.creditUserSubscription(subId, { days, reason }),
     onSuccess: () => {
       toast.success("Días de gracia inyectados correctamente");
       setCreditSub(null);
       setCreditReason("");
-      refetch();
+      if (subTab === "organizations") refetch();
+      else refetchUserSubs();
       queryClient.invalidateQueries({ queryKey: ["admin-mrr"] });
     },
     onError: (err: any) => {
@@ -2332,11 +2350,14 @@ function SuscripcionesTab() {
 
   const overrideMutation = useMutation({
     mutationFn: ({ subId, data }: { subId: string; data: any }) =>
-      adminApi.updateSubscription(subId, data),
+      subTab === "organizations"
+        ? adminApi.updateSubscription(subId, data)
+        : adminApi.updateUserSubscription(subId, data),
     onSuccess: () => {
       toast.success("Suscripción modificada con éxito");
       setOverrideSub(null);
-      refetch();
+      if (subTab === "organizations") refetch();
+      else refetchUserSubs();
       queryClient.invalidateQueries({ queryKey: ["admin-mrr"] });
     },
     onError: (err: any) => {
@@ -2344,7 +2365,7 @@ function SuscripcionesTab() {
     },
   });
 
-  const handleOpenOverride = (sub: AdminSubscription) => {
+  const handleOpenOverride = (sub: any) => {
     setOverrideSub(sub);
     setSelectedPlanId(sub.plan_id);
     setSubStatus(sub.status);
@@ -2364,7 +2385,7 @@ function SuscripcionesTab() {
   const handleApplyOverride = () => {
     if (!overrideSub) return;
     let parsedLimits = null;
-    if (customLimits.trim()) {
+    if (subTab === "organizations" && customLimits.trim()) {
       try {
         parsedLimits = JSON.parse(customLimits);
       } catch (e) {
@@ -2374,28 +2395,75 @@ function SuscripcionesTab() {
     }
     const priceCents = customPrice ? Math.round(parseFloat(customPrice) * 100) : undefined;
 
+    const data: any = subTab === "organizations"
+      ? {
+          plan_id: selectedPlanId,
+          status: subStatus,
+          custom_price_cents: priceCents,
+          custom_limits_json: parsedLimits,
+          addon_ecf_blocks: addonEcf,
+          addon_ai_blocks: addonAi,
+          addon_storage_blocks: addonStorage,
+          addon_ocr_blocks: addonOcr,
+          addon_entity_slots: addonEntity,
+          addon_user_slots: addonUser,
+        }
+      : {
+          plan_id: selectedPlanId,
+          status: subStatus,
+          addon_entity_slots: addonEntity,
+        };
+
     overrideMutation.mutate({
       subId: overrideSub.id,
-      data: {
-        plan_id: selectedPlanId,
-        status: subStatus,
-        custom_price_cents: priceCents,
-        custom_limits_json: parsedLimits,
-        addon_ecf_blocks: addonEcf,
-        addon_ai_blocks: addonAi,
-        addon_storage_blocks: addonStorage,
-        addon_ocr_blocks: addonOcr,
-        addon_entity_slots: addonEntity,
-        addon_user_slots: addonUser,
-      },
+      data,
     });
   };
 
   return (
     <div className="space-y-4">
+      {/* Sub tabs selector */}
+      <div className="flex gap-1 border-b border-border/60 pb-2">
+        <button
+          type="button"
+          onClick={() => { setSubTab("organizations"); setOffset(0); setStatusFilter("all"); }}
+          className={`px-3 py-1.5 text-[10px] font-semibold rounded-md transition-all ${
+            subTab === "organizations"
+              ? "bg-primary text-primary-foreground shadow-sm"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          }`}
+        >
+          Organizaciones / Límites B2B
+        </button>
+        <button
+          type="button"
+          onClick={() => { setSubTab("users"); setOffset(0); setStatusFilter("all"); }}
+          className={`px-3 py-1.5 text-[10px] font-semibold rounded-md transition-all ${
+            subTab === "users"
+              ? "bg-primary text-primary-foreground shadow-sm"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          }`}
+        >
+          Usuarios / Hub Trials & Subs
+        </button>
+      </div>
+
       <div className="flex justify-between items-center">
-        <h2 className="text-xs font-semibold">Control de Suscripciones y Límites B2B Custom</h2>
-        <div className="flex gap-2">
+        <h2 className="text-xs font-semibold">
+          {subTab === "organizations" ? "Control de Suscripciones y Límites B2B Custom" : "Control de Suscripciones y Trials Personales"}
+        </h2>
+        <div className="flex gap-2 items-center">
+          {subTab === "users" && (
+            <div className="relative w-48">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3 text-muted-foreground" />
+              <Input
+                placeholder="Buscar usuario..."
+                value={userSearch}
+                onChange={(e) => { setUserSearch(e.target.value); setOffset(0); }}
+                className="pl-7 h-8 text-[11px] w-full"
+              />
+            </div>
+          )}
           <Select value={statusFilter} onValueChange={(val) => { setStatusFilter(val); setOffset(0); }}>
             <SelectTrigger className="w-[130px] h-8 text-[11px]">
               <SelectValue placeholder="Estado" />
@@ -2403,10 +2471,10 @@ function SuscripcionesTab() {
             <SelectContent className="text-[11px]">
               <SelectItem value="all">Todos los estados</SelectItem>
               <SelectItem value="active">Activo</SelectItem>
-              <SelectItem value="trialing">Período Prueba</SelectItem>
+              <SelectItem value="trialing">Período Prueba (Trial)</SelectItem>
               <SelectItem value="past_due">Atrasado</SelectItem>
               <SelectItem value="canceled">Cancelado</SelectItem>
-              <SelectItem value="expired">Expirado</SelectItem>
+              <SelectItem value="expired">Expirado (Vencido)</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -2414,113 +2482,217 @@ function SuscripcionesTab() {
 
       <Card>
         <CardContent className="pt-4">
-          {loadingSubs ? (
-            <div className="h-40 bg-muted rounded animate-pulse" />
-          ) : subsData && subsData.subscriptions.length > 0 ? (
-            <div className="space-y-4">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-[10px]">Organización</TableHead>
-                    <TableHead className="text-[10px]">Plan</TableHead>
-                    <TableHead className="text-[10px]">Estado</TableHead>
-                    <TableHead className="text-[10px]">Ciclo Facturación</TableHead>
-                    <TableHead className="text-[10px]">Límites e-CF/IA</TableHead>
-                    <TableHead className="text-[10px] text-right">Acciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {subsData.subscriptions.map((sub) => (
-                    <TableRow key={sub.id} className="text-[11px]">
-                      <TableCell className="font-semibold">{sub.organization_name || "N/A"}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-col">
-                          <span>{sub.plan_name || "Desconocido"}</span>
-                          {sub.limits?.custom_price_cents && (
-                            <span className="text-[10px] text-indigo-600 font-medium">B2B Override: RD$ {(sub.limits.custom_price_cents / 100).toFixed(2)}</span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          className="text-[9px] px-1 py-0"
-                          variant={
-                            sub.status === "active"
-                              ? "default"
-                              : sub.status === "trialing"
-                              ? "outline"
-                              : sub.status === "past_due"
-                              ? "destructive"
-                              : "secondary"
-                          }
-                        >
-                          {sub.status === "active" ? "Activo" : sub.status === "trialing" ? "Prueba" : sub.status === "past_due" ? "Atrasado" : sub.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col text-[10px]">
-                          <span>Inicia: {sub.billing_cycle_start ? new Date(sub.billing_cycle_start).toLocaleDateString("es-DO") : "N/A"}</span>
-                          <span>Vence: {sub.billing_cycle_end ? new Date(sub.billing_cycle_end).toLocaleDateString("es-DO") : "N/A"}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col text-[10px] text-muted-foreground">
-                          <span>e-CF: {sub.limits?.max_ecf_monthly ?? "N/A"} / mes</span>
-                          <span>Consultas IA: {sub.limits?.max_ai_queries_monthly ?? "N/A"} / mes</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right space-x-1.5">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-[10px] px-2"
-                          type="button"
-                          onClick={() => setCreditSub(sub)}
-                        >
-                          <Calendar className="size-3.5 mr-1 text-emerald-600" /> + Días
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-[10px] px-2"
-                          type="button"
-                          onClick={() => handleOpenOverride(sub)}
-                        >
-                          <Settings2 className="size-3.5 mr-1 text-primary" /> Override
-                        </Button>
-                      </TableCell>
+          {subTab === "organizations" ? (
+            loadingSubs ? (
+              <div className="h-40 bg-muted rounded animate-pulse" />
+            ) : subsData && subsData.subscriptions.length > 0 ? (
+              <div className="space-y-4">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-[10px]">Organización</TableHead>
+                      <TableHead className="text-[10px]">Plan</TableHead>
+                      <TableHead className="text-[10px]">Estado</TableHead>
+                      <TableHead className="text-[10px]">Ciclo Facturación</TableHead>
+                      <TableHead className="text-[10px]">Límites e-CF/IA</TableHead>
+                      <TableHead className="text-[10px] text-right">Acciones</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {subsData.subscriptions.map((sub) => (
+                      <TableRow key={sub.id} className="text-[11px]">
+                        <TableCell className="font-semibold">{sub.organization_name || "N/A"}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span>{sub.plan_name || "Desconocido"}</span>
+                            {sub.limits?.custom_price_cents && (
+                              <span className="text-[10px] text-indigo-600 font-medium">B2B Override: RD$ {(sub.limits.custom_price_cents / 100).toFixed(2)}</span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            className="text-[9px] px-1 py-0"
+                            variant={
+                              sub.status === "active"
+                                ? "default"
+                                : sub.status === "trialing"
+                                ? "outline"
+                                : sub.status === "past_due"
+                                ? "destructive"
+                                : "secondary"
+                            }
+                          >
+                            {sub.status === "active" ? "Activo" : sub.status === "trialing" ? "Prueba" : sub.status === "past_due" ? "Atrasado" : sub.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col text-[10px]">
+                            <span>Inicia: {sub.billing_cycle_start ? new Date(sub.billing_cycle_start).toLocaleDateString("es-DO") : "N/A"}</span>
+                            <span>Vence: {sub.billing_cycle_end ? new Date(sub.billing_cycle_end).toLocaleDateString("es-DO") : "N/A"}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col text-[10px] text-muted-foreground">
+                            <span>e-CF: {sub.limits?.max_ecf_monthly ?? "N/A"} / mes</span>
+                            <span>Consultas IA: {sub.limits?.max_ai_queries_monthly ?? "N/A"} / mes</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right space-x-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-[10px] px-2"
+                            type="button"
+                            onClick={() => setCreditSub(sub)}
+                          >
+                            <Calendar className="size-3.5 mr-1 text-emerald-600" /> + Días
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-[10px] px-2"
+                            type="button"
+                            onClick={() => handleOpenOverride(sub)}
+                          >
+                            <Settings2 className="size-3.5 mr-1 text-primary" /> Override
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
 
-              {/* Pagination */}
-              <div className="flex justify-between items-center pt-2">
-                <span className="text-[10px] text-muted-foreground">Mostrando {subsData.subscriptions.length} de {subsData.total}</span>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-[10px] px-2"
-                    disabled={offset === 0}
-                    onClick={() => setOffset(Math.max(0, offset - limit))}
-                  >
-                    Anterior
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-[10px] px-2"
-                    disabled={offset + limit >= subsData.total}
-                    onClick={() => setOffset(offset + limit)}
-                  >
-                    Siguiente
-                  </Button>
+                {/* Pagination */}
+                <div className="flex justify-between items-center pt-2">
+                  <span className="text-[10px] text-muted-foreground">Mostrando {subsData.subscriptions.length} de {subsData.total}</span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[10px] px-2"
+                      disabled={offset === 0}
+                      onClick={() => setOffset(Math.max(0, offset - limit))}
+                    >
+                      Anterior
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[10px] px-2"
+                      disabled={offset + limit >= subsData.total}
+                      onClick={() => setOffset(offset + limit)}
+                    >
+                      Siguiente
+                    </Button>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="text-xs text-muted-foreground py-8 text-center">No se encontraron suscripciones B2B.</div>
+            )
           ) : (
-            <div className="text-xs text-muted-foreground py-8 text-center">No se encontraron suscripciones.</div>
+            loadingUserSubs ? (
+              <div className="h-40 bg-muted rounded animate-pulse" />
+            ) : userSubsData && userSubsData.subscriptions.length > 0 ? (
+              <div className="space-y-4">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-[10px]">Usuario</TableHead>
+                      <TableHead className="text-[10px]">Plan Hub</TableHead>
+                      <TableHead className="text-[10px]">Estado</TableHead>
+                      <TableHead className="text-[10px]">Prueba Fin</TableHead>
+                      <TableHead className="text-[10px]">Ciclo Facturación</TableHead>
+                      <TableHead className="text-[10px] text-right">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {userSubsData.subscriptions.map((sub) => (
+                      <TableRow key={sub.id} className="text-[11px]">
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span className="font-semibold">{sub.user_name || "—"}</span>
+                            <span className="text-[10px] text-muted-foreground font-mono">{sub.user_email || "N/A"}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>{sub.plan_name || "Inicial"}</TableCell>
+                        <TableCell>
+                          <Badge
+                            className="text-[9px] px-1 py-0"
+                            variant={
+                              sub.status === "active"
+                                ? "default"
+                                : sub.status === "trialing"
+                                ? "outline"
+                                : sub.status === "past_due"
+                                ? "destructive"
+                                : "secondary"
+                            }
+                          >
+                            {sub.status === "active" ? "Activo" : sub.status === "trialing" ? "Prueba" : sub.status === "past_due" ? "Atrasado" : sub.status === "expired" ? "Expirado" : sub.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{sub.trial_ends_at ? new Date(sub.trial_ends_at).toLocaleDateString("es-DO") : "N/A"}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-col text-[10px]">
+                            <span>Inicia: {sub.billing_cycle_start ? new Date(sub.billing_cycle_start).toLocaleDateString("es-DO") : "N/A"}</span>
+                            <span>Vence: {sub.billing_cycle_end ? new Date(sub.billing_cycle_end).toLocaleDateString("es-DO") : "N/A"}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right space-x-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-[10px] px-2"
+                            type="button"
+                            onClick={() => setCreditSub(sub)}
+                          >
+                            <Calendar className="size-3.5 mr-1 text-emerald-600" /> + Días
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-[10px] px-2"
+                            type="button"
+                            onClick={() => handleOpenOverride(sub)}
+                          >
+                            <Settings2 className="size-3.5 mr-1 text-primary" /> Editar
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+
+                {/* Pagination */}
+                <div className="flex justify-between items-center pt-2">
+                  <span className="text-[10px] text-muted-foreground">Mostrando {userSubsData.subscriptions.length} de {userSubsData.total}</span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[10px] px-2"
+                      disabled={offset === 0}
+                      onClick={() => setOffset(Math.max(0, offset - limit))}
+                    >
+                      Anterior
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[10px] px-2"
+                      disabled={offset + limit >= userSubsData.total}
+                      onClick={() => setOffset(offset + limit)}
+                    >
+                      Siguiente
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground py-8 text-center">No se encontraron suscripciones de usuarios.</div>
+            )
           )}
         </CardContent>
       </Card>
@@ -2532,7 +2704,11 @@ function SuscripcionesTab() {
             <AlertDialogHeader>
               <AlertDialogTitle className="text-sm font-semibold">Crédito de Días de Gracia (Grace Days)</AlertDialogTitle>
               <AlertDialogDescription className="text-muted-foreground text-[11px]">
-                Inyectar días de gracia a la organización <span className="font-semibold text-foreground">{creditSub.organization_name}</span>. Esto extenderá la fecha de vencimiento actual ({creditSub.billing_cycle_end ? new Date(creditSub.billing_cycle_end).toLocaleDateString("es-DO") : "N/A"}).
+                Inyectar días de gracia {subTab === "organizations" ? "a la organización" : "al usuario"}{" "}
+                <span className="font-semibold text-foreground">
+                  {subTab === "organizations" ? creditSub.organization_name : (creditSub.user_name || creditSub.user_email)}
+                </span>
+                . Esto extenderá la fecha de vencimiento actual ({creditSub.billing_cycle_end ? new Date(creditSub.billing_cycle_end).toLocaleDateString("es-DO") : "N/A"}).
               </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="space-y-3 my-3">
@@ -2549,7 +2725,7 @@ function SuscripcionesTab() {
                 <label className="font-medium">Razón / Justificación</label>
                 <Input
                   type="text"
-                  placeholder="Ej: Compensación por interrupción del servicio o solicitud B2B"
+                  placeholder="Ej: Compensación por interrupción del servicio"
                   value={creditReason}
                   onChange={(e) => setCreditReason(e.target.value)}
                   className="h-8 text-[11px]"
@@ -2575,9 +2751,15 @@ function SuscripcionesTab() {
         <AlertDialog open={!!overrideSub} onOpenChange={() => setOverrideSub(null)}>
           <AlertDialogContent className="max-w-lg text-xs overflow-y-auto max-h-[90vh]">
             <AlertDialogHeader>
-              <AlertDialogTitle className="text-sm font-semibold">Modificar Suscripción y Límites (B2B Override)</AlertDialogTitle>
+              <AlertDialogTitle className="text-sm font-semibold">
+                {subTab === "organizations" ? "Modificar Suscripción y Límites (B2B Override)" : "Modificar Suscripción de Usuario (Hub Access)"}
+              </AlertDialogTitle>
               <AlertDialogDescription className="text-muted-foreground text-[11px]">
-                Configurar plan personalizado y overrides para <span className="font-semibold text-foreground">{overrideSub.organization_name}</span>.
+                Configurar plan personalizado y overrides para{" "}
+                <span className="font-semibold text-foreground">
+                  {subTab === "organizations" ? overrideSub.organization_name : (overrideSub.user_name || overrideSub.user_email)}
+                </span>
+                .
               </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="space-y-4 my-2">
@@ -2612,62 +2794,70 @@ function SuscripcionesTab() {
                 </div>
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="font-medium">Precio Mensual Override (USD) <span className="text-[10px] text-muted-foreground">(Dejar vacío para usar precio de plan)</span></label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  placeholder="Ej: 99.00"
-                  value={customPrice}
-                  onChange={(e) => setCustomPrice(e.target.value)}
-                  className="h-8 text-[11px]"
-                />
-              </div>
+              {subTab === "organizations" && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-medium">Precio Mensual Override (USD) <span className="text-[10px] text-muted-foreground">(Dejar vacío para usar precio de plan)</span></label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    placeholder="Ej: 99.00"
+                    value={customPrice}
+                    onChange={(e) => setCustomPrice(e.target.value)}
+                    className="h-8 text-[11px]"
+                  />
+                </div>
+              )}
 
               {/* Addons Grid */}
               <div className="border border-muted-foreground/15 rounded-md p-3 space-y-3 bg-muted/20">
-                <h4 className="font-semibold text-[10px] text-muted-foreground uppercase tracking-wider">Addons / Goods Adicionales</h4>
+                <h4 className="font-semibold text-[10px] text-muted-foreground uppercase tracking-wider">
+                  {subTab === "organizations" ? "Addons / Goods Adicionales" : "Límites y Slots"}
+                </h4>
                 <div className="grid grid-cols-3 gap-3">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-medium">Bloques e-CF (+100)</label>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={addonEcf}
-                      onChange={(e) => setAddonEcf(parseInt(e.target.value) || 0)}
-                      className="h-8 text-[11px]"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-medium">Bloques IA (+500)</label>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={addonAi}
-                      onChange={(e) => setAddonAi(parseInt(e.target.value) || 0)}
-                      className="h-8 text-[11px]"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-medium">Bloques OCR (+100)</label>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={addonOcr}
-                      onChange={(e) => setAddonOcr(parseInt(e.target.value) || 0)}
-                      className="h-8 text-[11px]"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-medium">Almacenamiento (+10GB)</label>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={addonStorage}
-                      onChange={(e) => setAddonStorage(parseInt(e.target.value) || 0)}
-                      className="h-8 text-[11px]"
-                    />
-                  </div>
+                  {subTab === "organizations" && (
+                    <>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-medium">Bloques e-CF (+100)</label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={addonEcf}
+                          onChange={(e) => setAddonEcf(parseInt(e.target.value) || 0)}
+                          className="h-8 text-[11px]"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-medium">Bloques IA (+500)</label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={addonAi}
+                          onChange={(e) => setAddonAi(parseInt(e.target.value) || 0)}
+                          className="h-8 text-[11px]"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-medium">Bloques OCR (+100)</label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={addonOcr}
+                          onChange={(e) => setAddonOcr(parseInt(e.target.value) || 0)}
+                          className="h-8 text-[11px]"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-medium">Almacenamiento (+10GB)</label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={addonStorage}
+                          onChange={(e) => setAddonStorage(parseInt(e.target.value) || 0)}
+                          className="h-8 text-[11px]"
+                        />
+                      </div>
+                    </>
+                  )}
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-medium">Slots Entidades</label>
                     <Input
@@ -2678,28 +2868,32 @@ function SuscripcionesTab() {
                       className="h-8 text-[11px]"
                     />
                   </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-medium">Slots Usuarios</label>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={addonUser}
-                      onChange={(e) => setAddonUser(parseInt(e.target.value) || 0)}
-                      className="h-8 text-[11px]"
-                    />
-                  </div>
+                  {subTab === "organizations" && (
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-medium">Slots Usuarios</label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={addonUser}
+                        onChange={(e) => setAddonUser(parseInt(e.target.value) || 0)}
+                        className="h-8 text-[11px]"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="font-medium">JSON de Overrides de Límites <span className="text-[10px] text-muted-foreground">(Formatos válidos: max_users, max_ecf_monthly, max_ai_queries_monthly, etc.)</span></label>
-                <textarea
-                  className="flex min-h-[120px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
-                  placeholder='{\n  "max_users": 15,\n  "max_ecf_monthly": 500\n}'
-                  value={customLimits}
-                  onChange={(e) => setCustomLimits(e.target.value)}
-                />
-              </div>
+              {subTab === "organizations" && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-medium">JSON de Overrides de Límites <span className="text-[10px] text-muted-foreground">(Formatos válidos: max_users, max_ecf_monthly, max_ai_queries_monthly, etc.)</span></label>
+                  <textarea
+                    className="flex min-h-[120px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
+                    placeholder='{\n  "max_users": 15,\n  "max_ecf_monthly": 500\n}'
+                    value={customLimits}
+                    onChange={(e) => setCustomLimits(e.target.value)}
+                  />
+                </div>
+              )}
             </div>
             <AlertDialogFooter className="pt-2">
               <AlertDialogCancel className="h-8 text-[11px]" onClick={() => setOverrideSub(null)}>Cancelar</AlertDialogCancel>
