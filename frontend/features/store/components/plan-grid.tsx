@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 interface PlanGridProps {
   plans: PlanSummary[] | undefined;
   currentPlan: PlanSummary | null;
+  isTrial?: boolean;
   isLoading: boolean;
   isError: boolean;
   cartPlanNames: (string | undefined)[];
@@ -19,6 +20,7 @@ interface PlanGridProps {
 export function PlanGrid({
   plans,
   currentPlan,
+  isTrial,
   isLoading,
   isError,
   cartPlanNames,
@@ -106,6 +108,7 @@ export function PlanGrid({
             <PlanCard
               plan={plan}
               currentPlan={currentPlan}
+              isTrial={isTrial}
               onAddToCart={() => onAddToCart(plan)}
               inCart={inCart}
               commitMonths={commitMonths}
