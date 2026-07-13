@@ -180,6 +180,7 @@ export function StorePage() {
         <PlanGrid
           plans={publicPlans}
           currentPlan={mySubData?.plan ?? null}
+          isTrial={mySubData?.subscription?.status === "trialing"}
           isLoading={mySubLoading || plansLoading}
           isError={plansError}
           cartPlanNames={cartPlanNames}
