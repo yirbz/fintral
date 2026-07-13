@@ -279,6 +279,40 @@ export const adminApi = {
 
   listSubscriptionPlans: () => apiFetch<AdminSubscriptionPlan[]>("/api/admin/subscription-plans"),
 
+  listUserSubscriptions: (params?: {
+    status?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.status) query.set("status", params.status);
+    if (params?.search) query.set("search", params.search);
+    if (params?.limit) query.set("limit", String(params.limit));
+    if (params?.offset) query.set("offset", String(params.offset));
+    const qs = query.toString();
+    return apiFetch<AdminUserSubscriptionsResponse>(`/api/admin/user-subscriptions${qs ? `?${qs}` : ""}`);
+  },
+
+  updateUserSubscription: (subId: string, data: Partial<{
+    plan_id: string;
+    status: string;
+    billing_cycle_end: string;
+    trial_ends_at: string;
+    addon_entity_slots?: number;
+  }>) => apiFetch<AdminUserSubscription>(`/api/admin/user-subscriptions/${subId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  }),
+
+  creditUserSubscription: (subId: string, data: { days: number; reason: string }) =>
+    apiFetch<AdminUserSubscription>(`/api/admin/user-subscriptions/${subId}/credit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+
   suspendTenant: (
     tenantId: string,
     data: { reason: string; grace_days: number; notify_user: boolean }
@@ -392,6 +426,18 @@ export interface AdminSubscription {
   custom_limits_json: Record<string, any> | null;
   is_trialing: boolean;
   organization_name: string | null;
+}
+
+export interface AdminUserSubscription extends AdminSubscription {
+  user_email: string | null;
+  user_name: string | null;
+}
+
+export interface AdminUserSubscriptionsResponse {
+  subscriptions: AdminUserSubscription[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface AdminSubscriptionsResponse {

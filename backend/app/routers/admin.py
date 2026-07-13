@@ -1747,6 +1747,172 @@ async def list_admin_subscription_plans(
     return [plan.to_dict() for plan in plans]
 
 
+@router.get("/user-subscriptions")
+async def list_admin_user_subscriptions(
+    status: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    from app.models.user_subscription import UserSubscription
+    from app.models.user import User
+
+    q = db.query(UserSubscription).join(User, UserSubscription.user_id == User.id)
+    if status:
+        q = q.filter(UserSubscription.status == status)
+    if search:
+        search_filter = f"%{search}%"
+        q = q.filter(
+            (User.email.ilike(search_filter)) |
+            (User.full_name.ilike(search_filter))
+        )
+
+    total = q.count()
+    subs = q.order_by(UserSubscription.created_at.desc()).offset(offset).limit(limit).all()
+
+    result = []
+    for sub in subs:
+        sub_dict = sub.to_dict()
+        sub_dict["user_email"] = sub.user.email if sub.user else None
+        sub_dict["user_name"] = sub.user.full_name if sub.user else None
+        result.append(sub_dict)
+
+    return {
+        "subscriptions": result,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+class UserSubscriptionUpdate(BaseModel):
+    plan_id: Optional[UUID] = None
+    status: Optional[str] = None
+    billing_cycle_end: Optional[datetime] = None
+    trial_ends_at: Optional[datetime] = None
+    addon_entity_slots: Optional[int] = None
+
+
+@router.patch("/user-subscriptions/{sub_id}")
+async def update_admin_user_subscription(
+    sub_id: UUID,
+    body: UserSubscriptionUpdate,
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    from app.models.user_subscription import UserSubscription
+    from app.services import audit_logger
+
+    sub = db.query(UserSubscription).filter(UserSubscription.id == sub_id).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="User subscription not found")
+
+    old_values = {}
+    new_values = {}
+
+    if body.plan_id is not None:
+        old_values["plan_id"] = str(sub.plan_id)
+        sub.plan_id = body.plan_id
+        new_values["plan_id"] = str(body.plan_id)
+
+    if body.status is not None:
+        old_values["status"] = sub.status
+        sub.status = body.status
+        new_values["status"] = body.status
+
+    if body.billing_cycle_end is not None:
+        old_values["billing_cycle_end"] = sub.billing_cycle_end.isoformat() if sub.billing_cycle_end else None
+        dt = body.billing_cycle_end
+        if dt.tzinfo is None:
+            import pytz
+            dt = pytz.UTC.localize(dt)
+        sub.billing_cycle_end = dt
+        new_values["billing_cycle_end"] = dt.isoformat()
+
+    if body.trial_ends_at is not None:
+        old_values["trial_ends_at"] = sub.trial_ends_at.isoformat() if sub.trial_ends_at else None
+        dt = body.trial_ends_at
+        if dt.tzinfo is None:
+            import pytz
+            dt = pytz.UTC.localize(dt)
+        sub.trial_ends_at = dt
+        new_values["trial_ends_at"] = dt.isoformat()
+
+    if body.addon_entity_slots is not None:
+        old_values["addon_entity_slots"] = sub.addon_entity_slots
+        sub.addon_entity_slots = body.addon_entity_slots
+        new_values["addon_entity_slots"] = body.addon_entity_slots
+
+    sub.updated_at = utc_now()
+    db.commit()
+    db.refresh(sub)
+
+    audit_logger.record(
+        db=db,
+        tenant_id=ctx.tenant_id,
+        organization_id=sub.organization_id,
+        organization_name=None,
+        actor_id=str(ctx.user.id),
+        actor_name=ctx.user.full_name,
+        actor_email=ctx.user.email,
+        action="settings.updated",
+        resource_type="user_subscription",
+        resource_id=str(sub.id),
+        summary="Suscripción de usuario modificada por administrador",
+        details=f"Valores modificados: {json.dumps(new_values)}",
+        metadata={"old_values": old_values, "new_values": new_values},
+    )
+
+    return sub.to_dict()
+
+
+@router.post("/user-subscriptions/{sub_id}/credit")
+async def credit_admin_user_subscription(
+    sub_id: UUID,
+    body: SubscriptionCreditRequest,
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+):
+    from app.models.user_subscription import UserSubscription
+    from app.services import audit_logger
+
+    sub = db.query(UserSubscription).filter(UserSubscription.id == sub_id).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="User subscription not found")
+
+    old_cycle_end = sub.billing_cycle_end
+    new_cycle_end = (old_cycle_end or utc_now()) + timedelta(days=body.days)
+    sub.billing_cycle_end = new_cycle_end
+    sub.updated_at = utc_now()
+    db.commit()
+    db.refresh(sub)
+
+    audit_logger.record(
+        db=db,
+        tenant_id=ctx.tenant_id,
+        organization_id=sub.organization_id,
+        organization_name=None,
+        actor_id=str(ctx.user.id),
+        actor_name=ctx.user.full_name,
+        actor_email=ctx.user.email,
+        action="settings.updated",
+        resource_type="user_subscription",
+        resource_id=str(sub.id),
+        summary="Crédito de días de gracia aplicado a suscripción de usuario",
+        details=f"Se agregaron {body.days} días de gracia. Nueva fecha fin: {new_cycle_end.isoformat()}. Razón: {body.reason}",
+        metadata={
+            "grace_days": body.days,
+            "reason": body.reason,
+            "old_billing_cycle_end": old_cycle_end.isoformat() if old_cycle_end else None,
+            "new_billing_cycle_end": new_cycle_end.isoformat(),
+        },
+    )
+
+    return sub.to_dict()
+
+
 # ---------------------------------------------------------------------------
 # Payment Proofs (admin review)
 # ---------------------------------------------------------------------------
