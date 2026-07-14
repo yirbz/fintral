@@ -24,7 +24,7 @@ cd /app
 # Run all pending migrations (PostgreSQL + ClickHouse)
 # db:migrate handles both; ClickHouse migrations generate clickhouse_structure.sql
 DISABLE_DATABASE_ENVIRONMENT_CHECK=1 timeout 300 bundle exec rails db:migrate 2>&1 || echo "Migration failed or timed out"
-timeout 30 bundle exec rails signup:seed_organization 2>&1 || echo "Seed skipped or already seeded"
+timeout 60 bundle exec rails signup:seed_organization 2>&1 && echo "Seed completed successfully" || echo "Seed skipped, failed, or already seeded"
 
 echo "Starting Lago services..."
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
