@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { apiFetch } from "@/lib/api/client"
 import { login } from "@/lib/api/session"
+import { useSession, useLogout } from "@/hooks/use-session"
 
 function LogoBars() {
   return (
@@ -35,6 +36,9 @@ export default function AcceptInvitePage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const token = searchParams.get("token")
+  const logout = useLogout()
+
+  const { data: session, isLoading: sessionLoading } = useSession()
 
   const [info, setInfo] = useState<InviteInfo | null>(null)
   const [loading, setLoading] = useState(true)
@@ -46,6 +50,7 @@ export default function AcceptInvitePage() {
   const [phone, setPhone] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [accepting, setAccepting] = useState(false)
   const [success, setSuccess] = useState(false)
 
   // Fetch invitation info on mount
@@ -66,6 +71,27 @@ export default function AcceptInvitePage() {
       })
       .finally(() => setLoading(false))
   }, [token])
+
+  const handleAcceptInvite = async () => {
+    if (!token) return
+    setAccepting(true)
+    try {
+      await apiFetch("/api/organizations/invitations/accept", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      })
+      toast.success("¡Invitación aceptada con éxito!")
+      setSuccess(true)
+      setTimeout(() => {
+        window.location.href = "/dashboard"
+      }, 1000)
+    } catch (err: any) {
+      toast.error("Error al aceptar invitación", { description: err.message })
+    } finally {
+      setAccepting(false)
+    }
+  }
 
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
@@ -117,7 +143,7 @@ export default function AcceptInvitePage() {
   }
 
   // ── Loading state ──
-  if (loading) {
+  if (loading || (sessionLoading && !session)) {
     return (
       <div className="flex h-dvh items-center justify-center bg-zinc-950">
         <div className="flex flex-col items-center gap-4">
@@ -236,97 +262,157 @@ export default function AcceptInvitePage() {
                 </div>
               )}
 
-              <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-                <div>
-                  <Label className="mb-1.5 block text-xs font-medium text-zinc-400">
-                    Email de acceso
-                  </Label>
-                  <Input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="tu@email.com"
-                    className="border-white/[0.08] bg-white/[0.03] text-white placeholder:text-zinc-600"
-                    required
-                  />
-                  <p className="mt-1 text-xs text-zinc-600">
-                    Este será tu email para iniciar sesión. Puede ser distinto al email invitado.
-                  </p>
-                </div>
+              {session && session.user ? (
+                <div className="flex flex-col gap-4">
+                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 text-center">
+                    <p className="text-xs text-zinc-400">
+                      Has iniciado sesión como:
+                    </p>
+                    <p className="mt-1 font-semibold text-white">
+                      {session.user.email}
+                    </p>
+                  </div>
 
-                <div>
-                  <Label className="mb-1.5 block text-xs font-medium text-zinc-400">
-                    Nombre completo
-                  </Label>
-                  <Input
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    placeholder="Tu nombre completo"
-                    className="border-white/[0.08] bg-white/[0.03] text-white placeholder:text-zinc-600"
-                    autoFocus
-                    required
-                  />
-                </div>
+                  {session.user.email.toLowerCase() === info?.email.toLowerCase() ? (
+                    <>
+                      <p className="text-xs text-zinc-400 text-center leading-relaxed">
+                        Puedes aceptar esta invitación para unirte a <strong>{info.organization_name}</strong> como <strong>{info.role}</strong> con tu cuenta actual.
+                      </p>
+                      <Button
+                        onClick={handleAcceptInvite}
+                        disabled={accepting}
+                        className="w-full bg-sky-500 text-white hover:bg-sky-400 disabled:opacity-50"
+                      >
+                        {accepting ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          "Aceptar invitación y continuar"
+                        )}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3 text-xs text-red-400 leading-relaxed text-center">
+                        Esta invitación fue enviada a <strong>{info?.email}</strong> pero has iniciado sesión como <strong>{session.user.email}</strong>. Para aceptarla, debes usar la cuenta del correo invitado.
+                      </div>
+                      <Button
+                        variant="outline"
+                        onClick={() => logout()}
+                        className="w-full border-white/[0.08] bg-white/[0.02] text-white hover:bg-white/[0.04]"
+                      >
+                        Cerrar sesión y usar otra cuenta
+                      </Button>
+                    </>
+                  )}
 
-                <div>
-                  <Label className="mb-1.5 block text-xs font-medium text-zinc-400">
-                    Teléfono (opcional)
-                  </Label>
-                  <Input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+1 809 555 0123"
-                    className="border-white/[0.08] bg-white/[0.03] text-white placeholder:text-zinc-600"
-                  />
-                </div>
-
-                <div>
-                  <Label className="mb-1.5 block text-xs font-medium text-zinc-400">
-                    Contraseña
-                  </Label>
-                  <div className="relative">
-                    <Input
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Mínimo 8 caracteres"
-                      className="border-white/[0.08] bg-white/[0.03] text-white placeholder:text-zinc-600 pr-10"
-                      minLength={8}
-                      required
-                    />
+                  <div className="text-center text-xs text-zinc-500">
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                      onClick={() => logout()}
+                      className="text-sky-400 hover:text-sky-300 underline underline-offset-2"
                     >
-                      {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                      Cerrar sesión
                     </button>
                   </div>
-                  <p className="mt-1 text-xs text-zinc-600">
-                    Mínimo 8 caracteres, con mayúscula, minúscula y número/símbolo.
-                  </p>
                 </div>
+              ) : (
+                <>
+                  <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                    <div>
+                      <Label className="mb-1.5 block text-xs font-medium text-zinc-400">
+                        Email de acceso
+                      </Label>
+                      <Input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="tu@email.com"
+                        className="border-white/[0.08] bg-white/[0.03] text-white placeholder:text-zinc-600"
+                        required
+                      />
+                      <p className="mt-1 text-xs text-zinc-600">
+                        Este será tu email para iniciar sesión. Puede ser distinto al email invitado.
+                      </p>
+                    </div>
 
-                <Button
-                  type="submit"
-                  disabled={!fullName.trim() || !email.trim() || password.length < 8 || submitting}
-                  className="mt-2 w-full bg-sky-500 text-white hover:bg-sky-400 disabled:opacity-50"
-                >
-                  {submitting ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    "Aceptar invitación y crear cuenta"
-                  )}
-                </Button>
-              </form>
+                    <div>
+                      <Label className="mb-1.5 block text-xs font-medium text-zinc-400">
+                        Nombre completo
+                      </Label>
+                      <Input
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        placeholder="Tu nombre completo"
+                        className="border-white/[0.08] bg-white/[0.03] text-white placeholder:text-zinc-600"
+                        autoFocus
+                        required
+                      />
+                    </div>
 
-              <p className="mt-4 text-center text-xs text-zinc-600">
-                ¿Ya tienes una cuenta?{" "}
-                <a href="/login" className="text-sky-400 hover:text-sky-300 underline underline-offset-2">
-                  Inicia sesión
-                </a>
-              </p>
+                    <div>
+                      <Label className="mb-1.5 block text-xs font-medium text-zinc-400">
+                        Teléfono (opcional)
+                      </Label>
+                      <Input
+                        type="tel"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="+1 809 555 0123"
+                        className="border-white/[0.08] bg-white/[0.03] text-white placeholder:text-zinc-600"
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="mb-1.5 block text-xs font-medium text-zinc-400">
+                        Contraseña
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          type={showPassword ? "text" : "password"}
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder="Mínimo 8 caracteres"
+                          className="border-white/[0.08] bg-white/[0.03] text-white placeholder:text-zinc-600 pr-10"
+                          minLength={8}
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                        >
+                          {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                        </button>
+                      </div>
+                      <p className="mt-1 text-xs text-zinc-600">
+                        Mínimo 8 caracteres, con mayúscula, minúscula y número/símbolo.
+                      </p>
+                    </div>
+
+                    <Button
+                      type="submit"
+                      disabled={!fullName.trim() || !email.trim() || password.length < 8 || submitting}
+                      className="mt-2 w-full bg-sky-500 text-white hover:bg-sky-400 disabled:opacity-50"
+                    >
+                      {submitting ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        "Aceptar invitación y crear cuenta"
+                      )}
+                    </Button>
+                  </form>
+
+                  <p className="mt-4 text-center text-xs text-zinc-600">
+                    ¿Ya tienes una cuenta?{" "}
+                    <a
+                      href={`/login?redirect=${typeof window !== "undefined" ? encodeURIComponent(window.location.origin + "/accept-invite?token=" + token) : ""}`}
+                      className="text-sky-400 hover:text-sky-300 underline underline-offset-2"
+                    >
+                      Inicia sesión
+                    </a>
+                  </p>
+                </>
+              )}
             </div>
           </div>
         </div>
