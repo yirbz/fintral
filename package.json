@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "railway": "^3.5.7",
     "vercel": "^54.20.0"
   }
 }
