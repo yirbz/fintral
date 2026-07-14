@@ -14,10 +14,10 @@ if [ -f /usr/share/nginx/html/.env.sh ]; then
   bash /usr/share/nginx/html/.env.sh
 fi
 
-# Set ClickHouse env vars to prevent hanging
-export LAGO_CLICKHOUSE_HOST="127.0.0.1"
-export LAGO_CLICKHOUSE_DATABASE="lago"
-export LAGO_CLICKHOUSE_MIGRATIONS_ENABLED="false"
+# Set ClickHouse env vars with Railway-level overrides
+export LAGO_CLICKHOUSE_HOST="${LAGO_CLICKHOUSE_HOST:-127.0.0.1}"
+export LAGO_CLICKHOUSE_DATABASE="${LAGO_CLICKHOUSE_DATABASE:-lago}"
+export LAGO_CLICKHOUSE_MIGRATIONS_ENABLED="${LAGO_CLICKHOUSE_MIGRATIONS_ENABLED:-false}"
 
 echo "Running database setup..."
 cd /app
