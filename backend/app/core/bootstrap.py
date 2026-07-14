@@ -186,12 +186,12 @@ def init_database() -> None:
                         "  ✗ %s (%s) — skipping (already exists): %s",
                         rev.revision, rev.doc or "no doc", e,
                     )
-                with migrator_engine.connect() as conn:
-                    conn.execute(
-                        text("UPDATE alembic_version SET version_num = :rev"),
-                        {"rev": rev.revision},
-                    )
-                    conn.commit()
+                    with migrator_engine.connect() as conn:
+                        conn.execute(
+                            text("UPDATE alembic_version SET version_num = :rev"),
+                            {"rev": rev.revision},
+                        )
+                        conn.commit()
                 else:
                     logger.error(
                         "Fatal error in migration %s (%s): %s",
