@@ -209,3 +209,8 @@ MIO_FAILED_REDIRECT: str = os.getenv("MIO_FAILED_REDIRECT", "")
 TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
 # Chat ID of the admin (or group) where alerts are sent.
 TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")
+
+# Telegram Bot (support escalations)
+# Separated bot for support escalations from AI to human agents.
+TELEGRAM_SUPPORT_BOT_TOKEN: str = os.getenv("TELEGRAM_SUPPORT_BOT_TOKEN", "") or TELEGRAM_BOT_TOKEN
+TELEGRAM_SUPPORT_CHAT_ID: str = os.getenv("TELEGRAM_SUPPORT_CHAT_ID", "") or TELEGRAM_CHAT_ID
