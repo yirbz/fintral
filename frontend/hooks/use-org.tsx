@@ -83,7 +83,8 @@ function isOnPublicPage(): boolean {
     path.startsWith("/upload/public") ||
     path.startsWith("/forgot") ||
     path.startsWith("/docs") ||
-    path.startsWith("/verify")
+    path.startsWith("/verify") ||
+    path.startsWith("/accept-invite")
   );
 }
 
