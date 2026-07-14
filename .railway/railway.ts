@@ -25,7 +25,6 @@ export default defineRailway(() => {
     root: "backend",
     build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "Dockerfile" },
     replicas: { "us-east4-eqdc4a": 1 },
-    domains: [{ domain: "stg-api.fintral.app", port: 8000 }],
     env: {
       ADMIN_EMAIL: preserve(),
       ADMIN_FULL_NAME: preserve(),
