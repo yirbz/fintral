@@ -75,6 +75,22 @@ class UserSubscription(Base):
     def addon_user_slots(self) -> int:
         return 0
 
+    @property
+    def pending_cancel_user_slots(self) -> int:
+        return 0
+
+    @property
+    def pending_cancel_ai_blocks(self) -> int:
+        return 0
+
+    @property
+    def pending_cancel_storage_blocks(self) -> int:
+        return 0
+
+    @property
+    def pending_cancel_ocr_blocks(self) -> int:
+        return 0
+
     def effective_limits(self) -> dict:
         """Return the actual limits combining plan base + addons."""
         if not self.plan:
