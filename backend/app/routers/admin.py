@@ -2275,6 +2275,35 @@ async def admin_verify_payment(
                     user_sub.billing_cycle_end = utc_now() + timedelta(days=30 * months)
                 db.flush()
                 logger.info("Successfully activated UserSubscription %s for user %s", user_sub.id, proof.user_id)
+
+                # Build proration summary for admin visibility
+                proration_notes = []
+                if proof.items_json:
+                    try:
+                        cart_items = json.loads(proof.items_json)
+                        for ci in cart_items:
+                            if ci.get("prorated") and ci.get("type") == "plan_change":
+                                old_plan = ci.get("old_plan_name", "anterior")
+                                days_rem = ci.get("days_remaining", "?")
+                                cycle_days = ci.get("cycle_days", "?")
+                                credit = ci.get("credit_cents", 0) / 100
+                                original = ci.get("original_price_cents", 0) / 100
+                                net = ci.get("price_cents", 0) / 100
+                                proration_notes.append(
+                                    f"Prorrateo aplicado: Plan {old_plan} → {ci.get('plan_name', 'nuevo')}. "
+                                    f"Días restantes: {days_rem}/{cycle_days}. "
+                                    f"Precio plan nuevo: RD$ {original:,.2f}. "
+                                    f"Crédito plan anterior: RD$ {credit:,.2f}. "
+                                    f"Neto a cobrar: RD$ {net:,.2f}."
+                                )
+                    except Exception:
+                        pass
+
+                if proration_notes:
+                    existing_notes = proof.admin_notes or ""
+                    proration_summary = "\n".join(proration_notes)
+                    proof.admin_notes = f"{existing_notes}\n📊 {proration_summary}".strip()
+                    db.flush()
             else:
                 # If no user sub exists, provision one
                 from app.models.subscription_plan import SubscriptionPlan

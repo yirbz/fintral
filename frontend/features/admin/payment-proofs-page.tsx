@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 const STATUS_MAP: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
   pending: { label: "Pendiente", variant: "secondary" },
@@ -320,27 +321,51 @@ export function AdminPaymentProofsPage() {
                   <span className="text-muted-foreground">Items del carrito:</span>
                   <div className="mt-1.5 space-y-1">
                     {selectedProof.items.map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between rounded border border-border/40 p-2 text-xs">
-                        <div>
-                          <span className="font-medium text-foreground">
-                            {item.label || item.type}
-                          </span>
-                          {item.quantity > 1 && (
-                            <span className="text-muted-foreground ml-1">×{item.quantity}</span>
-                          )}
-                          <span className="text-[10px] text-muted-foreground ml-2">
-                            ({item.type === "plan_change" ? "Cambio de plan" :
-                              item.type === "addon" ? `Addon: ${item.addon_type}` :
-                              item.type === "renewal" ? `Renovación: ${item.months}m` :
-                              item.type === "overage" ? "Pago por uso" : item.type})
+                      <div key={idx} className={cn(
+                        "rounded border p-2 text-xs",
+                        item.prorated && item.type === "plan_change"
+                          ? "border-amber-500/30 bg-amber-500/5"
+                          : "border-border/40"
+                      )}>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="font-medium text-foreground">
+                              {item.label || item.type}
+                            </span>
+                            {item.quantity > 1 && (
+                              <span className="text-muted-foreground ml-1">×{item.quantity}</span>
+                            )}
+                            <span className="text-[10px] text-muted-foreground ml-2">
+                              ({item.type === "plan_change" ? "Cambio de plan" :
+                                item.type === "addon" ? `Addon: ${item.addon_type}` :
+                                item.type === "renewal" ? `Renovación: ${item.months}m` :
+                                item.type === "overage" ? "Pago por uso" : item.type})
+                            </span>
+                            {item.prorated && item.type === "plan_change" && (
+                              <Badge variant="outline" className="ml-2 text-[9px] border-amber-500/50 text-amber-600 dark:text-amber-400">
+                                Prorrateo aplicado
+                              </Badge>
+                            )}
+                          </div>
+                          <span className="font-mono tabular-nums text-muted-foreground">
+                            {(item.price_cents / 100).toLocaleString("es-DO", {
+                              style: "currency",
+                              currency: selectedProof.currency || "DOP",
+                            })}
                           </span>
                         </div>
-                        <span className="font-mono tabular-nums text-muted-foreground">
-                          {(item.price_cents / 100).toLocaleString("es-DO", {
-                            style: "currency",
-                            currency: selectedProof.currency || "DOP",
-                          })}
-                        </span>
+                        {item.prorated && item.type === "plan_change" && (
+                          <div className="mt-1.5 pt-1.5 border-t border-amber-500/20 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px] text-muted-foreground">
+                            <div>Plan anterior: <span className="font-medium text-foreground">{item.old_plan_name || "—"}</span></div>
+                            <div>Días restantes: <span className="font-medium text-foreground">{item.days_remaining}/{item.cycle_days}</span></div>
+                            <div>Precio plan nuevo: <span className="font-medium text-foreground">
+                              {((item.original_price_cents || 0) / 100).toLocaleString("es-DO", { style: "currency", currency: selectedProof.currency || "DOP" })}
+                            </span></div>
+                            <div>Crédito plan anterior: <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                              -{((item.credit_cents || 0) / 100).toLocaleString("es-DO", { style: "currency", currency: selectedProof.currency || "DOP" })}
+                            </span></div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
