@@ -121,6 +121,20 @@ async def escalate_to_human(
 
         await websocket_manager.broadcast(notification)
 
+        # Send Telegram notification for support escalation
+        try:
+            from app.services.telegram_notifier import TelegramSupportNotifier
+            notifier = TelegramSupportNotifier()
+            await notifier.notify_support_escalation(
+                user_name=user_name,
+                user_email=user_email,
+                org_name=org_name,
+                subject=body.subject,
+                message=body.message,
+            )
+        except Exception as telegram_err:
+            logger.warning("Failed to send Telegram support escalation: %s", telegram_err)
+
         logger.info(
             "Support escalation from org=%s user=%s subject=%s",
             ctx.org_id, ctx.user.id if ctx.user else "?", body.subject,
