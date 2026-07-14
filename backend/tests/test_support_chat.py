@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from app.factory import create_app
 from app.dependencies.tenant import require_tenant, TenantContext
