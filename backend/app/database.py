@@ -79,9 +79,11 @@ class GUID(TypeDecorator):
 engine = None
 
 try:
-    logger.info("🐘 Conectando a PostgreSQL")
+    logger.info("Conectando a PostgreSQL")
     engine = create_engine(
         DATABASE_URL,
+        pool_size=3,
+        max_overflow=5,
         pool_pre_ping=True,
         pool_recycle=300,
         echo=False,
@@ -99,6 +101,8 @@ def get_engine():
     if engine is None:
         engine = create_engine(
             DATABASE_URL,
+            pool_size=3,
+            max_overflow=5,
             pool_pre_ping=True,
             pool_recycle=300,
             echo=False,
