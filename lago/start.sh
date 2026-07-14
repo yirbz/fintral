@@ -21,9 +21,15 @@ export LAGO_CLICKHOUSE_MIGRATIONS_ENABLED="${LAGO_CLICKHOUSE_MIGRATIONS_ENABLED:
 
 echo "Running database setup..."
 cd /app
+# Ensure ClickHouse schema file exists (required by clickhouse-activerecord gem)
+if [ ! -f /app/db/clickhouse_structure.sql ]; then
+  echo "Creating placeholder clickhouse_structure.sql..."
+  mkdir -p /app/db
+  echo "-- ClickHouse schema placeholder" > /app/db/clickhouse_structure.sql
+fi
 # Fast path: load schema from structure.sql (creates all tables at once)
 # DISABLE_DATABASE_ENVIRONMENT_CHECK prevents Rails from prompting for confirmation
-DISABLE_DATABASE_ENVIRONMENT_CHECK=1 timeout 60 bundle exec rails db:schema:load 2>&1 || echo "Schema load failed"
+DISABLE_DATABASE_ENVIRONMENT_CHECK=1 timeout 120 bundle exec rails db:schema:load 2>&1 || echo "Schema load failed"
 # Run any pending migrations (safely handles already-loaded schema)
 timeout 300 bundle exec rails db:migrate 2>&1 || echo "Migration failed or timed out"
 timeout 30 bundle exec rails signup:seed_organization 2>&1 || echo "Seed skipped or already seeded"
