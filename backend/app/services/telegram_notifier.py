@@ -208,3 +208,72 @@ class TelegramNotifier:
             f"─────────────────────────"
         )
         return await self._send_message(text)
+
+
+class TelegramSupportNotifier:
+    """Sends formatted support escalation notifications to the support Telegram chat via bot.
+    """
+
+    def __init__(self):
+        self.bot_token = settings.TELEGRAM_SUPPORT_BOT_TOKEN
+        self.chat_id = settings.TELEGRAM_SUPPORT_CHAT_ID
+        self.api_base = f"https://api.telegram.org/bot{self.bot_token}" if self.bot_token else None
+
+    def _is_configured(self) -> bool:
+        return bool(self.bot_token and self.chat_id)
+
+    async def _send_message(
+        self,
+        text: str,
+        parse_mode: str = "HTML",
+        reply_markup: dict[str, Any] | None = None,
+    ) -> bool:
+        """Send a message to the configured Telegram chat."""
+        if not self._is_configured():
+            logger.info(f"[Telegram Support] Not configured. Would send: {text[:100]}...")
+            return False
+
+        payload: dict[str, Any] = {
+            "chat_id": self.chat_id,
+            "text": text,
+            "parse_mode": parse_mode,
+        }
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(f"{self.api_base}/sendMessage", json=payload)
+                resp.raise_for_status()
+                result = resp.json()
+                if result.get("ok"):
+                    logger.info("[Telegram Support] Message sent successfully")
+                    return True
+                else:
+                    logger.warning(f"[Telegram Support] API error: {result}")
+                    return False
+        except Exception as e:
+            logger.error(f"[Telegram Support] Failed to send message: {e}")
+            return False
+
+    async def notify_support_escalation(
+        self,
+        user_name: str,
+        user_email: str,
+        org_name: str,
+        subject: str,
+        message: str,
+    ) -> bool:
+        """Notify support about a new human agent escalation request."""
+        text = (
+            f"🆘 <b>NUEVA SOLICITUD DE SOPORTE (ESCALADO)</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Usuario:</b> {user_name} ({user_email})\n"
+            f"🏢 <b>Organización:</b> {org_name}\n"
+            f"📌 <b>Asunto:</b> {subject}\n"
+            f"💬 <b>Detalle:</b>\n"
+            f"<i>{message}</i>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"⚠️ <i>Por favor, abordar al usuario lo antes posible.</i>"
+        )
+        return await self._send_message(text)
