@@ -42,13 +42,17 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations with a live connection."""
-    from sqlalchemy import create_engine
+    engine = config.attributes.get("engine")
+    if engine is None:
+        from sqlalchemy import create_engine
 
-    engine = create_engine(
-        config.get_main_option("sqlalchemy.url"),
-        pool_pre_ping=True,
-        pool_recycle=300,
-    )
+        engine = create_engine(
+            config.get_main_option("sqlalchemy.url"),
+            pool_size=1,
+            max_overflow=0,
+            pool_pre_ping=True,
+            pool_recycle=300,
+        )
 
     with engine.connect() as connection:
         context.configure(

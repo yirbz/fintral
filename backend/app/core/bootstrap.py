@@ -52,8 +52,9 @@ def init_database() -> None:
     from alembic import command
     from alembic.config import Config
     from alembic.script import ScriptDirectory
-    from sqlalchemy import inspect, text
+    from sqlalchemy import create_engine, inspect, text
 
+    from app.config import DATABASE_URL
     from app.database import Base, engine
 
     if engine is None:
@@ -71,9 +72,20 @@ def init_database() -> None:
         return
 
     t0 = time.time()
+
+    migrator_engine = create_engine(
+        DATABASE_URL,
+        pool_size=2,
+        max_overflow=0,
+        pool_pre_ping=True,
+        pool_recycle=300,
+        echo=False,
+    )
+
     alembic_cfg = Config("alembic.ini")
     alembic_cfg.attributes["skip_logging_config"] = True
-    inspector = inspect(engine)
+    alembic_cfg.attributes["engine"] = migrator_engine
+    inspector = inspect(migrator_engine)
     tables = inspector.get_table_names()
     has_alembic_version = "alembic_version" in tables
     has_data_tables = "invoices" in tables
@@ -86,7 +98,7 @@ def init_database() -> None:
     )
 
     if has_alembic_version:
-        with engine.connect() as conn:
+        with migrator_engine.connect() as conn:
             row = conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
         script = ScriptDirectory.from_config(alembic_cfg)
         head_rev = script.get_current_head()
@@ -96,7 +108,7 @@ def init_database() -> None:
         # ORM model columns against the database. If any column is missing,
         # the previous migration likely failed silently. Reset and re-run.
         if row == head_rev and head_rev != script.get_base():
-            drift = _detect_schema_drift(inspector, engine)
+            drift = _detect_schema_drift(inspector, migrator_engine)
             if drift:
                 base_rev = script.get_base()
                 logger.warning(
@@ -104,7 +116,7 @@ def init_database() -> None:
                     "missing %d column(s): %s. Resetting to base (%s).",
                     row, len(drift), drift, base_rev,
                 )
-                with engine.connect() as conn:
+                with migrator_engine.connect() as conn:
                     conn.execute(text("UPDATE alembic_version SET version_num = :base"), {"base": base_rev})
                     conn.commit()
                 row = base_rev
@@ -123,7 +135,7 @@ def init_database() -> None:
                 row,
                 base_rev,
             )
-            with engine.connect() as conn:
+            with migrator_engine.connect() as conn:
                 conn.execute(text("UPDATE alembic_version SET version_num = :base"), {"base": base_rev})
                 conn.commit()
             logger.info("Updated alembic_version from %s to %s", row, base_rev)
@@ -174,12 +186,12 @@ def init_database() -> None:
                         "  ✗ %s (%s) — skipping (already exists): %s",
                         rev.revision, rev.doc or "no doc", e,
                     )
-                    with engine.connect() as conn:
-                        conn.execute(
-                            text("UPDATE alembic_version SET version_num = :rev"),
-                            {"rev": rev.revision},
-                        )
-                        conn.commit()
+                with migrator_engine.connect() as conn:
+                    conn.execute(
+                        text("UPDATE alembic_version SET version_num = :rev"),
+                        {"rev": rev.revision},
+                    )
+                    conn.commit()
                 else:
                     logger.error(
                         "Fatal error in migration %s (%s): %s",
@@ -194,7 +206,7 @@ def init_database() -> None:
             )
 
         # Verify schema is now correct after migrations
-        post_drift = _detect_schema_drift(inspector, engine)
+        post_drift = _detect_schema_drift(inspector, migrator_engine)
         if post_drift:
             logger.error(
                 "Schema still has drift after migrations: %s — "
@@ -228,10 +240,13 @@ def init_database() -> None:
             e,
         )
         try:
-            Base.metadata.create_all(bind=engine)
+            Base.metadata.create_all(bind=migrator_engine)
             logger.info("create_all fallback done")
         except Exception as ca_err:
             logger.warning("create_all also failed: %s", ca_err)
+
+    migrator_engine.dispose()
+    logger.debug("migrator_engine disposed after startup")
 
 
 def ensure_default_admin(db: Session) -> None:
