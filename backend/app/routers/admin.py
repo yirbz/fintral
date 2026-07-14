@@ -2361,12 +2361,8 @@ async def admin_verify_payment(
             try:
                 if item.get("type") == "plan_change":
                     plan_name = item.get("plan_name")
-                    months = item.get("months", 1)
                     if plan_name:
                         svc.change_plan(proof.organization_id, plan_name)
-                        sub_obj, _ = svc.get_plan_for_org(proof.organization_id)
-                        if sub_obj and sub_obj.billing_cycle_end:
-                            sub_obj.billing_cycle_end = sub_obj.billing_cycle_end + timedelta(days=30 * months)
 
                 elif item.get("type") == "addon":
                     addon_type = item.get("addon_type")
@@ -2389,12 +2385,8 @@ async def admin_verify_payment(
                         logger.info("📄 Credited %d e-CF to org %s (balance: %d)", block_size * qty, org_id, org.e_cf_balance)
 
                 elif item.get("type") == "entity_slot":
-                    months = item.get("months", 1)
                     qty = item.get("quantity", 1)
                     svc.purchase_addon(proof.organization_id, "entity_slot", qty, user_id=str(proof.user_id))
-                    sub_obj, _ = svc.get_plan_for_org(proof.organization_id)
-                    if sub_obj and sub_obj.billing_cycle_end:
-                        sub_obj.billing_cycle_end = sub_obj.billing_cycle_end + timedelta(days=30 * months)
                     # Activate the pre-created target org if bound to this slot
                     target_org_id = item.get("target_org_id")
                     if target_org_id:
@@ -2408,12 +2400,8 @@ async def admin_verify_payment(
                     svc.purchase_addon(proof.organization_id, item.get("type"), qty)
 
                 elif item.get("type") == "user_slot":
-                    months = item.get("months", 1)
                     qty = item.get("quantity", 1)
                     svc.purchase_addon(proof.organization_id, "user_slot", qty)
-                    sub_obj, _ = svc.get_plan_for_org(proof.organization_id)
-                    if sub_obj and sub_obj.billing_cycle_end:
-                        sub_obj.billing_cycle_end = sub_obj.billing_cycle_end + timedelta(days=30 * months)
 
                 elif item.get("type") == "renewal":
                     months = item.get("months", 1)
