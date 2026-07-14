@@ -483,7 +483,7 @@ class BillingCheckoutService:
             # For mid-cycle upgrades, keep the existing billing cycle end date
             # The user pays only the prorated difference for the remaining days
             now = utc_now()
-            if current_sub and current_sub.billing_cycle_end and now < current_sub.billing_cycle_end:
+            if current_sub and current_sub.status == "active" and current_sub.billing_cycle_end and now < current_sub.billing_cycle_end:
                 cycle_start = current_sub.billing_cycle_start
                 cycle_end = current_sub.billing_cycle_end
             else:
@@ -634,7 +634,7 @@ class BillingCheckoutService:
                     new_price_cents = i.get("price_cents", 0)
 
                 # Prorate net upgrade cost (new plan price minus unused portion of old plan)
-                if current_sub and current_sub.plan and current_sub.billing_cycle_start and current_sub.billing_cycle_end:
+                if current_sub and current_sub.status == "active" and current_sub.plan and current_sub.billing_cycle_start and current_sub.billing_cycle_end:
                     from math import ceil
                     now = utc_now()
                     cycle_end = current_sub.billing_cycle_end
@@ -887,7 +887,7 @@ class BillingCheckoutService:
             .first()
         )
 
-        if not current_sub or not current_sub.lago_subscription_id:
+        if not current_sub or not current_sub.lago_subscription_id or current_sub.status == "trialing":
             # No active subscription — this is a new purchase, not a change
             price_dop = plan.price_dop or 999.0
             return {
