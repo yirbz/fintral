@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && rm -f /etc/nginx/sites-enabled/default
 
-RUN curl -fsSL https://packages.clickhouse.com/deb/lts/repodata/repomd.xml.key \
+RUN curl -fsSL https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key \
     | gpg --dearmor -o /usr/share/keyrings/clickhouse-keyring.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/clickhouse-keyring.gpg] https://packages.clickhouse.com/deb stable main" > /etc/apt/sources.list.d/clickhouse.list \
     && apt-get update && apt-get install -y --no-install-recommends \
