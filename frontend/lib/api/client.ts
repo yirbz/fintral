@@ -38,6 +38,16 @@ function getStoredOrgId(): string | null {
   }
 }
 
+/** Clear stale/invalid session data from browser storage */
+function clearLocalSessionCache() {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem("fintral_session");
+    sessionStorage.removeItem("fintral_session");
+    sessionStorage.removeItem("fintral_remember");
+  } catch { /* storage unavailable */ }
+}
+
 export async function apiFetch<T>(
   input: string,
   init: RequestInitWithRaw = {}
@@ -107,6 +117,16 @@ export async function apiFetch<T>(
         } catch { /* noop */ }
         throw new ApiError("Acceso denegado: límite de usuarios en la entidad superado", response.status, errorPayload);
       }
+    }
+
+    // 502 from Cloudflare/upstream: likely a corrupted session cookie causing
+    // the request to be rejected. Treat it like an auth failure.
+    if (response.status === 502 && !isOnPublicPage()) {
+      clearLocalSessionCache();
+      try {
+        window.dispatchEvent(new CustomEvent("auth:unauthorized", { detail: { path: input, message: errorMessage } }));
+      } catch { /* noop */ }
+      throw new ApiError(errorMessage, response.status, errorPayload);
     }
 
     // Detect expired subscription on read-only responses
