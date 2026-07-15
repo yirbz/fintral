@@ -152,19 +152,14 @@ def init_database() -> None:
         skipped_revs: list[str] = []
 
         # Phase 1: Bulk-upgrade to the last merge point (4ee1914d8429).
-        # Only runs if the current revision is at or before the merge point.
-        # When already past it, skip entirely to avoid a no-op that would
-        # incorrectly set merge_idx and skip pre-merge migrations.
+        # Only applies when starting from the base revision (fresh DB).
+        # For incremental upgrades (row != base), skip batching to avoid
+        # the no-op trap where merge_idx gets set to the merge point,
+        # causing pre-merge migrations (like initial_schema creating invoices)
+        # to be skipped in the per-revision phase.
         MERGE_REV = "4ee1914d8429"
         merge_idx = row
-        can_batch = False
-        try:
-            rev_ancestors = {r.revision for r in script.walk_revisions(base=MERGE_REV, head=row)}
-            can_batch = row in rev_ancestors or row == script.get_base()
-        except Exception:
-            pass
-
-        if can_batch or row == MERGE_REV:
+        if row == script.get_base():
             try:
                 command.upgrade(alembic_cfg, MERGE_REV)
                 logger.info("Bulk upgrade to merge point %s done (%.2fs)", MERGE_REV, time.time() - t1)
@@ -176,10 +171,9 @@ def init_database() -> None:
                 )
         else:
             logger.info(
-                "Current revision %s is past merge point %s — no bulk upgrade needed",
-                row, MERGE_REV,
+                "Current revision %s — skipping bulk upgrade (not at base)",
+                row,
             )
-            merge_idx = row
 
         # Phase 2: Per-revision upgrade for the linear tail (merge_idx → head).
         # Each step is tried individually; "already exists" errors are skipped
