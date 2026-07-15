@@ -65,6 +65,7 @@ def run_migrations_online() -> None:
 
         if config.attributes.get("disable_transactional_ddl"):
             context.run_migrations()
+            connection.commit()
         else:
             with context.begin_transaction():
                 context.run_migrations()
