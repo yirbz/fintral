@@ -284,7 +284,10 @@ def init_database() -> None:
             n = _fix_schema_drift(inspector, migrator_engine)
             if n:
                 logger.info("Auto-healed %d column(s) via ALTER TABLE", n)
-            still_missing = _detect_schema_drift(inspector, migrator_engine)
+            # Fresh inspector — previous one caches stale column metadata
+            from sqlalchemy import inspect as sa_inspect
+            fresh_inspector = sa_inspect(migrator_engine)
+            still_missing = _detect_schema_drift(fresh_inspector, migrator_engine)
             if still_missing:
                 logger.error(
                     "Schema drift persists after auto-heal — %d column(s) still missing: %s",
