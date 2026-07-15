@@ -46,14 +46,52 @@ def _detect_schema_drift(inspector, engine) -> list[str]:
     return missing
 
 
+def _fix_schema_drift(inspector, engine) -> int:
+    """Add missing ORM columns to existing database tables.
+
+    Returns the number of columns added.
+    """
+    from app.database import Base
+    from sqlalchemy import text
+    from sqlalchemy.schema import CreateColumn
+    from sqlalchemy.dialects import postgresql
+
+    added = 0
+    dialect = postgresql.dialect()
+
+    for table in Base.metadata.sorted_tables:
+        try:
+            db_cols = {col["name"] for col in inspector.get_columns(table.name)}
+        except Exception:
+            continue
+
+        for col in table.columns:
+            if col.name not in db_cols:
+                col_ddl = CreateColumn(col)
+                col_sql = str(col_ddl.compile(dialect=dialect))
+                sql = f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS {col_sql}"
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text(sql))
+                    logger.info("  + %s.%s", table.name, col.name)
+                    added += 1
+                except Exception as e:
+                    logger.warning(
+                        "  - %s.%s — could not add: %s", table.name, col.name, e,
+                    )
+
+    return added
+
+
 def init_database() -> None:
     import time
 
     from alembic import command
     from alembic.config import Config
     from alembic.script import ScriptDirectory
-    from sqlalchemy import inspect, text
+    from sqlalchemy import create_engine, inspect, text
 
+    from app.config import DATABASE_URL
     from app.database import Base, engine
 
     if engine is None:
@@ -71,9 +109,20 @@ def init_database() -> None:
         return
 
     t0 = time.time()
+
+    migrator_engine = create_engine(
+        DATABASE_URL,
+        pool_size=2,
+        max_overflow=0,
+        pool_pre_ping=True,
+        pool_recycle=300,
+        echo=False,
+    )
+
     alembic_cfg = Config("alembic.ini")
     alembic_cfg.attributes["skip_logging_config"] = True
-    inspector = inspect(engine)
+    alembic_cfg.attributes["engine"] = migrator_engine
+    inspector = inspect(migrator_engine)
     tables = inspector.get_table_names()
     has_alembic_version = "alembic_version" in tables
     has_data_tables = "invoices" in tables
@@ -86,17 +135,31 @@ def init_database() -> None:
     )
 
     if has_alembic_version:
-        with engine.connect() as conn:
+        with migrator_engine.connect() as conn:
             row = conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
         script = ScriptDirectory.from_config(alembic_cfg)
         head_rev = script.get_current_head()
+
+        # Stamped at base but no data tables — the base migration's DDL was
+        # never actually executed.  Drop alembic_version and return so the
+        # next deploy starts fresh via the has_data_tables block.
+        if row == script.get_base() and not has_data_tables:
+            logger.warning(
+                "Stamped at base (%s) but no data tables — "
+                "dropping alembic_version; next deploy will re-run all migrations",
+                row,
+            )
+            with migrator_engine.begin() as conn:
+                conn.execute(text("DROP TABLE IF EXISTS alembic_version CASCADE"))
+            return
+
         logger.info("alembic_version=%s head=%s match=%s", row, head_rev, row == head_rev)
 
         # Verify alembic version actually matches reality — compare ALL
         # ORM model columns against the database. If any column is missing,
         # the previous migration likely failed silently. Reset and re-run.
         if row == head_rev and head_rev != script.get_base():
-            drift = _detect_schema_drift(inspector, engine)
+            drift = _detect_schema_drift(inspector, migrator_engine)
             if drift:
                 base_rev = script.get_base()
                 logger.warning(
@@ -104,13 +167,23 @@ def init_database() -> None:
                     "missing %d column(s): %s. Resetting to base (%s).",
                     row, len(drift), drift, base_rev,
                 )
-                with engine.connect() as conn:
+                with migrator_engine.connect() as conn:
                     conn.execute(text("UPDATE alembic_version SET version_num = :base"), {"base": base_rev})
                     conn.commit()
                 row = base_rev
 
         if row == head_rev:
             logger.info("Already at head revision — skipping alembic upgrade")
+            try:
+                Base.metadata.create_all(bind=migrator_engine)
+                from sqlalchemy import inspect as sa_inspect
+                existing_tables = sa_inspect(migrator_engine).get_table_names()
+                logger.info(
+                    "Post-migration table count: %d (missing tables created via metadata)",
+                    len(existing_tables),
+                )
+            except Exception as exc:
+                logger.warning("Post-migration create_all failed: %s", exc)
             return
 
         db_rev_exists = row in [r.revision for r in script.walk_revisions()]
@@ -123,7 +196,7 @@ def init_database() -> None:
                 row,
                 base_rev,
             )
-            with engine.connect() as conn:
+            with migrator_engine.connect() as conn:
                 conn.execute(text("UPDATE alembic_version SET version_num = :base"), {"base": base_rev})
                 conn.commit()
             logger.info("Updated alembic_version from %s to %s", row, base_rev)
@@ -140,41 +213,59 @@ def init_database() -> None:
         skipped_revs: list[str] = []
 
         # Phase 1: Bulk-upgrade to the last merge point (4ee1914d8429).
-        # All migrations up to here are idempotent, so this should succeed.
-        # If it fails we fall through to per-revision loop.
+        # Only applies when starting from the base revision (fresh DB).
+        # For incremental upgrades (row != base), skip batching to avoid
+        # the no-op trap where merge_idx gets set to the merge point,
+        # causing pre-merge migrations (like initial_schema creating invoices)
+        # to be skipped in the per-revision phase.
         MERGE_REV = "4ee1914d8429"
-        merge_idx = row
-        try:
-            command.upgrade(alembic_cfg, MERGE_REV)
-            logger.info("Bulk upgrade to merge point %s done (%.2fs)", MERGE_REV, time.time() - t1)
-            merge_idx = MERGE_REV
-        except Exception as e:
-            logger.warning(
-                "Bulk upgrade to %s failed (%s) — falling back to per-revision: %s",
-                MERGE_REV, type(e).__name__, e,
+        if row == script.get_base():
+            merge_idx = row  # default: base (bulk upgrade may fail)
+            try:
+                command.upgrade(alembic_cfg, MERGE_REV)
+                logger.info("Bulk upgrade to merge point %s done (%.2fs)", MERGE_REV, time.time() - t1)
+                merge_idx = MERGE_REV
+            except Exception as e:
+                logger.warning(
+                    "Bulk upgrade to %s failed (%s) — falling back to per-revision: %s",
+                    MERGE_REV, type(e).__name__, e,
+                )
+        else:
+            merge_idx = row
+            logger.info(
+                "Current revision %s — skipping bulk upgrade (not at base)",
+                row,
             )
 
-        # Phase 2: Per-revision upgrade for the linear tail (merge → head).
+        # Phase 2: Per-revision upgrade for the linear tail (merge_idx → head).
         # Each step is tried individually; "already exists" errors are skipped
         # so a single non-idempotent migration doesn't derail the whole chain.
+        #
+        # NOTE: merge_idx may equal row (base) if the bulk upgrade failed.
+        # In that case we must NOT skip the base revision — the per-revision
+        # loop is the only path that will apply it.
+        bulk_upgrade_applied = row == script.get_base() and merge_idx != row
         pending = list(script.walk_revisions(head=head_rev, base=merge_idx))
         pending.reverse()  # topological order (base → head)
         for rev in pending:
-            if rev.revision in (merge_idx, "4ee1914d8429"):
-                # Already applied by the bulk upgrade or doesn't exist
+            if rev.revision == "4ee1914d8429":
+                # Merge point itself — doesn't exist as a real migration
+                continue
+            if bulk_upgrade_applied and rev.revision == merge_idx:
+                # Already applied by the bulk upgrade
                 continue
             try:
                 command.upgrade(alembic_cfg, rev.revision)
                 logger.info("  ✓ %s (%s)", rev.revision, rev.doc or "no doc")
             except Exception as e:
                 err = str(e).lower()
-                if "already exists" in err or "duplicate" in err or "does not exist" in err:
+                if "already exists" in err or "duplicate" in err or "does not exist" in err or "expected to match one row" in err:
                     skipped_revs.append(rev.revision)
                     logger.warning(
                         "  ✗ %s (%s) — skipping (already exists): %s",
                         rev.revision, rev.doc or "no doc", e,
                     )
-                    with engine.connect() as conn:
+                    with migrator_engine.connect() as conn:
                         conn.execute(
                             text("UPDATE alembic_version SET version_num = :rev"),
                             {"rev": rev.revision},
@@ -194,16 +285,37 @@ def init_database() -> None:
             )
 
         # Verify schema is now correct after migrations
-        post_drift = _detect_schema_drift(inspector, engine)
+        post_drift = _detect_schema_drift(inspector, migrator_engine)
         if post_drift:
-            logger.error(
-                "Schema still has drift after migrations: %s — "
-                "manual intervention required.",
-                post_drift,
+            logger.warning(
+                "Schema drift after migrations — %d missing column(s). Auto-healing...",
+                len(post_drift),
             )
-            raise RuntimeError(f"Schema drift persists after migrations: {post_drift}")
+            n = _fix_schema_drift(inspector, migrator_engine)
+            if n:
+                logger.info("Auto-healed %d column(s) via ALTER TABLE", n)
+            # Fresh inspector — previous one caches stale column metadata
+            from sqlalchemy import inspect as sa_inspect
+            fresh_inspector = sa_inspect(migrator_engine)
+            still_missing = _detect_schema_drift(fresh_inspector, migrator_engine)
+            if still_missing:
+                logger.error(
+                    "Schema drift persists after auto-heal — %d column(s) still missing: %s",
+                    len(still_missing), still_missing,
+                )
         else:
             logger.info("Schema verified — all ORM columns present in database")
+
+        # Create any tables that are still missing (e.g. when the base
+        # migration was skipped because one of its tables already existed).
+        # create_all is idempotent — only affects tables that don't exist.
+        try:
+            Base.metadata.create_all(bind=migrator_engine)
+            from sqlalchemy import inspect as sa_inspect
+            existing_tables = sa_inspect(migrator_engine).get_table_names()
+            logger.info("Post-migration table count: %d", len(existing_tables))
+        except Exception as exc:
+            logger.warning("Post-migration create_all failed: %s", exc)
 
         logger.info("Alembic migrations applied (%.2fs)", time.time() - t1)
         return
@@ -228,10 +340,13 @@ def init_database() -> None:
             e,
         )
         try:
-            Base.metadata.create_all(bind=engine)
+            Base.metadata.create_all(bind=migrator_engine)
             logger.info("create_all fallback done")
         except Exception as ca_err:
             logger.warning("create_all also failed: %s", ca_err)
+
+    migrator_engine.dispose()
+    logger.debug("migrator_engine disposed after startup")
 
 
 def ensure_default_admin(db: Session) -> None:
