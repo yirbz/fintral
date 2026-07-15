@@ -58,7 +58,7 @@ export default function SessionExpiredOverlay() {
 
         <div className="flex flex-col items-center gap-2.5 w-full">
           <Button
-            onClick={() => { window.location.href = "/logout"; }}
+            onClick={() => { window.location.href = "/login?expired=1"; }}
             className="w-full h-10 rounded-xl text-sm font-medium"
           >
             <LogIn className="mr-2 size-4" />

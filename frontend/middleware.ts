@@ -7,11 +7,14 @@ export function middleware(request: NextRequest) {
   const url = request.nextUrl.clone();
   const hasToken = request.cookies.has("access_token");
 
-  // ── Logout: clear the session cookie client-side and redirect to login ──
-  // This runs before the backend rewrite, so it works even when the backend
-  // is unreachable (e.g. corrupted session cookie causing Cloudflare 502).
+  // ── Logout: clear the session cookie (host-level) and redirect to login ──
+  // The cookie may also exist at domain level (e.g. domain=.fintral.app) — we
+  // can't reliably clear that from the edge without knowing the exact domain
+  // attributes. Instead, the overlay navigates to /login?expired=1 which makes
+  // the auth-page redirect below a no-op (see isForcedLogin check).
   if (url.pathname === "/logout") {
     const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("expired", "1");
     const response = NextResponse.redirect(loginUrl);
     response.cookies.set("access_token", "", { maxAge: 0, path: "/" });
     return response;
@@ -22,6 +25,11 @@ export function middleware(request: NextRequest) {
     url.pathname === "/signup" ||
     url.pathname.startsWith("/login/") ||
     url.pathname.startsWith("/signup/");
+
+  // ── Forced login: skip auth-page redirect when session is known-bad ──
+  // This breaks the redirect loop: corrupted session → 502 → overlay →
+  // /login?expired=1 → (no redirect) → user sees login and re-authenticates.
+  const isForcedLogin = url.searchParams.get("expired") === "1";
 
   const isProtectedPage = PROTECTED_PREFIXES.some((prefix) =>
     url.pathname === prefix || url.pathname.startsWith(prefix + "/")
@@ -35,7 +43,8 @@ export function middleware(request: NextRequest) {
   }
 
   // If trying to access an auth page with a token, redirect to dashboard
-  if (isAuthPage && hasToken) {
+  // UNLESS this is a forced login (session was corrupted).
+  if (isAuthPage && hasToken && !isForcedLogin) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
