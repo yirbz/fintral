@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { LogIn, RefreshCw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -18,7 +17,6 @@ function FintralLogo() {
 export default function SessionExpiredOverlay() {
   const [expired, setExpired] = useState(false);
   const [lastPath, setLastPath] = useState<string | null>(null);
-  const router = useRouter();
 
   const handleEvent = useCallback((e: Event) => {
     const detail = (e as CustomEvent).detail;
@@ -60,7 +58,7 @@ export default function SessionExpiredOverlay() {
 
         <div className="flex flex-col items-center gap-2.5 w-full">
           <Button
-            onClick={() => { window.location.href = "/logout"; }}
+            onClick={() => { window.location.href = "/login"; }}
             className="w-full h-10 rounded-xl text-sm font-medium"
           >
             <LogIn className="mr-2 size-4" />
