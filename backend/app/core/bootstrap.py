@@ -174,6 +174,16 @@ def init_database() -> None:
 
         if row == head_rev:
             logger.info("Already at head revision — skipping alembic upgrade")
+            try:
+                Base.metadata.create_all(bind=migrator_engine)
+                from sqlalchemy import inspect as sa_inspect
+                existing_tables = sa_inspect(migrator_engine).get_table_names()
+                logger.info(
+                    "Post-migration table count: %d (missing tables created via metadata)",
+                    len(existing_tables),
+                )
+            except Exception as exc:
+                logger.warning("Post-migration create_all failed: %s", exc)
             return
 
         db_rev_exists = row in [r.revision for r in script.walk_revisions()]
