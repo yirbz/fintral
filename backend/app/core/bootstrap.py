@@ -296,6 +296,17 @@ def init_database() -> None:
         else:
             logger.info("Schema verified — all ORM columns present in database")
 
+        # Create any tables that are still missing (e.g. when the base
+        # migration was skipped because one of its tables already existed).
+        # create_all is idempotent — only affects tables that don't exist.
+        try:
+            Base.metadata.create_all(bind=migrator_engine)
+            from sqlalchemy import inspect as sa_inspect
+            existing_tables = sa_inspect(migrator_engine).get_table_names()
+            logger.info("Post-migration table count: %d", len(existing_tables))
+        except Exception as exc:
+            logger.warning("Post-migration create_all failed: %s", exc)
+
         logger.info("Alembic migrations applied (%.2fs)", time.time() - t1)
         return
 
