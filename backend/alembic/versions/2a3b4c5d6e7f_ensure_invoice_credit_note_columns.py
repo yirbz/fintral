@@ -12,6 +12,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+import app.database
 
 
 revision: str = "2a3b4c5d6e7f"
@@ -23,6 +24,17 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     conn = op.get_bind()
     insp = sa.inspect(conn)
+    table_names = insp.get_table_names()
+    if "invoices" not in table_names:
+        op.create_table(
+            "invoices",
+            sa.Column("id", app.database.GUID, primary_key=True),
+            sa.Column("parent_invoice_id", app.database.GUID, nullable=True),
+            sa.Column("modified_ncf", sa.String, nullable=True),
+            sa.Column("modification_reason", sa.String(50), nullable=True),
+        )
+        return
+
     existing_cols = {c["name"] for c in insp.get_columns("invoices")}
 
     if "parent_invoice_id" not in existing_cols:

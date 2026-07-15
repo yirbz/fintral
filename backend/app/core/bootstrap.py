@@ -152,21 +152,36 @@ def init_database() -> None:
         skipped_revs: list[str] = []
 
         # Phase 1: Bulk-upgrade to the last merge point (4ee1914d8429).
-        # All migrations up to here are idempotent, so this should succeed.
-        # If it fails we fall through to per-revision loop.
+        # Only runs if the current revision is at or before the merge point.
+        # When already past it, skip entirely to avoid a no-op that would
+        # incorrectly set merge_idx and skip pre-merge migrations.
         MERGE_REV = "4ee1914d8429"
         merge_idx = row
+        can_batch = False
         try:
-            command.upgrade(alembic_cfg, MERGE_REV)
-            logger.info("Bulk upgrade to merge point %s done (%.2fs)", MERGE_REV, time.time() - t1)
-            merge_idx = MERGE_REV
-        except Exception as e:
-            logger.warning(
-                "Bulk upgrade to %s failed (%s) — falling back to per-revision: %s",
-                MERGE_REV, type(e).__name__, e,
-            )
+            rev_ancestors = {r.revision for r in script.walk_revisions(base=MERGE_REV, head=row)}
+            can_batch = row in rev_ancestors or row == script.get_base()
+        except Exception:
+            pass
 
-        # Phase 2: Per-revision upgrade for the linear tail (merge → head).
+        if can_batch or row == MERGE_REV:
+            try:
+                command.upgrade(alembic_cfg, MERGE_REV)
+                logger.info("Bulk upgrade to merge point %s done (%.2fs)", MERGE_REV, time.time() - t1)
+                merge_idx = MERGE_REV
+            except Exception as e:
+                logger.warning(
+                    "Bulk upgrade to %s failed (%s) — falling back to per-revision: %s",
+                    MERGE_REV, type(e).__name__, e,
+                )
+        else:
+            logger.info(
+                "Current revision %s is past merge point %s — no bulk upgrade needed",
+                row, MERGE_REV,
+            )
+            merge_idx = row
+
+        # Phase 2: Per-revision upgrade for the linear tail (merge_idx → head).
         # Each step is tried individually; "already exists" errors are skipped
         # so a single non-idempotent migration doesn't derail the whole chain.
         pending = list(script.walk_revisions(head=head_rev, base=merge_idx))
