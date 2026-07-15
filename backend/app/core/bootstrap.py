@@ -102,6 +102,20 @@ def init_database() -> None:
             row = conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
         script = ScriptDirectory.from_config(alembic_cfg)
         head_rev = script.get_current_head()
+
+        # Stamped at base but no data tables — the base migration's DDL was
+        # never actually executed.  Drop alembic_version and fall through to
+        # the fresh-DB path so every migration runs from scratch.
+        if row == script.get_base() and not has_data_tables:
+            logger.warning(
+                "Stamped at base (%s) but no data tables — "
+                "reset to fresh database to re-run all migrations",
+                row,
+            )
+            with migrator_engine.begin() as conn:
+                conn.execute(text("DROP TABLE IF EXISTS alembic_version CASCADE"))
+            has_alembic_version = False
+
         logger.info("alembic_version=%s head=%s match=%s", row, head_rev, row == head_rev)
 
         # Verify alembic version actually matches reality — compare ALL
@@ -197,7 +211,7 @@ def init_database() -> None:
                 logger.info("  ✓ %s (%s)", rev.revision, rev.doc or "no doc")
             except Exception as e:
                 err = str(e).lower()
-                if "already exists" in err or "duplicate" in err or "does not exist" in err:
+                if "already exists" in err or "duplicate" in err or "does not exist" in err or "expected to match one row" in err:
                     skipped_revs.append(rev.revision)
                     logger.warning(
                         "  ✗ %s (%s) — skipping (already exists): %s",
