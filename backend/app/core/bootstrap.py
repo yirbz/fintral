@@ -46,6 +46,43 @@ def _detect_schema_drift(inspector, engine) -> list[str]:
     return missing
 
 
+def _fix_schema_drift(inspector, engine) -> int:
+    """Add missing ORM columns to existing database tables.
+
+    Returns the number of columns added.
+    """
+    from app.database import Base
+    from sqlalchemy import text
+    from sqlalchemy.schema import CreateColumn
+    from sqlalchemy.dialects import postgresql
+
+    added = 0
+    dialect = postgresql.dialect()
+
+    for table in Base.metadata.sorted_tables:
+        try:
+            db_cols = {col["name"] for col in inspector.get_columns(table.name)}
+        except Exception:
+            continue
+
+        for col in table.columns:
+            if col.name not in db_cols:
+                col_ddl = CreateColumn(col)
+                col_sql = str(col_ddl.compile(dialect=dialect))
+                sql = f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS {col_sql}"
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text(sql))
+                    logger.info("  + %s.%s", table.name, col.name)
+                    added += 1
+                except Exception as e:
+                    logger.warning(
+                        "  - %s.%s — could not add: %s", table.name, col.name, e,
+                    )
+
+    return added
+
+
 def init_database() -> None:
     import time
 
@@ -137,6 +174,16 @@ def init_database() -> None:
 
         if row == head_rev:
             logger.info("Already at head revision — skipping alembic upgrade")
+            try:
+                Base.metadata.create_all(bind=migrator_engine)
+                from sqlalchemy import inspect as sa_inspect
+                existing_tables = sa_inspect(migrator_engine).get_table_names()
+                logger.info(
+                    "Post-migration table count: %d (missing tables created via metadata)",
+                    len(existing_tables),
+                )
+            except Exception as exc:
+                logger.warning("Post-migration create_all failed: %s", exc)
             return
 
         db_rev_exists = row in [r.revision for r in script.walk_revisions()]
@@ -172,8 +219,8 @@ def init_database() -> None:
         # causing pre-merge migrations (like initial_schema creating invoices)
         # to be skipped in the per-revision phase.
         MERGE_REV = "4ee1914d8429"
-        merge_idx = row
         if row == script.get_base():
+            merge_idx = row  # default: base (bulk upgrade may fail)
             try:
                 command.upgrade(alembic_cfg, MERGE_REV)
                 logger.info("Bulk upgrade to merge point %s done (%.2fs)", MERGE_REV, time.time() - t1)
@@ -184,6 +231,7 @@ def init_database() -> None:
                     MERGE_REV, type(e).__name__, e,
                 )
         else:
+            merge_idx = row
             logger.info(
                 "Current revision %s — skipping bulk upgrade (not at base)",
                 row,
@@ -239,14 +287,35 @@ def init_database() -> None:
         # Verify schema is now correct after migrations
         post_drift = _detect_schema_drift(inspector, migrator_engine)
         if post_drift:
-            logger.error(
-                "Schema still has drift after migrations: %s — "
-                "manual intervention required.",
-                post_drift,
+            logger.warning(
+                "Schema drift after migrations — %d missing column(s). Auto-healing...",
+                len(post_drift),
             )
-            raise RuntimeError(f"Schema drift persists after migrations: {post_drift}")
+            n = _fix_schema_drift(inspector, migrator_engine)
+            if n:
+                logger.info("Auto-healed %d column(s) via ALTER TABLE", n)
+            # Fresh inspector — previous one caches stale column metadata
+            from sqlalchemy import inspect as sa_inspect
+            fresh_inspector = sa_inspect(migrator_engine)
+            still_missing = _detect_schema_drift(fresh_inspector, migrator_engine)
+            if still_missing:
+                logger.error(
+                    "Schema drift persists after auto-heal — %d column(s) still missing: %s",
+                    len(still_missing), still_missing,
+                )
         else:
             logger.info("Schema verified — all ORM columns present in database")
+
+        # Create any tables that are still missing (e.g. when the base
+        # migration was skipped because one of its tables already existed).
+        # create_all is idempotent — only affects tables that don't exist.
+        try:
+            Base.metadata.create_all(bind=migrator_engine)
+            from sqlalchemy import inspect as sa_inspect
+            existing_tables = sa_inspect(migrator_engine).get_table_names()
+            logger.info("Post-migration table count: %d", len(existing_tables))
+        except Exception as exc:
+            logger.warning("Post-migration create_all failed: %s", exc)
 
         logger.info("Alembic migrations applied (%.2fs)", time.time() - t1)
         return
