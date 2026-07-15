@@ -7,6 +7,16 @@ export function middleware(request: NextRequest) {
   const url = request.nextUrl.clone();
   const hasToken = request.cookies.has("access_token");
 
+  // ── Logout: clear the session cookie client-side and redirect to login ──
+  // This runs before the backend rewrite, so it works even when the backend
+  // is unreachable (e.g. corrupted session cookie causing Cloudflare 502).
+  if (url.pathname === "/logout") {
+    const loginUrl = new URL("/login", request.url);
+    const response = NextResponse.redirect(loginUrl);
+    response.cookies.set("access_token", "", { maxAge: 0, path: "/" });
+    return response;
+  }
+
   const isAuthPage =
     url.pathname === "/login" ||
     url.pathname === "/signup" ||
