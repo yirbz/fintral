@@ -104,17 +104,17 @@ def init_database() -> None:
         head_rev = script.get_current_head()
 
         # Stamped at base but no data tables — the base migration's DDL was
-        # never actually executed.  Drop alembic_version and fall through to
-        # the fresh-DB path so every migration runs from scratch.
+        # never actually executed.  Drop alembic_version and return so the
+        # next deploy starts fresh via the has_data_tables block.
         if row == script.get_base() and not has_data_tables:
             logger.warning(
                 "Stamped at base (%s) but no data tables — "
-                "reset to fresh database to re-run all migrations",
+                "dropping alembic_version; next deploy will re-run all migrations",
                 row,
             )
             with migrator_engine.begin() as conn:
                 conn.execute(text("DROP TABLE IF EXISTS alembic_version CASCADE"))
-            has_alembic_version = False
+            return
 
         logger.info("alembic_version=%s head=%s match=%s", row, head_rev, row == head_rev)
 
