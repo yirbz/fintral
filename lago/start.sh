@@ -16,7 +16,7 @@ fi
 
 # Start ClickHouse in background for migrations
 echo "Starting ClickHouse..."
-clickhouse-server --config-file=/etc/clickhouse-server/config.xml &
+sudo -u clickhouse clickhouse-server --config-file=/etc/clickhouse-server/config.xml &
 CLICKHOUSE_PID=$!
 
 # Wait for ClickHouse to be ready
