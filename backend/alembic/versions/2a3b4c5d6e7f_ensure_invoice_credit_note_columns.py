@@ -23,6 +23,8 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     conn = op.get_bind()
     insp = sa.inspect(conn)
+    if "invoices" not in insp.get_table_names():
+        return
     existing_cols = {c["name"] for c in insp.get_columns("invoices")}
 
     if "parent_invoice_id" not in existing_cols:

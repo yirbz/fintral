@@ -178,11 +178,19 @@ def init_database() -> None:
         # Phase 2: Per-revision upgrade for the linear tail (merge_idx → head).
         # Each step is tried individually; "already exists" errors are skipped
         # so a single non-idempotent migration doesn't derail the whole chain.
+        #
+        # NOTE: merge_idx may equal row (base) if the bulk upgrade failed.
+        # In that case we must NOT skip the base revision — the per-revision
+        # loop is the only path that will apply it.
+        bulk_upgrade_applied = row == script.get_base() and merge_idx != row
         pending = list(script.walk_revisions(head=head_rev, base=merge_idx))
         pending.reverse()  # topological order (base → head)
         for rev in pending:
-            if rev.revision in (merge_idx, "4ee1914d8429"):
-                # Already applied by the bulk upgrade or doesn't exist
+            if rev.revision == "4ee1914d8429":
+                # Merge point itself — doesn't exist as a real migration
+                continue
+            if bulk_upgrade_applied and rev.revision == merge_idx:
+                # Already applied by the bulk upgrade
                 continue
             try:
                 command.upgrade(alembic_cfg, rev.revision)
