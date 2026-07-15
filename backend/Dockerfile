@@ -49,7 +49,7 @@ USER appuser
 EXPOSE ${BACKEND_PORT}
 
 ENTRYPOINT ["tini", "--"]
-CMD sh -c 'exec gunicorn main:app \
+CMD sh -c 'exec gunicorn app:app \
     --worker-class uvicorn.workers.UvicornWorker \
     --bind "0.0.0.0:${PORT:-${BACKEND_PORT:-8000}}" \
     --workers "${WEB_CONCURRENCY:-1}" \
