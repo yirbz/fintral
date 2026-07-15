@@ -172,8 +172,8 @@ def init_database() -> None:
         # causing pre-merge migrations (like initial_schema creating invoices)
         # to be skipped in the per-revision phase.
         MERGE_REV = "4ee1914d8429"
-        merge_idx = row
         if row == script.get_base():
+            merge_idx = row  # default: base (bulk upgrade may fail)
             try:
                 command.upgrade(alembic_cfg, MERGE_REV)
                 logger.info("Bulk upgrade to merge point %s done (%.2fs)", MERGE_REV, time.time() - t1)
@@ -184,6 +184,7 @@ def init_database() -> None:
                     MERGE_REV, type(e).__name__, e,
                 )
         else:
+            merge_idx = row
             logger.info(
                 "Current revision %s — skipping bulk upgrade (not at base)",
                 row,
