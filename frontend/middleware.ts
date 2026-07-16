@@ -7,16 +7,22 @@ export function middleware(request: NextRequest) {
   const url = request.nextUrl.clone();
   const hasToken = request.cookies.has("access_token");
 
-  // ── Logout: clear the session cookie (host-level) and redirect to login ──
-  // The cookie may also exist at domain level (e.g. domain=.fintral.app) — we
-  // can't reliably clear that from the edge without knowing the exact domain
-  // attributes. Instead, the overlay navigates to /login?expired=1 which makes
-  // the auth-page redirect below a no-op (see isForcedLogin check).
+  // ── Logout: clear the session cookie (host-level and domain-level) and redirect to login ──
   if (url.pathname === "/logout") {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("expired", "1");
     const response = NextResponse.redirect(loginUrl);
+    
+    // Clear cookie at current subdomain path level
     response.cookies.set("access_token", "", { maxAge: 0, path: "/" });
+    
+    // Clear cookie at wildcard domain levels
+    const hostname = request.headers.get("host") || "";
+    if (hostname.includes("fintral.app")) {
+      response.cookies.set("access_token", "", { maxAge: 0, path: "/", domain: ".fintral.app" });
+    } else if (hostname.includes("fintral.dev")) {
+      response.cookies.set("access_token", "", { maxAge: 0, path: "/", domain: ".fintral.dev" });
+    }
     return response;
   }
 
