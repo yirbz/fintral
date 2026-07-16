@@ -461,6 +461,8 @@ async def run_startup(db: Session) -> None:
     logger.info("--- Phase 4/4: Subscription Plans ---")
     try:
         seed_plans(db)
+        from app.services.lago_setup import setup_lago_infrastructure
+        await setup_lago_infrastructure()
     except Exception as exc:
         logger.error("Plan seeding failed: %s", exc)
 
