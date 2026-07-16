@@ -443,6 +443,13 @@ class BillingCheckoutService:
         slot_items = [i for i in items if i.get("type") in ("entity_slot", "user_slot")]
         renewal_items = [i for i in items if i.get("type") == "renewal"]
 
+        # Addons require an active subscription if no plan change is present
+        has_plan_change = len(plan_items) > 0
+        has_addons = len(ecf_items) > 0 or len(slot_items) > 0
+        if has_addons and not has_plan_change:
+            if not current_sub or current_sub.status != "active":
+                raise ValueError("Los complementos solo pueden adquirirse con una suscripción activa de pago.")
+
         # 2. Idempotent customer registration in Lago
         lago_customer = await self.lago.create_or_update_customer(
             external_id=str(org.id),
