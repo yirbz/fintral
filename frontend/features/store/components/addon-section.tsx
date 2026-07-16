@@ -40,7 +40,7 @@ export function AddonSection({
       description: "100 documentos electrónicos adicionales para tus entidades.",
       priceDopCents: ecfBlockPriceDop,
       isPrepay: true,
-      disabled: isAddonDisabled,
+      disabled: !plan,
     },
   ];
 
@@ -118,10 +118,10 @@ export function AddonSection({
           <Lock className="size-5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-500" />
           <div className="space-y-1">
             <h4 className="text-sm font-semibold leading-none">
-              Complementos bloqueados
+              Complementos de capacidad bloqueados
             </h4>
             <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-400">
-              Los complementos (bloques de e-CF, usuarios, almacenamiento o IA adicionales) solo están disponibles para organizaciones con una suscripción de pago activa. Adquiere o activa un plan base primero para poder añadir complementos.
+              Los complementos de recursos y capacidad (usuarios, almacenamiento o consultas de IA adicionales) solo están disponibles para organizaciones con una suscripción de pago activa. Por favor, adquiere o activa un plan base primero para desbloquear estos complementos. Los bloques de e-CF prepago permanecen disponibles para su compra.
             </p>
           </div>
         </div>
