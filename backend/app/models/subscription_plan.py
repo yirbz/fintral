@@ -110,6 +110,8 @@ class SubscriptionPlan(Base):
             "addon_ai_block_price": round(self.addon_ai_block_price_cents / 100, 2),
             "addon_ocr_block_size": self.addon_ocr_block_size,
             "addon_ocr_block_price": round(self.addon_ocr_block_price_cents / 100, 2),
+            "addon_storage_block_mb": self.addon_storage_block_mb,
+            "addon_storage_block_price": round(self.addon_storage_block_price_cents / 100, 2),
             "limits": {
                 "max_products": self.max_products,
                 "max_users": self.max_users,
