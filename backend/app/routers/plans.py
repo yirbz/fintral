@@ -552,7 +552,7 @@ async def calculate_cart(
             unit_price = new_price_cents / 100.0
             
             # Prorate plan upgrade cost: New Plan Price - (Old Plan Price * Days Left / Total Cycle Days)
-            if current_sub and current_sub.plan and current_sub.billing_cycle_start and current_sub.billing_cycle_end:
+            if current_sub and current_sub.status == "active" and current_sub.plan and current_sub.billing_cycle_start and current_sub.billing_cycle_end:
                 now = utc_now()
                 cycle_end = current_sub.billing_cycle_end
                 cycle_start = current_sub.billing_cycle_start
