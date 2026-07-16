@@ -20,6 +20,33 @@ export default function LoginPage() {
   const [showLoader, setShowLoader] = useState(true)
 
   useEffect(() => {
+    // If the URL indicates a logout/session expiration, skip getMe and force-clear cookies
+    if (typeof window !== "undefined") {
+      const searchParams = new URLSearchParams(window.location.search);
+      if (searchParams.get("expired") === "1") {
+        const domains = [
+          "",
+          `.${window.location.hostname}`,
+          ".fintral.app",
+          ".fintral.dev"
+        ];
+        domains.forEach((dom) => {
+          const domainStr = dom ? `; domain=${dom}` : "";
+          document.cookie = `access_token=; Max-Age=0; path=/${domainStr}`;
+          document.cookie = `access_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/${domainStr}`;
+        });
+        
+        try {
+          localStorage.removeItem("fintral_active_org");
+          localStorage.removeItem("fintral_session");
+          sessionStorage.removeItem("fintral_session");
+        } catch { /* noop */ }
+
+        setShowLoader(false);
+        return;
+      }
+    }
+
     getMe()
       .then(() => {
         if (typeof window !== "undefined") {
