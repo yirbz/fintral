@@ -519,6 +519,16 @@ async def calculate_cart(
         .first()
     )
 
+    # Validate that addons require an active subscription if no plan change is present
+    has_plan_change = any(item.type == "plan_change" for item in payload.items)
+    has_addons = any(item.type in ("ecf_blocks", "entity_slot", "user_slot", "ai", "storage", "ocr") for item in payload.items)
+    if has_addons and not has_plan_change:
+        if not current_sub or current_sub.status != "active":
+            raise HTTPException(
+                status_code=400,
+                detail="Los complementos solo pueden adquirirse con una suscripción activa de pago."
+            )
+
     def get_proration(unit_price_cents: int) -> tuple[int, int, int]:
         """Returns (prorated_cents, days_remaining, cycle_days)."""
         if not current_sub or not current_sub.billing_cycle_end or not current_sub.billing_cycle_start:
@@ -1352,13 +1362,16 @@ async def checkout_process_cart(
     from app.services.billing_checkout_service import BillingCheckoutService
 
     checkout_svc = BillingCheckoutService(ctx.db)
-    result = await checkout_svc.process_complete_cart(
-        org_id=str(ctx.org_id),
-        user_id=str(ctx.user.id),
-        items=[item.model_dump() for item in payload.items],
-        payment_method=payload.payment_method,
-    )
-    return result
+    try:
+        result = await checkout_svc.process_complete_cart(
+            org_id=str(ctx.org_id),
+            user_id=str(ctx.user.id),
+            items=[item.model_dump() for item in payload.items],
+            payment_method=payload.payment_method,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 class PreviewChangeRequest(BaseModel):

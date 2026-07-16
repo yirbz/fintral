@@ -5,12 +5,15 @@ import { PlanSummary, AddonsSummary } from "@/lib/api/plans";
 import { AddonCard, AddonItem } from "./addon-card";
 import { ConfirmAddonDialog } from "./confirm-addon-dialog";
 
+import { Lock } from "lucide-react";
+
 interface AddonSectionProps {
   plan: PlanSummary | null;
   addons: AddonsSummary | undefined;
   cartItems: any[];
   onAddPrepayToCart: (type: string, quantity: number, pricePerBlockDop: number, label: string) => void;
   onAddPostpayToCart: (type: string, label: string, priceCents: number) => void;
+  subscriptionStatus?: string;
 }
 
 export function AddonSection({
@@ -19,7 +22,10 @@ export function AddonSection({
   cartItems,
   onAddPrepayToCart,
   onAddPostpayToCart,
+  subscriptionStatus,
 }: AddonSectionProps) {
+  const isAddonDisabled = !plan || subscriptionStatus !== "active";
+
   const ecfBlockPriceDop = (plan?.addon_ecf_block_price ?? 950.00) * 100;
   const aiBlockPriceDop = (plan?.addon_ai_block_price ?? 600.00) * 100;
   const storageBlockPriceDop = (plan?.addon_storage_block_price ?? 300.00) * 100;
@@ -34,6 +40,7 @@ export function AddonSection({
       description: "100 documentos electrónicos adicionales para tus entidades.",
       priceDopCents: ecfBlockPriceDop,
       isPrepay: true,
+      disabled: isAddonDisabled,
     },
   ];
 
@@ -45,7 +52,7 @@ export function AddonSection({
       priceDopCents: aiBlockPriceDop,
       isPrepay: false,
       currentCount: addons?.ai_blocks || 0,
-      disabled: !plan,
+      disabled: isAddonDisabled,
     },
     {
       type: "storage",
@@ -54,7 +61,7 @@ export function AddonSection({
       priceDopCents: storageBlockPriceDop,
       isPrepay: false,
       currentCount: addons?.storage_blocks || 0,
-      disabled: !plan,
+      disabled: isAddonDisabled,
     },
     {
       type: "ocr",
@@ -63,7 +70,7 @@ export function AddonSection({
       priceDopCents: ocrBlockPriceDop,
       isPrepay: false,
       currentCount: addons?.ocr_blocks || 0,
-      disabled: !plan,
+      disabled: isAddonDisabled,
     },
     {
       type: "entity_slot",
@@ -72,7 +79,7 @@ export function AddonSection({
       priceDopCents: entitySlotPriceDop,
       isPrepay: false,
       currentCount: plan ? (plan as any).addon_entity_slots || 0 : 0,
-      disabled: !plan,
+      disabled: isAddonDisabled,
     },
     {
       type: "user_slot",
@@ -81,7 +88,7 @@ export function AddonSection({
       priceDopCents: userSlotPriceDop,
       isPrepay: false,
       currentCount: plan ? (plan as any).addon_user_slots || 0 : 0,
-      disabled: !plan,
+      disabled: isAddonDisabled,
     },
   ];
 
@@ -105,6 +112,20 @@ export function AddonSection({
           Añade capacidad de facturas, consultas de IA, almacenamiento o usuarios colaboradores a tu plan.
         </p>
       </div>
+
+      {subscriptionStatus !== "active" && (
+        <div className="flex items-start gap-3.5 p-4 rounded-xl border border-amber-200/50 bg-amber-50/40 dark:border-amber-900/30 dark:bg-amber-950/10 text-amber-800 dark:text-amber-300">
+          <Lock className="size-5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-500" />
+          <div className="space-y-1">
+            <h4 className="text-sm font-semibold leading-none">
+              Complementos bloqueados
+            </h4>
+            <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-400">
+              Los complementos (bloques de e-CF, usuarios, almacenamiento o IA adicionales) solo están disponibles para organizaciones con una suscripción de pago activa. Adquiere o activa un plan base primero para poder añadir complementos.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Prepaid blocks (e-CF) */}
       <h4 className="text-sm font-medium text-brand-ink dark:text-white">Prepago</h4>
