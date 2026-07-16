@@ -152,6 +152,35 @@ class LagoWebhookHandler:
 
         # Process card payments via MIO hosted checkout
         if payment_method == "card" and total_cents > 0:
+            # Check if there is a recently succeeded MioPaymentOrder for this organization/user
+            # within the last 15 minutes that matches (to support initial checkout plan/addon activation)
+            from datetime import timedelta
+            recent_success = (
+                self.db.query(MioPaymentOrder)
+                .filter(
+                    MioPaymentOrder.organization_id == org.id if org else MioPaymentOrder.user_id == user.id,
+                    MioPaymentOrder.status == "SUCCESS",
+                    MioPaymentOrder.updated_at >= utc_now() - timedelta(minutes=15),
+                )
+                .order_by(MioPaymentOrder.updated_at.desc())
+                .first()
+            )
+            if recent_success:
+                logger.info(f"Matching recent successful MIO checkout found: order {recent_success.order_uuid}. Auto-recording payment in Lago.")
+                try:
+                    paid_at = utc_now().strftime("%Y-%m-%d")
+                    await self.lago.record_payment(
+                        invoice_id=lago_invoice_id,
+                        amount_cents=total_cents,
+                        reference=recent_success.reference_number or recent_success.payment_id or recent_success.order_uuid,
+                        paid_at=paid_at
+                    )
+                    recent_success.lago_invoice_id = lago_invoice_id
+                    self.db.commit()
+                except Exception as e:
+                    logger.error(f"Failed to record payment against deferred subscription invoice {lago_invoice_id}: {e}")
+                return
+
             webhook_url = settings.MIO_WEBHOOK_URL or "https://api.fintral.com/api/mio/webhook"
             success_url = settings.MIO_SUCCESS_REDIRECT or "https://app.fintral.com/billing/success"
             failed_url = settings.MIO_FAILED_REDIRECT or "https://app.fintral.com/billing/failed"

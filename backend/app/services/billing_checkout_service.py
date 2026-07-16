@@ -494,7 +494,7 @@ class BillingCheckoutService:
             sub_obj = OrganizationSubscription(
                 organization_id=org.id,
                 plan_id=plan.id,
-                status="active" if payment_method == "transfer" else "trialing",
+                status="active" if payment_method == "transfer" else "pending_payment",
                 payment_method=payment_method,
                 lago_customer_id=lago_customer_id,
                 lago_plan_code=plan_code,
@@ -507,17 +507,18 @@ class BillingCheckoutService:
             self.db.flush()
             subscription_id = str(sub_obj.id)
 
-            # Create subscription in Lago
-            try:
-                await self.lago.create_subscription(
-                    customer_external_id=str(org.id),
-                    plan_code=plan_code,
-                    external_id=sub_id,
-                    billing_time="anniversary",
-                )
-            except LagoAPIError as exc:
-                logger.error(f"Lago subscription creation failed: {exc.response_body}")
-                raise ValueError(f"Error al crear suscripción en Lago: {exc}")
+            # Create subscription in Lago (only if paying via bank transfer immediately; card payments are deferred)
+            if payment_method != "card":
+                try:
+                    await self.lago.create_subscription(
+                        customer_external_id=str(org.id),
+                        plan_code=plan_code,
+                        external_id=sub_id,
+                        billing_time="anniversary",
+                    )
+                except LagoAPIError as exc:
+                    logger.error(f"Lago subscription creation failed: {exc.response_body}")
+                    raise ValueError(f"Error al crear suscripción en Lago: {exc}")
 
         # 4. Handle recurring addons (entity_slot, user_slot)
         lago_subscription_ids = [subscription_id] if subscription_id else []
@@ -552,17 +553,19 @@ class BillingCheckoutService:
 
             slot_sub_id = f"sub_{str(target_org_id)[:8]}_{slot_type}_{uuid.uuid4().hex[:8]}"
 
-            try:
-                await self.lago.create_subscription(
-                    customer_external_id=str(target_org_id),
-                    plan_code=slot_plan_code,
-                    external_id=slot_sub_id,
-                    name=f"{slot_name} ({org.name})",
-                    billing_time="anniversary",
-                )
-            except LagoAPIError as exc:
-                logger.error(f"Lago slot subscription failed: {exc.response_body}")
-                raise ValueError(f"Error al crear suscripción de {slot_name}: {exc}")
+            # Create subscription in Lago ONLY if not card payment (deferred)
+            if payment_method != "card":
+                try:
+                    await self.lago.create_subscription(
+                        customer_external_id=str(target_org_id),
+                        plan_code=slot_plan_code,
+                        external_id=slot_sub_id,
+                        name=f"{slot_name} ({org.name})",
+                        billing_time="anniversary",
+                    )
+                except LagoAPIError as exc:
+                    logger.error(f"Lago slot subscription failed: {exc.response_body}")
+                    raise ValueError(f"Error al crear suscripción de {slot_name}: {exc}")
 
             lago_subscription_ids.append(slot_sub_id)
 
@@ -592,17 +595,18 @@ class BillingCheckoutService:
                     "description": f"Bloque prepagado de {units * quantity} e-CFs",
                 })
 
-            # Create one-off invoice under the target org's customer
+            # Create one-off invoice under the target org's customer ONLY if not card payment (deferred)
             customer_id = target_ecf_org_id or org_id
-            try:
-                lago_invoice = await self.lago.create_one_off_invoice(
-                    customer_external_id=customer_id,
-                    fees=fees,
-                )
-                lago_invoice_id = lago_invoice.get("invoice", {}).get("lago_id")
-            except LagoAPIError as exc:
-                logger.error(f"Lago one-off invoice failed: {exc.response_body}")
-                raise ValueError(f"Error al crear factura de e-CF: {exc}")
+            if payment_method != "card":
+                try:
+                    lago_invoice = await self.lago.create_one_off_invoice(
+                        customer_external_id=customer_id,
+                        fees=fees,
+                    )
+                    lago_invoice_id = lago_invoice.get("invoice", {}).get("lago_id")
+                except LagoAPIError as exc:
+                    logger.error(f"Lago one-off invoice failed: {exc.response_body}")
+                    raise ValueError(f"Error al crear factura de e-CF: {exc}")
 
         # 6. Handle renewal items (legacy)
         if renewal_items and subscription_id:
@@ -796,7 +800,7 @@ class BillingCheckoutService:
                     self.db.query(OrganizationSubscription)
                     .filter(
                         OrganizationSubscription.organization_id == org_id,
-                        OrganizationSubscription.status.in_(["active", "trialing"]),
+                        OrganizationSubscription.status.in_(["active", "trialing", "pending_payment"]),
                     )
                     .order_by(OrganizationSubscription.created_at.desc())
                     .first()
@@ -804,6 +808,19 @@ class BillingCheckoutService:
                 if sub:
                     sub.status = "active"
                     logger.info(f"Activated org subscription {sub.id} for org {org_id}")
+                    
+                    # Create subscription in Lago now that card payment succeeded!
+                    if sub.payment_method == "card":
+                        try:
+                            await self.lago.create_subscription(
+                                customer_external_id=str(org_id),
+                                plan_code=sub.lago_plan_code,
+                                external_id=sub.lago_subscription_id,
+                                billing_time=sub.billing_time or "anniversary",
+                            )
+                            logger.info(f"Deferred Lago subscription {sub.lago_subscription_id} created successfully.")
+                        except Exception as exc:
+                            logger.error(f"Failed to create deferred Lago subscription {sub.lago_subscription_id}: {exc}")
 
             elif itype == "ecf_blocks":
                 # Add e-CF credits to the organization
@@ -814,6 +831,41 @@ class BillingCheckoutService:
                 if org:
                     org.e_cf_balance = (org.e_cf_balance or 0) + (block_size * qty)
                     logger.info(f"📄 Credited {block_size * qty} e-CF to org {target_org_id}")
+                    
+                # Create deferred one-off invoice and record payment in Lago
+                active_sub = (
+                    self.db.query(OrganizationSubscription)
+                    .filter(
+                        OrganizationSubscription.organization_id == org_id,
+                        OrganizationSubscription.status.in_(["active", "trialing"]),
+                    )
+                    .order_by(OrganizationSubscription.created_at.desc())
+                    .first()
+                )
+                if active_sub and active_sub.payment_method == "card":
+                    try:
+                        block_type = item.get("block_type") or "ecf_block_100"
+                        
+                        lago_invoice = await self.lago.create_one_off_invoice(
+                            customer_external_id=str(target_org_id),
+                            fees=[{
+                                "add_on_code": block_type,
+                                "units": qty,
+                            }],
+                        )
+                        lago_invoice_id = lago_invoice.get("invoice", {}).get("lago_id")
+                        
+                        # Record payment immediately
+                        paid_at = utc_now().strftime("%Y-%m-%d")
+                        await self.lago.record_payment(
+                            invoice_id=lago_invoice_id,
+                            amount_cents=price_cents * qty,
+                            reference=f"mio_ecf_{uuid.uuid4().hex[:8]}",
+                            paid_at=paid_at
+                        )
+                        logger.info(f"Created deferred one-off invoice {lago_invoice_id} and recorded payment in Lago.")
+                    except Exception as exc:
+                        logger.error(f"Failed to create deferred Lago one-off invoice for ecf blocks: {exc}")
 
             elif itype == "entity_slot":
                 qty = item.get("quantity", 1)
@@ -831,6 +883,30 @@ class BillingCheckoutService:
                 qty = item.get("quantity", 1)
                 plan_svc.purchase_addon(org_id, "user_slot", qty)
                 logger.info(f"Provisioned {qty} user slots for org {org_id}")
+                
+                # Create deferred user slot subscriptions in Lago for card payments
+                active_sub = (
+                    self.db.query(OrganizationSubscription)
+                    .filter(
+                        OrganizationSubscription.organization_id == org_id,
+                        OrganizationSubscription.status.in_(["active", "trialing"]),
+                    )
+                    .order_by(OrganizationSubscription.created_at.desc())
+                    .first()
+                )
+                if active_sub and active_sub.payment_method == "card":
+                    try:
+                        for _ in range(qty):
+                            slot_sub_id = f"sub_{str(org_id)[:8]}_user_slot_{uuid.uuid4().hex[:8]}"
+                            await self.lago.create_subscription(
+                                customer_external_id=str(org_id),
+                                plan_code="user_slot",
+                                external_id=slot_sub_id,
+                                billing_time="anniversary",
+                            )
+                        logger.info(f"Created {qty} deferred user_slot subscription(s) in Lago for org {org_id}")
+                    except Exception as exc:
+                        logger.error(f"Failed to create deferred user_slot subscription in Lago: {exc}")
 
             elif itype == "ai":
                 qty = item.get("quantity", 1)
