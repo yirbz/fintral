@@ -13,8 +13,6 @@ from app.models import Organization, Tenant, User, UserOrganization
 
 logger = logging.getLogger(__name__)
 
-_supabase_admin: Client | None = None
-
 VERIFY_TOKEN_EXPIRE_HOURS = 48
 
 
@@ -23,11 +21,9 @@ def get_supabase_admin() -> Client | None:
         logger.warning("Supabase admin client not available — SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing")
         return None
 
-    global _supabase_admin
-    if _supabase_admin is None:
-        logger.info("Creating Supabase admin client: %s", SUPABASE_URL)
-        _supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-    return _supabase_admin
+    # We instantiate a fresh client every time to prevent session/token pollution
+    # (e.g. from user sign-in events mutating the client's internal headers).
+    return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 
 def sign_in(email: str, password: str) -> dict | None:
