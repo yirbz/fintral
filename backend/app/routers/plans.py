@@ -519,14 +519,14 @@ async def calculate_cart(
         .first()
     )
 
-    # Validate that addons require an active subscription if no plan change is present
+    # Validate that addons (except ecf_blocks) require an active subscription if no plan change is present
     has_plan_change = any(item.type == "plan_change" for item in payload.items)
-    has_addons = any(item.type in ("ecf_blocks", "entity_slot", "user_slot", "ai", "storage", "ocr") for item in payload.items)
-    if has_addons and not has_plan_change:
+    has_postpay_addons = any(item.type in ("entity_slot", "user_slot", "ai", "storage", "ocr") for item in payload.items)
+    if has_postpay_addons and not has_plan_change:
         if not current_sub or current_sub.status != "active":
             raise HTTPException(
                 status_code=400,
-                detail="Los complementos solo pueden adquirirse con una suscripción activa de pago."
+                detail="Los complementos de capacidad y recursos solo pueden adquirirse con una suscripción activa de pago."
             )
 
     def get_proration(unit_price_cents: int) -> tuple[int, int, int]:
