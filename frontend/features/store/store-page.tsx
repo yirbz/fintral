@@ -214,6 +214,7 @@ export function StorePage() {
         cartItems={items}
         onAddPrepayToCart={handleAddAddonToCart}
         onAddPostpayToCart={handleAddPostpayToCart}
+        subscriptionStatus={mySubData?.subscription?.status}
       />
 
       <Separator className="bg-brand-hairline dark:bg-slate-800" />
