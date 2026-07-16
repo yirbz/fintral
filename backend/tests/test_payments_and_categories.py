@@ -302,18 +302,25 @@ def test_manual_invoice_creation_with_bank_account(test_tenant, test_org, test_u
         assert res_data["payment_condition"] == "contado"
         assert res_data["payment_status"] == "paid"
 
-        # Verify in DB
+        # Verify in DB and verify bank balance decreased by 500
+        db_session.refresh(bank)
+        assert float(bank.balance) == 500.0
+
         db_inv = db_session.query(Invoice).filter(Invoice.invoice_number == "B0100007777").first()
         assert db_inv is not None
         assert db_inv.bank_account_id == bank.id
 
-        # Update bank_account_id via PUT /invoices/{id}
+        # Update bank_account_id via PUT /invoices/{id} to None
         resp_put = client.put(f"/invoices/{db_inv.id}", json={"bank_account_id": None})
         assert resp_put.status_code == 200
         assert resp_put.json()["bank_account_id"] is None
 
         db_session.refresh(db_inv)
         assert db_inv.bank_account_id is None
+
+        # Verify bank balance is restored to 1000.0
+        db_session.refresh(bank)
+        assert float(bank.balance) == 1000.0
 
         # Clean up
         db_session.delete(db_inv)

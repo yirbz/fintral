@@ -165,6 +165,23 @@ def _invoice_snapshot(invoice: Invoice) -> dict[str, Any]:
         "is_electronic": invoice.is_electronic,
         "ecf_type": invoice.ecf_type,
         "original_xml_data": invoice.original_xml_data,
+        "rnc_comprador": invoice.rnc_comprador,
+        "ingestion_source": invoice.ingestion_source,
+        "status": invoice.status,
+        "parent_invoice_id": str(invoice.parent_invoice_id) if invoice.parent_invoice_id else None,
+        "modified_ncf": invoice.modified_ncf,
+        "modification_reason": invoice.modification_reason,
+        "accounting_account_id": invoice.accounting_account_id,
+        "cost_center_id": invoice.cost_center_id,
+        "tags": invoice.tags,
+        "internal_notes": invoice.internal_notes,
+        "payment_status": invoice.payment_status,
+        "payment_condition": invoice.payment_condition,
+        "due_date": invoice.due_date.isoformat() if invoice.due_date else None,
+        "payment_date": invoice.payment_date.isoformat() if invoice.payment_date else None,
+        "bank_account_id": str(invoice.bank_account_id) if invoice.bank_account_id else None,
+        "raw_extracted_data": invoice.raw_extracted_data,
+        "audit_flags": invoice.audit_flags,
     }
 
 
@@ -1203,6 +1220,47 @@ async def create_manual_invoice(
     # Run validation and save audit_flags
     warnings = revalidate_invoice(invoice, ctx.db, org_rnc=ctx.organization.tax_id)
     invoice.audit_flags = json.dumps(warnings, ensure_ascii=False)
+
+    # ACID: mutate bank balance if manual invoice is paid on creation
+    if payment_status == "paid" and payload.bank_account_id:
+        from app.models import BankAccount
+        from decimal import Decimal
+        
+        bank_acct = (
+            ctx.db.query(BankAccount)
+            .filter(
+                BankAccount.id == payload.bank_account_id,
+                BankAccount.organization_id == ctx.org_id,
+            )
+            .first()
+        )
+        if not bank_acct:
+            raise HTTPException(
+                status_code=422,
+                detail=f"La cuenta bancaria {payload.bank_account_id} no pertenece a esta organización o no existe.",
+            )
+            
+        new_amount = invoice.total_amount or 0.0
+        new_net = new_amount
+        new_raw_data = None
+        if invoice.raw_extracted_data:
+            try:
+                new_raw_data = json.loads(invoice.raw_extracted_data)
+            except Exception:
+                pass
+        if new_raw_data:
+            itbis_ret = new_raw_data.get("total_itbis_retenido") or 0
+            isr_ret = new_raw_data.get("total_isr_retencion") or 0
+            itbis_perc = new_raw_data.get("total_itbis_percepcion") or 0
+            isr_perc = new_raw_data.get("total_isr_percepcion") or 0
+            new_net = new_net - float(itbis_ret) - float(isr_ret) + float(itbis_perc) + float(isr_perc)
+            
+        current_balance = bank_acct.balance if bank_acct.balance is not None else Decimal("0.00")
+        if invoice.transaction_type == "income":
+            bank_acct.balance = current_balance + Decimal(str(new_net))
+        else:
+            bank_acct.balance = current_balance - Decimal(str(new_amount))
+        ctx.db.add(bank_acct)
 
     invoice_repo.create(ctx.db, invoice)
 
