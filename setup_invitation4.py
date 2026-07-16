@@ -4,13 +4,12 @@ sys.path.insert(0, '/home/yvniel/fintral/backend')
 import os
 with open('/tmp/db_pw.txt') as f:
     pw = f.read().strip()
-os.environ['DATABASE_URL'] = f"postgresql://invoice:***@localhost:5440/invoice"
+os.environ['DATABASE_URL'] = "postgresql://invoice:***@localhost:5440/invoice"
 
-from app.database import get_db, get_engine
+from app.database import get_db
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.invitation import Invitation
-from app.core.auth import get_password_hash
 from sqlalchemy import select
 import secrets
 
@@ -61,7 +60,7 @@ try:
     db.commit()
     db.refresh(invitation)
     
-    print(f"\n✅ Invitación creada:")
+    print("\n✅ Invitación creada:")
     print(f"   Token: {token}")
     print(f"   Email invitado: {invitation.email}")
     print(f"   Organización: {org.name} ({org.id})")

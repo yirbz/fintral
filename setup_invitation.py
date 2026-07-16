@@ -7,7 +7,6 @@ from app.database import get_db
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.invitation import Invitation
-from app.core.security import get_password_hash
 from sqlalchemy import select
 import secrets
 
@@ -48,7 +47,7 @@ async def setup_test():
         await db.commit()
         await db.refresh(invitation)
         
-        print(f"\n✅ Invitación creada:")
+        print("\n✅ Invitación creada:")
         print(f"   Token: {token}")
         print(f"   Email invitado: {invitation.email}")
         print(f"   Organización: {org.name} ({org.id})")
