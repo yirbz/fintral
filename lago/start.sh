@@ -32,6 +32,16 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
+# Ensure the 'lago' database and user exist for embedded ClickHouse
+echo "Initializing ClickHouse database and user..."
+clickhouse-client --host 127.0.0.1 --query "CREATE DATABASE IF NOT EXISTS lago" 2>/dev/null || true
+if [ -n "$LAGO_CLICKHOUSE_PASSWORD" ]; then
+  clickhouse-client --host 127.0.0.1 --query \
+    "CREATE USER IF NOT EXISTS lago IDENTIFIED BY '${LAGO_CLICKHOUSE_PASSWORD}'" 2>/dev/null || true
+  clickhouse-client --host 127.0.0.1 --query \
+    "GRANT ALL ON lago.* TO lago" 2>/dev/null || true
+fi
+
 echo "Running database setup..."
 cd /app
 # Run all pending migrations (PostgreSQL + ClickHouse)

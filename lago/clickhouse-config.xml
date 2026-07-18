@@ -4,12 +4,16 @@
         <level>warning</level>
         <log>/var/log/clickhouse-server/clickhouse-server.log</log>
         <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
-        <size>100M</size>
-        <count>3</count>
+        <size>50M</size>
+        <count>2</count>
     </logger>
     <path>/var/lib/clickhouse/</path>
     <tmp_path>/var/lib/clickhouse/tmp/</tmp_path>
     <user_files_path>/var/lib/clickhouse/user_files/</user_files_path>
     <access_control_path>/var/lib/clickhouse/access/</access_control_path>
-    <max_server_memory_usage_to_ram_ratio>0.3</max_server_memory_usage_to_ram_ratio>
+
+    <!-- Hard cap at 256 MB instead of 30% of container RAM -->
+    <max_server_memory_usage>268435456</max_server_memory_usage>
+    <!-- Limit concurrent queries to reduce memory spikes -->
+    <max_concurrent_queries>10</max_concurrent_queries>
 </clickhouse>
