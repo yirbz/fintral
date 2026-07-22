@@ -108,6 +108,12 @@ export default defineRailway(() => {
       LAGO_CLICKHOUSE_PASSWORD: "",
       LAGO_CLICKHOUSE_SSL: "false",
       LAGO_CLICKHOUSE_MIGRATIONS_ENABLED: "true",
+      // Disable Lago's Segment telemetry (prevents outbound traffic that blocks sleep)
+      LAGO_DISABLE_SEGMENT: "true",
+      // Reduce glibc memory fragmentation in Ruby (saves 30-50% RSS)
+      MALLOC_ARENA_MAX: "2",
+      // Single-threaded Puma for low-traffic billing API
+      RAILS_MAX_THREADS: "1",
     },
   });
 

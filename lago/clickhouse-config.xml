@@ -12,8 +12,8 @@
     <user_files_path>/var/lib/clickhouse/user_files/</user_files_path>
     <access_control_path>/var/lib/clickhouse/access/</access_control_path>
 
-    <!-- Hard cap at 256 MB instead of 30% of container RAM -->
-    <max_server_memory_usage>268435456</max_server_memory_usage>
+    <!-- Hard cap at 128 MB — sufficient for subscription-only billing -->
+    <max_server_memory_usage>134217728</max_server_memory_usage>
     <!-- Limit concurrent queries to reduce memory spikes -->
-    <max_concurrent_queries>10</max_concurrent_queries>
+    <max_concurrent_queries>5</max_concurrent_queries>
 </clickhouse>
