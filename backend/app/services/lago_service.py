@@ -46,7 +46,10 @@ class LagoService:
         """Make an asynchronous request to the Lago API."""
         url = f"{self.base_url}/{path.lstrip('/')}"
         
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        # Timeout accommodates Railway Serverless cold starts (~30-60s)
+        timeout = httpx.Timeout(90.0, connect=60.0)
+        transport = httpx.AsyncHTTPTransport(retries=2)
+        async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
             try:
                 response = await client.request(
                     method=method,
